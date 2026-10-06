@@ -38,8 +38,10 @@ struct Config {
     double budgetMs = 1.0;
     bool forceRelease = false;
     bool cubePulsePlanning = false;
-    std::array<int, 16> jumpEvents{};
+    std::array<int, 32> jumpEvents{};
     int jumpEventCount = 0;
+    std::array<int, 16> orbEvents{};
+    int orbEventCount = 0;
 };
 struct Decision {
     bool down = false, hasValidatedInput = false, exhausted = false;
@@ -114,11 +116,35 @@ class Controller {
         };
         if (cfg.cubePulsePlanning) {
             pulseAt(0);
-            for (int i = 0; i < std::clamp(cfg.jumpEventCount, 0, int(cfg.jumpEvents.size())); ++i)
+            const int jumpCount = std::clamp(cfg.jumpEventCount, 0, int(cfg.jumpEvents.size()));
+            const int orbCount = std::clamp(cfg.orbEventCount, 0, int(cfg.orbEvents.size()));
+            for (int i = 0; i < jumpCount; ++i)
                 pulseAt(cfg.jumpEvents[i]);
-            // Spread the first candidates over the horizon; spending the whole
-            // budget on 1/2/3-tick variations misses a takeoff near a ledge.
-            for (int t : {24, 48, 72, 96, 12, 36, 60, 84, 120, 6, 18, 1, 2, 3, 4, 8})
+            for (int i = 0; i < orbCount; ++i)
+                pulseAt(cfg.orbEvents[i]);
+            // Orbs need two independent cube pulses: one to leave the ground and
+            // a later one while touching the ring. Native rollouts still decide
+            // whether the pair is actually survivable.
+            int paired = 0;
+            for (int i = 0; i < jumpCount && paired < 16; ++i) {
+                for (int j = 0; j < orbCount && paired < 16; ++j) {
+                    const int takeoff = cfg.jumpEvents[i];
+                    const int orb = cfg.orbEvents[j];
+                    if (takeoff < 0 || orb < 0 || takeoff >= orb - 3 || orb >= cfg.horizon)
+                        continue;
+                    Plan p;
+                    p.buttons[takeoff] = true;
+                    p.buttons[orb] = true;
+                    const auto before = plans.size();
+                    add(p);
+                    paired += plans.size() != before;
+                }
+            }
+            // Spread fallback candidates over the horizon. Geometry-derived
+            // takeoff/orb events are inserted first, so route-aware plans are
+            // checked before generic timing guesses.
+            for (int t : {24, 48, 72, 96, 12, 36, 60, 84, 120, 144, 168, 192, 216,
+                          6, 18, 1, 2, 3, 4, 8})
                 pulseAt(t);
         } else {
             Plan flipped = warm;
@@ -154,6 +180,7 @@ class Controller {
         cfg.horizon = std::clamp(cfg.horizon, 24, MaxHorizon);
         cfg.candidates = std::clamp(cfg.candidates, 4, MaxCandidates);
         cfg.jumpEventCount = std::clamp(cfg.jumpEventCount, 0, int(cfg.jumpEvents.size()));
+        cfg.orbEventCount = std::clamp(cfg.orbEventCount, 0, int(cfg.orbEvents.size()));
         const auto start = Clock::now();
         const auto deadline =
             start +
@@ -207,7 +234,9 @@ class Controller {
         std::vector<int> order(plans.size());
         for (size_t i = 0; i < order.size(); ++i)
             order[i] = int(i);
-        size_t protectedCount = std::min(plans.size(), size_t(4 + std::max(0, cfg.jumpEventCount)));
+        size_t protectedCount = std::min(
+            plans.size(), size_t(8 + std::max(0, cfg.jumpEventCount) +
+                                 std::max(0, cfg.orbEventCount) + 16));
         if (priority.size() == plans.size() && plans.size() > protectedCount)
             std::stable_sort(order.begin() + protectedCount, order.end(),
                              [&](int a, int b) { return priority[a] > priority[b]; });

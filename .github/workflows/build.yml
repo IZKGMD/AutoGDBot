@@ -1,96 +1,43 @@
-name: Validate AutoGDBot Realtime
+name: Build AutoGDBot Realtime
 
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
-      - realtime/**
+    branches: [main, "dev/**"]
   pull_request:
-    branches:
-      - main
+    branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  materialize-source:
-    if: github.ref == 'refs/heads/realtime/source-v0.2.1'
+  tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Materialize exact uploaded source into repository root
-        shell: bash
-        run: |
-          if [ -f canonical/MATERIALIZED ]; then
-            echo "Canonical source already materialized"
-            exit 0
-          fi
-          RESTORE_DIR="$RUNNER_TEMP/autogdbot-restore"
-          rm -rf "$RESTORE_DIR"
-          python canonical/restore.py --output "$RESTORE_DIR"
-          python canonical/verify_core.py "$RESTORE_DIR/AutoGDBot-Realtime"
-          rsync -a --delete \
-            --exclude='.git/' \
-            --exclude='.github/' \
-            --exclude='canonical/' \
-            --exclude='ports/' \
-            "$RESTORE_DIR/AutoGDBot-Realtime/" ./
-          printf '%s\n' 'AutoGDBot-Realtime-source.zip' > canonical/MATERIALIZED
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if git diff --cached --quiet; then
-            echo "No materialization changes"
-            exit 0
-          fi
-          git commit -m "source: materialize canonical AutoGDBot Realtime v0.2.1"
-          git push origin HEAD:realtime/source-v0.2.1
-
-  canonical-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Restore exact uploaded source
-        run: python canonical/restore.py --output restored
-
-      - name: Verify solver core hashes
-        run: python canonical/verify_core.py restored/AutoGDBot-Realtime
-
-      - name: Configure standalone controller tests
-        run: cmake -S restored/AutoGDBot-Realtime -B restored/AutoGDBot-Realtime/build-tests -DAUTOGDBOT_BUILD_MOD=OFF -DAUTOGDBOT_BUILD_TESTS=ON
-
-      - name: Build standalone controller tests
-        run: cmake --build restored/AutoGDBot-Realtime/build-tests --config Release --parallel
-
-      - name: Run standalone controller tests
-        run: ctest --test-dir restored/AutoGDBot-Realtime/build-tests -C Release --output-on-failure
+      - name: Apply route-lookahead v0.3 source patch
+        run: python tools/apply_route_v03.py .
+      - name: Configure controller tests
+        run: cmake -S . -B build-tests -DAUTOGDBOT_BUILD_MOD=OFF -DAUTOGDBOT_BUILD_TESTS=ON
+      - name: Build controller tests
+        run: cmake --build build-tests --config Release --parallel
+      - name: Run controller tests
+        run: ctest --test-dir build-tests -C Release --output-on-failure
 
   build-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Restore exact uploaded source
-        run: python canonical/restore.py --output restored
-
-      - name: Verify canonical ZIP and solver core
-        run: python canonical/verify_core.py restored/AutoGDBot-Realtime
-
-      - name: Build exact Windows x64 source
+      - name: Apply route-lookahead v0.3 source patch
+        run: python tools/apply_route_v03.py .
+      - name: Build Windows x64 Geode mod
         id: build
         uses: geode-sdk/build-geode-mod@main
         with:
-          path: restored/AutoGDBot-Realtime
           sdk: given
           target: Win64
           build-config: Release
           bindings-ref: f050fd74ad531b0827377c97510cb807903ff1b3
-
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
@@ -101,28 +48,42 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Restore exact uploaded source
-        run: python canonical/restore.py --output restored
-
-      - name: Apply isolated Android64 platform layer
-        run: python ports/apply_android.py restored/AutoGDBot-Realtime
-
-      - name: Prove solver core stayed byte-for-byte unchanged
-        run: python canonical/verify_core.py restored/AutoGDBot-Realtime
-
-      - name: Build Android arm64-v8a Geode mod
+      - name: Apply route-lookahead v0.3 source patch
+        run: python tools/apply_route_v03.py .
+      - name: Build Android64 Geode mod
         id: build
         uses: geode-sdk/build-geode-mod@main
         with:
-          path: restored/AutoGDBot-Realtime
           sdk: given
           target: Android64
           build-config: Release
           bindings-ref: f050fd74ad531b0827377c97510cb807903ff1b3
-
       - name: Upload Android64 artifact
         uses: actions/upload-artifact@v4
         with:
           name: AutoGDBot-Realtime-Android64
           path: ${{ steps.build.outputs.build-output }}
+
+  materialize-route-source:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/dev/')
+    needs: [tests, build-windows, build-android64]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Materialize validated route-lookahead source
+        shell: bash
+        run: |
+          python tools/apply_route_v03.py .
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main.cpp tests/controller_tests.cpp
+          if git diff --cached --quiet; then
+            echo "Route-lookahead source already materialized"
+            exit 0
+          fi
+          git commit -m "source: materialize route lookahead v0.3.0"
+          git push origin HEAD:${GITHUB_REF_NAME}
