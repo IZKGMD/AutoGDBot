@@ -14,42 +14,50 @@ permissions:
   contents: read
 
 jobs:
-  canonical-tests:
+  source-integrity-and-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore exact uploaded source
+      - name: Verify materialized solver core
+        run: python canonical/verify_core.py .
+
+      - name: Restore immutable upstream snapshot
         run: python canonical/restore.py --output restored
 
-      - name: Verify solver core hashes
+      - name: Verify upstream snapshot
         run: python canonical/verify_core.py restored/AutoGDBot-Realtime
 
-      - name: Configure standalone controller tests
-        run: cmake -S restored/AutoGDBot-Realtime -B restored/AutoGDBot-Realtime/build-tests -DAUTOGDBOT_BUILD_MOD=OFF -DAUTOGDBOT_BUILD_TESTS=ON
+      - name: Compare materialized core with upstream snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          P=restored/AutoGDBot-Realtime
+          for f in src/main.cpp src/controller.hpp src/gpu_ranker.cpp src/hazard_guard.hpp src/input_motion.hpp src/planning_hints.hpp src/player_scalars.inc; do
+            cmp "$f" "$P/$f"
+          done
+
+      - name: Configure standalone controller tests from repo root
+        run: cmake -S . -B build-tests -DAUTOGDBOT_BUILD_MOD=OFF -DAUTOGDBOT_BUILD_TESTS=ON
 
       - name: Build standalone controller tests
-        run: cmake --build restored/AutoGDBot-Realtime/build-tests --config Release --parallel
+        run: cmake --build build-tests --config Release --parallel
 
       - name: Run standalone controller tests
-        run: ctest --test-dir restored/AutoGDBot-Realtime/build-tests -C Release --output-on-failure
+        run: ctest --test-dir build-tests -C Release --output-on-failure
 
   build-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore exact uploaded source
-        run: python canonical/restore.py --output restored
+      - name: Verify solver core
+        run: python canonical/verify_core.py .
 
-      - name: Verify canonical ZIP and solver core
-        run: python canonical/verify_core.py restored/AutoGDBot-Realtime
-
-      - name: Build exact Windows x64 source
+      - name: Build Windows x64 from repo root
         id: build
         uses: geode-sdk/build-geode-mod@main
         with:
-          path: restored/AutoGDBot-Realtime
           sdk: given
           target: Win64
           build-config: Release
@@ -66,20 +74,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore exact uploaded source
-        run: python canonical/restore.py --output restored
+      - name: Verify solver core
+        run: python canonical/verify_core.py .
 
-      - name: Apply isolated Android64 platform layer
-        run: python ports/apply_android.py restored/AutoGDBot-Realtime
-
-      - name: Prove solver core stayed byte-for-byte unchanged
-        run: python canonical/verify_core.py restored/AutoGDBot-Realtime
-
-      - name: Build Android arm64-v8a Geode mod
+      - name: Build Android arm64-v8a from repo root
         id: build
         uses: geode-sdk/build-geode-mod@main
         with:
-          path: restored/AutoGDBot-Realtime
           sdk: given
           target: Android64
           build-config: Release
