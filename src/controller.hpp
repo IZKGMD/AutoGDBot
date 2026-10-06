@@ -203,10 +203,20 @@ class Controller {
                 }
             }
             bool complete = !e.died && !e.interrupted && (e.boundary || e.survived >= cfg.horizon);
-            float score =
-                e.survived * 10000.f + std::clamp(e.clearance, 0.f, 100.f) * .01f - changes * 2.f;
+            const int continuityTicks = std::min({e.survived, warm_.length, 64});
+            int continuity = 0;
+            for (int k = 0; k < continuityTicks; ++k)
+                continuity += plan.at(k) == warm_.at(k);
+            const bool exactWarm = continuityTicks > 0 && continuity == continuityTicks;
+            float score = e.survived * 10000.f +
+                          std::clamp(e.clearance, 0.f, 100.f) * 18.f - changes * 12.f +
+                          continuity * 10.f;
+            if (exactWarm)
+                score += 5000.f;
             if (complete)
                 score += 3000000.f;
+            if (complete && e.landingVerified)
+                score += 60000.f;
             if (plan.at(0) == held || (cfg.forceRelease && !plan.at(0)))
                 score += 100.f;
             if (score > bestScore) {
@@ -218,9 +228,18 @@ class Controller {
                 result.plan = plan;
                 result.selected = std::move(e);
             }
-            // A fully checked continuation preserving the current action is
-            // sufficient for this tick. Stop duplicating safe work on flat ground.
-            return complete && result.plan.at(0) == plan.at(0) &&
+            // Once a route has been validated, do not stop on a different
+            // merely-safe timing. Re-test the warm route and keep it unless a
+            // materially better continuation wins. This removes frame-to-frame
+            // takeoff jitter near double/triple spikes.
+            bool warmCompatible = warm_.length <= 0;
+            if (!warmCompatible) {
+                const int n = std::min({24, warm_.length, plan.length});
+                warmCompatible = n > 0;
+                for (int k = 0; k < n && warmCompatible; ++k)
+                    warmCompatible = plan.at(k) == warm_.at(k);
+            }
+            return complete && warmCompatible && result.plan.at(0) == plan.at(0) &&
                    (plan.at(0) == held || (cfg.forceRelease && !plan.at(0)));
         };
         for (int i = 0; i < 2 && i < int(plans.size()) && Clock::now() < deadline; ++i) {

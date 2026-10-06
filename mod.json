@@ -6,7 +6,7 @@
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v0.3.0",
+  "version": "v0.3.1",
   "developers": [
     "AutoGDBot"
   ],
@@ -54,7 +54,7 @@
     "trace-hz": {
       "type": "int",
       "name": "Trace redraw rate",
-      "default": 30,
+      "default": 20,
       "min": 5,
       "max": 60
     },

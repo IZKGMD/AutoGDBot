@@ -23,14 +23,30 @@ inline bool shouldReflexJump(Bounds player, float dx, std::span<Bounds const> ha
     const float playerHeight = std::max(1.f, player.maxY - player.minY);
     const float maxHazardHeight = std::max(38.f, playerHeight * 1.35f);
     const float maxGap = std::clamp(std::abs(dx) * 52.f, 48.f, 84.f);
+    std::vector<Bounds> low;
     for (auto b : hazards) {
         const float hazardHeight = b.maxY - b.minY;
         if (hazardHeight > maxHazardHeight)
             continue; // large saw / tall obstacle: let the rollout time it
         if (b.maxY < player.minY + 1.f || b.minY > player.maxY + 14.f)
             continue;
-        float gap = dx > 0 ? b.minX - player.maxX : player.minX - b.maxX;
-        if (gap >= -std::abs(dx) * 2.f && gap <= maxGap)
+        low.push_back(b);
+    }
+    std::sort(low.begin(), low.end(), [](Bounds a, Bounds b) { return a.minX < b.minX; });
+    for (size_t i = 0; i < low.size(); ++i) {
+        size_t count = 1;
+        float clusterEnd = low[i].maxX;
+        for (size_t j = i + 1; j < low.size(); ++j) {
+            if (low[j].minX - clusterEnd > 38.f)
+                break;
+            clusterEnd = std::max(clusterEnd, low[j].maxX);
+            ++count;
+        }
+        float gap = dx > 0 ? low[i].minX - player.maxX : player.minX - low[i].maxX;
+        const float window = count >= 2
+                                 ? std::clamp(std::abs(dx) * 92.f, 86.f, 132.f)
+                                 : maxGap;
+        if (gap >= -std::abs(dx) * 2.f && gap <= window)
             return true;
     }
     return false;
@@ -160,6 +176,38 @@ inline GapHint seedCubeEvents(Config &cfg, float x, float footY, float dx,
         // intentionally earlier than the low-hazard reflex timings.
         for (int lead : {12, 20, 28, 36, 48, 64, 80})
             addJumpEvent(cfg, std::max(0, gap.edgeTick - lead));
+    }
+
+    struct FloorHazard { float nearDist, farDist; };
+    std::vector<FloorHazard> floorHazards;
+    const float direction = dx > 0 ? 1.f : -1.f;
+    const float speed = std::abs(dx);
+    for (auto b : hazards) {
+        const float h = b.maxY - b.minY;
+        if (h > 46.f || b.maxY < footY || b.minY > footY + 42.f)
+            continue;
+        float nearFace = dx > 0 ? b.minX : b.maxX;
+        float farFace = dx > 0 ? b.maxX : b.minX;
+        float nearDist = (nearFace - x) * direction;
+        float farDist = (farFace - x) * direction;
+        if (farDist > 0)
+            floorHazards.push_back({nearDist, farDist});
+    }
+    std::sort(floorHazards.begin(), floorHazards.end(),
+              [](auto a, auto b) { return a.nearDist < b.nearDist; });
+    for (size_t i = 0; i < floorHazards.size();) {
+        size_t j = i + 1;
+        float end = floorHazards[i].farDist;
+        while (j < floorHazards.size() && floorHazards[j].nearDist - end <= 38.f) {
+            end = std::max(end, floorHazards[j].farDist);
+            ++j;
+        }
+        if (j - i >= 2 && floorHazards[i].nearDist > 0) {
+            int firstTick = int(std::floor(floorHazards[i].nearDist / speed));
+            for (int lead : {40, 48, 56, 64, 72, 80, 88, 96})
+                addJumpEvent(cfg, firstTick - lead);
+        }
+        i = j;
     }
 
     float nearestHazard = float(cfg.horizon + 100);

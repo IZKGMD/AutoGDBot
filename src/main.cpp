@@ -275,6 +275,8 @@ class Runtime {
     std::vector<std::pair<float, GameObject *>> hintOrbs;
     GapHint routeGap;
     int routeJumpEvents = 0, routeOrbEvents = 0;
+    std::vector<Point> stableTrace;
+    uint64_t stableTraceTick = 0;
     uint64_t ticks = 0;
     bool botHeld = false, wasEnabled = false, gpuTried = false, controlling = false;
     int lastMode = -1;
@@ -366,6 +368,8 @@ class Runtime {
         routeGap = {};
         routeJumpEvents = 0;
         routeOrbEvents = 0;
+        stableTrace.clear();
+        stableTraceTick = 0;
         hazardGuard.set({});
         lastMode = -1;
         decision = {};
@@ -833,7 +837,7 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.3.0 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
+                "AutoGDBot 0.3.1 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
@@ -860,8 +864,18 @@ class Runtime {
         draw->clear();
         if (!settings.enabled)
             return;
+        if (layer->m_player1 && !stableTrace.empty()) {
+            auto p = layer->m_player1->getPosition();
+            if (std::hypot(stableTrace.front().x - p.x, stableTrace.front().y - p.y) > 70.f)
+                stableTrace.clear();
+        }
+        if (decision.hasValidatedInput && decision.selected.traces[0].size() >= 6 &&
+            (stableTrace.empty() || ticks >= stableTraceTick + 16)) {
+            stableTrace = decision.selected.traces[0];
+            stableTraceTick = ticks;
+        }
         auto trace = [&](std::vector<Point> const &points, ccColor4F color, float width) {
-            for (size_t i = 2; i < points.size(); i += 2)
+            for (size_t i = 3; i < points.size(); i += 3)
                 draw->drawSegment({points[i - 2].x, points[i - 2].y}, {points[i].x, points[i].y},
                                   width, color);
             if (!points.empty()) {
@@ -878,9 +892,7 @@ class Runtime {
                            : decision.selected.boundary ? ccColor4F{.3f, .8f, 1, .9f}
                            : complete                   ? ccColor4F{.2f, 1, .45f, .9f}
                                                         : ccColor4F{1, .65f, .1f, .9f};
-        trace(decision.selected.traces[0], chosen, .7f);
-        trace(decision.selected.traces[1],
-              decision.selected.died ? chosen : ccColor4F{1, .7f, .2f, .9f}, .7f);
+        trace(stableTrace, chosen, .85f);
         if (layer->m_player1) {
             float x = layer->m_player1->getPositionX();
             int shown = 0;
@@ -924,17 +936,9 @@ class Runtime {
                 draw->drawSegment({routeGap.landingX, y - 80}, {routeGap.landingX, y + 120}, .5f,
                                   {.4f, 1.f, .55f, .55f});
             }
-            auto const &tracePoints = decision.selected.traces[0];
-            for (int t = 0; t < decision.plan.length && size_t(t + 1) < tracePoints.size(); ++t) {
-                if (!decision.plan.at(t))
-                    continue;
-                auto q = tracePoints[t + 1];
-                std::array<CCPoint, 4> v = {
-                    CCPoint{q.x - 4, q.y}, CCPoint{q.x, q.y + 4},
-                    CCPoint{q.x + 4, q.y}, CCPoint{q.x, q.y - 4}};
-                draw->drawPolygon(v.data(), 4, {.2f, 1.f, 1.f, .16f}, .7f,
-                                  {.2f, 1.f, 1.f, .95f});
-            }
+            // The selected route line is the only moving forecast overlay.
+            // Input timing remains visible in the HUD instead of flickering as
+            // a cloud of per-tick diamonds.
         }
 
         for (auto *p : {layer->m_player1, layer->m_player2}) {

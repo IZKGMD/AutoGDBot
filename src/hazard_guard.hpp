@@ -25,6 +25,16 @@ class HazardGuard {
             if (!std::isfinite(b.minX) || !std::isfinite(b.minY) || !std::isfinite(b.maxX) ||
                 !std::isfinite(b.maxY) || b.maxX <= b.minX || b.maxY <= b.minY)
                 continue;
+            const float w = b.maxX - b.minX;
+            const float h = b.maxY - b.minY;
+            const float insetX = std::min(2.0f, w * .08f);
+            const float insetY = std::min(2.0f, h * .08f);
+            b.minX += insetX;
+            b.maxX -= insetX;
+            b.minY += insetY;
+            b.maxY -= insetY;
+            if (b.maxX <= b.minX || b.maxY <= b.minY)
+                continue;
             maxWidth_ = std::max(maxWidth_, b.maxX - b.minX);
             hazards_.push_back(b);
         }

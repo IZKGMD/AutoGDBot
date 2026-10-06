@@ -42,6 +42,9 @@ int main() {
     std::array<Bounds, 1> saw{{{64, -4, 112, 50}}};
     require(!shouldReflexJump({0, 0, 30, 30}, 1.3f, saw),
             "large saws must be timed by native rollout instead of the early spike reflex");
+    std::array<Bounds, 2> doubleSpike{{{112, 0, 132, 30}, {136, 0, 156, 30}}};
+    require(shouldReflexJump({0, 0, 30, 30}, 1.3f, doubleSpike),
+            "adjacent floor spikes must open an earlier committed takeoff window");
     CubePulse pulse;
     CubePulse forecast = pulse;
     bool liveHeld = false;
@@ -201,6 +204,38 @@ int main() {
     require(
         !noLanding.down,
         "even a long surviving rollout cannot launch a cube without the required landing check");
+    c.reset();
+    Controller sticky;
+    Config stickyCfg;
+    stickyCfg.horizon = 48;
+    stickyCfg.candidates = 16;
+    stickyCfg.budgetMs = 8;
+    stickyCfg.cubePulsePlanning = true;
+    addJumpEvent(stickyCfg, 10);
+    auto routeOnly = [](Plan const &plan, Clock::time_point) {
+        Evaluation e;
+        if (!plan.at(0) && plan.at(10)) {
+            e.survived = plan.length;
+            e.clearance = 50;
+        } else {
+            e.survived = std::min(plan.length, 18);
+            e.died = plan.length > 18;
+        }
+        return e;
+    };
+    auto firstRoute = sticky.decide(stickyCfg, false, routeOnly);
+    require(firstRoute.hasValidatedInput && firstRoute.plan.at(10),
+            "geometry-timed route becomes the warm plan");
+    auto equallySafe = [](Plan const &plan, Clock::time_point) {
+        Evaluation e;
+        e.survived = plan.length;
+        e.clearance = 50;
+        return e;
+    };
+    auto heldRoute = sticky.decide(stickyCfg, false, equallySafe);
+    require(heldRoute.hasValidatedInput && heldRoute.plan.at(10),
+            "planner must keep the validated warm takeoff instead of jittering to a new timing");
+
     c.reset();
     Config releaseCfg = cfg;
     releaseCfg.forceRelease = true;
