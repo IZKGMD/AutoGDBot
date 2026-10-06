@@ -42,6 +42,8 @@ struct Config {
     int jumpEventCount = 0;
     std::array<int, 16> orbEvents{};
     int orbEventCount = 0;
+    std::array<int, 16> landingEvents{};
+    int landingEventCount = 0;
 };
 struct Decision {
     bool down = false, hasValidatedInput = false, exhausted = false;
@@ -140,9 +142,34 @@ class Controller {
                     paired += plans.size() != before;
                 }
             }
+            const int landingCount =
+                std::clamp(cfg.landingEventCount, 0, int(cfg.landingEvents.size()));
+            auto addStepRoute = [&](int takeoff, int radius) {
+                if (takeoff < 0 || takeoff >= cfg.horizon)
+                    return;
+                Plan p;
+                p.buttons[takeoff] = true;
+                int chained = 0;
+                for (int i = 0; i < landingCount && chained < 8; ++i) {
+                    const int center = cfg.landingEvents[i];
+                    if (center <= takeoff + 8 || center >= cfg.horizon)
+                        continue;
+                    for (int k = std::max(takeoff + 2, center - radius);
+                         k <= std::min(cfg.horizon - 1, center + radius); ++k)
+                        p.buttons[k] = true;
+                    ++chained;
+                }
+                if (chained)
+                    add(p);
+            };
+            if (landingCount) {
+                addStepRoute(0, 6);
+                for (int i = 0; i < jumpCount && i < 10; ++i)
+                    addStepRoute(cfg.jumpEvents[i], 6);
+            }
+
             // Spread fallback candidates over the horizon. Geometry-derived
-            // takeoff/orb events are inserted first, so route-aware plans are
-            // checked before generic timing guesses.
+            // takeoff/orb/landing events are inserted first.
             for (int t : {24, 48, 72, 96, 12, 36, 60, 84, 120, 144, 168, 192, 216,
                           6, 18, 1, 2, 3, 4, 8})
                 pulseAt(t);
@@ -181,6 +208,8 @@ class Controller {
         cfg.candidates = std::clamp(cfg.candidates, 4, MaxCandidates);
         cfg.jumpEventCount = std::clamp(cfg.jumpEventCount, 0, int(cfg.jumpEvents.size()));
         cfg.orbEventCount = std::clamp(cfg.orbEventCount, 0, int(cfg.orbEvents.size()));
+        cfg.landingEventCount =
+            std::clamp(cfg.landingEventCount, 0, int(cfg.landingEvents.size()));
         const auto start = Clock::now();
         const auto deadline =
             start +
@@ -255,7 +284,8 @@ class Controller {
             order[i] = int(i);
         size_t protectedCount = std::min(
             plans.size(), size_t(8 + std::max(0, cfg.jumpEventCount) +
-                                 std::max(0, cfg.orbEventCount) + 16));
+                                 std::max(0, cfg.orbEventCount) +
+                                 std::max(0, cfg.landingEventCount) + 20));
         if (priority.size() == plans.size() && plans.size() > protectedCount)
             std::stable_sort(order.begin() + protectedCount, order.end(),
                              [&](int a, int b) { return priority[a] > priority[b]; });

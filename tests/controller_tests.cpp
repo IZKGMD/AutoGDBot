@@ -45,6 +45,10 @@ int main() {
     std::array<Bounds, 2> doubleSpike{{{112, 0, 132, 30}, {136, 0, 156, 30}}};
     require(shouldReflexJump({0, 0, 30, 30}, 1.3f, doubleSpike),
             "adjacent floor spikes must open an earlier committed takeoff window");
+    require(!shouldUseReflexFallback(true, false, true, false, false, 216, 216),
+            "reflex must never override a fully validated wait/route");
+    require(shouldUseReflexFallback(true, false, false, false, false, 0, 216),
+            "reflex may rescue the planner only when no route was validated");
     CubePulse pulse;
     CubePulse forecast = pulse;
     bool liveHeld = false;
@@ -161,6 +165,36 @@ int main() {
         foundTwoPulse |= pulses >= 2;
     }
     require(foundTwoPulse, "cube planner must propose takeoff-plus-orb two-pulse routes");
+
+    Config stairCfg = ledgeCfg;
+    stairCfg.horizon = 216;
+    stairCfg.candidates = 64;
+    stairCfg.jumpEventCount = 0;
+    stairCfg.orbEventCount = 0;
+    stairCfg.landingEventCount = 0;
+    std::array<Bounds, 7> stair = {{{0, 0, 120, 60}, {145, 70, 175, 90},
+                                    {205, 100, 235, 120}, {265, 130, 295, 150},
+                                    {325, 160, 355, 180}, {385, 190, 415, 210},
+                                    {445, 220, 475, 240}}};
+    seedCubeEvents(stairCfg, 70, 60, 1.3f, stair, {});
+    require(stairCfg.landingEventCount >= 4,
+            "staircase lookahead must expose several future landing platforms");
+    bool foundStepChain = false;
+    for (auto const &plan : c.propose(stairCfg, false)) {
+        if (!plan.at(0))
+            continue;
+        int covered = 0;
+        for (int i = 0; i < stairCfg.landingEventCount; ++i) {
+            const int t = stairCfg.landingEvents[i];
+            bool buffered = false;
+            for (int k = std::max(0, t - 6); k <= std::min(plan.length - 1, t + 6); ++k)
+                buffered |= plan.at(k);
+            covered += buffered;
+        }
+        foundStepChain |= covered >= 4;
+    }
+    require(foundStepChain,
+            "cube planner must propose a takeoff plus buffered re-jumps across a staircase");
     auto lateLedge = [](Plan const &plan, Clock::time_point) {
         Evaluation e;
         if (plan.at(0)) {

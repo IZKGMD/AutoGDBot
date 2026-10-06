@@ -347,12 +347,28 @@ class Runtime {
             pl->addChild(label, 10000);
         }
     }
+    void releaseLiveInput() {
+        if (!layer)
+            return;
+        injected = true;
+        layer->handleButton(false, 1, true);
+        if (layer->m_gameState.m_isDualMode)
+            layer->handleButton(false, 1, false);
+        injected = false;
+        for (auto *p : {layer->m_player1, layer->m_player2}) {
+            if (p && p->m_holdingButtons[1])
+                p->releaseButton(PlayerButton::Jump);
+        }
+        botHeld = false;
+    }
     void reset() {
+        releaseLiveInput();
         controller.reset();
         timing.reset();
         cubePulse.reset();
         ticks = 0;
         botHeld = false;
+        wasEnabled = false;
         controlling = false;
         positionValid = false;
         motionValid = false;
@@ -744,8 +760,11 @@ class Runtime {
         // A nearby floor spike is actionable from the real grounded state.
         // Use the reflex only when the bounded search did not already choose
         // the jump; the next tick still performs the mandatory cube release.
-        if (reflex && !searchConfig.forceRelease &&
-            (!decision.hasValidatedInput || !decision.down)) {
+        const bool reflexRescue = shouldUseReflexFallback(
+            reflex, searchConfig.forceRelease, decision.hasValidatedInput,
+            decision.selected.died, decision.selected.interrupted,
+            decision.predictedTicks, searchConfig.horizon);
+        if (reflexRescue && !decision.down) {
             decision.down = true;
             decision.completeContinuation = false;
             decision.plan.buttons[0] = true;
@@ -837,7 +856,7 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.3.1 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
+                "AutoGDBot 0.3.2 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
@@ -977,8 +996,10 @@ class $modify(AGBPlayLayer, PlayLayer) {
     }
     void resetLevel() {
         if (m_fields->runtime)
-            m_fields->runtime->reset();
+            m_fields->runtime->releaseLiveInput();
         PlayLayer::resetLevel();
+        if (m_fields->runtime)
+            m_fields->runtime->reset();
     }
     void onQuit() {
         if (m_fields->runtime)
