@@ -23,7 +23,7 @@ jobs:
         run: python canonical/restore.py --output restored
 
       - name: Verify solver core hashes
-        run: cd restored/AutoGDBot-Realtime && sha256sum -c "$GITHUB_WORKSPACE/canonical/core-sha256.txt"
+        run: python canonical/verify_core.py restored/AutoGDBot-Realtime
 
       - name: Configure standalone controller tests
         run: cmake -S restored/AutoGDBot-Realtime -B restored/AutoGDBot-Realtime/build-tests -DAUTOGDBOT_BUILD_MOD=OFF -DAUTOGDBOT_BUILD_TESTS=ON
@@ -43,8 +43,7 @@ jobs:
         run: python canonical/restore.py --output restored
 
       - name: Verify canonical ZIP and solver core
-        shell: bash
-        run: cd restored/AutoGDBot-Realtime && sha256sum -c "$GITHUB_WORKSPACE/canonical/core-sha256.txt"
+        run: python canonical/verify_core.py restored/AutoGDBot-Realtime
 
       - name: Build exact Windows x64 source
         id: build
@@ -74,7 +73,7 @@ jobs:
         run: python ports/apply_android.py restored/AutoGDBot-Realtime
 
       - name: Prove solver core stayed byte-for-byte unchanged
-        run: cd restored/AutoGDBot-Realtime && sha256sum -c "$GITHUB_WORKSPACE/canonical/core-sha256.txt"
+        run: python canonical/verify_core.py restored/AutoGDBot-Realtime
 
       - name: Build Android arm64-v8a Geode mod
         id: build
