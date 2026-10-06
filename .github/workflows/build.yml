@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - android/**
   pull_request:
     branches:
       - main
@@ -18,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build Geode mod
+      - name: Build Windows Geode mod
         id: build
         uses: geode-sdk/build-geode-mod@main
         with:
@@ -26,8 +27,27 @@ jobs:
           target: Win64
           build-config: Release
 
-      - name: Upload .geode artifact
+      - name: Upload Windows .geode artifact
         uses: actions/upload-artifact@v4
         with:
           name: AutoGDBot-Windows
+          path: ${{ steps.build.outputs.build-output }}
+
+  build-android64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Android64 Geode mod
+        id: build
+        uses: geode-sdk/build-geode-mod@main
+        with:
+          sdk: given
+          target: Android64
+          build-config: Release
+
+      - name: Upload Android64 .geode artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoGDBot-Android64
           path: ${{ steps.build.outputs.build-output }}
