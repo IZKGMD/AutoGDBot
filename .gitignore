@@ -1,13 +1,4 @@
-build/
-cmake-build-*/
-.geode/
-.vscode/
-.idea/
-*.user
-*.suo
-*.pdb
-*.ilk
-*.obj
-*.dll
+/build*/
 *.geode
-.DS_Store
+*.dll
+*.pdb
