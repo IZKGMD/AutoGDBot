@@ -35,9 +35,21 @@ class HazardGuard {
         auto b = sweptBounds(before, after);
         auto first = std::lower_bound(hazards_.begin(), hazards_.end(), b.minX - maxWidth_,
                                       [](Bounds a, float x) { return a.minX < x; });
-        for (auto it = first; it != hazards_.end() && it->minX <= b.maxX; ++it)
-            if (it->maxX >= b.minX && it->maxY >= b.minY && it->minY <= b.maxY)
+        for (auto it = first; it != hazards_.end() && it->minX <= b.maxX; ++it) {
+            // Native GD collision is authoritative. The guard only catches
+            // missed swept crossings, so do not model the empty corners of
+            // triangular spikes as a full lethal rectangle.
+            const float w = it->maxX - it->minX;
+            const float h = it->maxY - it->minY;
+            const float insetX = std::min(4.5f, std::max(.35f, w * .18f));
+            const float insetY = std::min(3.0f, std::max(.25f, h * .10f));
+            const Bounds q{it->minX + insetX, it->minY + insetY,
+                           it->maxX - insetX, it->maxY - insetY};
+            if (q.maxX >= q.minX && q.maxY >= q.minY &&
+                q.maxX >= b.minX && q.minX <= b.maxX &&
+                q.maxY >= b.minY && q.minY <= b.maxY)
                 return true;
+        }
         return false;
     }
 };

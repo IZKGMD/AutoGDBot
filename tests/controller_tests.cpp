@@ -42,6 +42,9 @@ int main() {
     std::array<Bounds, 1> saw{{{64, -4, 112, 50}}};
     require(!shouldReflexJump({0, 0, 30, 30}, 1.3f, saw),
             "large saws must be timed by native rollout instead of the early spike reflex");
+    std::array<Bounds, 2> doubleSpike{{{100, 0, 124, 30}, {126, 0, 150, 30}}};
+    require(shouldReflexJump({0, 0, 30, 30}, 1.3f, doubleSpike),
+            "double-spike fallback must react earlier than a single-spike reflex window");
     CubePulse pulse;
     CubePulse forecast = pulse;
     bool liveHeld = false;
@@ -143,6 +146,15 @@ int main() {
     auto gap = findForwardGap(55, 60, 1.3f, gapSupport);
     require(gap.found && gap.edgeX == 120 && gap.width > 60,
             "route lookahead must expose a platform gap before the cube falls off it");
+    std::array<Bounds, 2> clusterHazards{{{115, 58, 139, 88}, {141, 58, 165, 88}}};
+    auto cluster = findForwardHazardCluster(55, 60, 1.3f, clusterHazards);
+    require(cluster.found && cluster.count == 2 && cluster.startTick > 0,
+            "route lookahead must recognize an adjacent double-spike cluster");
+    Config clusterCfg = ledgeCfg;
+    clusterCfg.jumpEventCount = 0;
+    seedCubeEvents(clusterCfg, 55, 60, 1.3f, support, clusterHazards);
+    require(clusterCfg.jumpEventCount >= 4,
+            "double-spike cluster must seed a stable takeoff window, not one marginal timing");
     Config orbCfg = ledgeCfg;
     orbCfg.jumpEventCount = 0;
     orbCfg.orbEventCount = 0;
@@ -389,7 +401,7 @@ int main() {
     d = c.decide(cfg, false, busy);
     double ms = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
     require(d.candidates <= 3, "deadline must stop candidate expansion");
-    std::cout << "PASS: grounded hazard reflex, joined/reverse ledge events, delayed takeoff "
+    std::cout << "PASS: grounded/cluster hazard reflex, double-spike route window, joined/reverse ledge events, delayed takeoff "
                  "priority, landing "
                  "verification gate, "
                  "unique CPU/GPU proposals, safe continuation early exit, cube pulse/live forecast "

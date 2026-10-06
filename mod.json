@@ -6,7 +6,7 @@
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v0.3.0",
+  "version": "v0.3.1",
   "developers": [
     "AutoGDBot"
   ],
@@ -33,7 +33,7 @@
     "budget-ms": {
       "type": "float",
       "name": "CPU search budget per physics tick (ms)",
-      "default": 1.5,
+      "default": 1.75,
       "min": 0.2,
       "max": 8.0
     },
@@ -47,14 +47,14 @@
     "candidates": {
       "type": "int",
       "name": "Maximum candidates per tick",
-      "default": 64,
+      "default": 72,
       "min": 4,
       "max": 96
     },
     "trace-hz": {
       "type": "int",
       "name": "Trace redraw rate",
-      "default": 30,
+      "default": 18,
       "min": 5,
       "max": 60
     },

@@ -209,6 +209,18 @@ class Controller {
                 score += 3000000.f;
             if (plan.at(0) == held || (cfg.forceRelease && !plan.at(0)))
                 score += 100.f;
+
+            // Keep a previously validated route unless a new route actually
+            // survives longer. This removes frame-to-frame takeoff jitter on
+            // equal full-horizon candidates without hiding a newly unsafe plan.
+            int warmPrefix = 0;
+            const int warmKnown = std::min({warm_.length, e.survived, 48});
+            for (int k = 0; k < warmKnown; ++k) {
+                if (plan.at(k) != warm_.at(k))
+                    break;
+                ++warmPrefix;
+            }
+            score += warmPrefix * 18.f;
             if (score > bestScore) {
                 bestScore = score;
                 result.down = plan.at(0);
