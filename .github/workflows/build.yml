@@ -11,9 +11,73 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  materialize-source:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/realtime/direct-source'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore exact uploaded source
+        run: python canonical/restore.py --output restored
+
+      - name: Apply isolated Android64 platform layer
+        run: python ports/apply_android.py restored/AutoGDBot-Realtime
+
+      - name: Verify solver core stayed exact
+        run: python canonical/verify_core.py restored/AutoGDBot-Realtime
+
+      - name: Materialize source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          P=restored/AutoGDBot-Realtime
+          for f in .clang-format .gitignore BUILD_INFO.json CMakeLists.txt LICENSE README.md SOURCES.md VALIDATION.md VIDEO_ANALYSIS.md mod.json; do
+            cp "$P/$f" "$f"
+          done
+          rm -rf src original tests tools
+          cp -R "$P/src" ./src
+          cp -R "$P/original" ./original
+          cp -R "$P/tests" ./tests
+          cp -R "$P/tools" ./tools
+          rm -f changelog.md
+
+          cat > PORTING.md <<'EOF'
+          # Windows / Android port
+
+          `src/main.cpp`, `controller.hpp`, hazard guard, planning hints, input motion and player scalar state are the canonical AutoGDBot Realtime v0.2.1 solver core.
+
+          Windows keeps the original D3D11 asynchronous candidate ranker in `src/gpu_ranker.cpp`.
+
+          Android64 uses `src/gpu_ranker_stub.cpp`, which disables only D3D11 candidate ordering. The native Geometry Dash rollout, landing verification, hazard guard, warm-plan logic and CPU safety checks are shared unchanged.
+
+          The exact user-supplied source ZIP is retained under `canonical/` and verified by SHA-256 in CI.
+          EOF
+
+      - name: Restore permanent validation workflow
+        shell: bash
+        run: |
+          git fetch origin main:refs/remotes/origin/main
+          git checkout origin/main -- .github/workflows/build.yml
+
+      - name: Commit materialized source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No source changes to commit"
+          else
+            git commit -m "source: materialize canonical Realtime v0.2.1"
+            git push origin HEAD:realtime/direct-source
+          fi
+
   canonical-tests:
     runs-on: ubuntu-latest
     steps:
