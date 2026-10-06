@@ -29,15 +29,16 @@ jobs:
             echo "Canonical source already materialized"
             exit 0
           fi
-          python canonical/restore.py --output restored
-          python canonical/verify_core.py restored/AutoGDBot-Realtime
+          RESTORE_DIR="$RUNNER_TEMP/autogdbot-restore"
+          rm -rf "$RESTORE_DIR"
+          python canonical/restore.py --output "$RESTORE_DIR"
+          python canonical/verify_core.py "$RESTORE_DIR/AutoGDBot-Realtime"
           rsync -a --delete \
             --exclude='.git/' \
             --exclude='.github/' \
             --exclude='canonical/' \
             --exclude='ports/' \
-            restored/AutoGDBot-Realtime/ ./
-          rm -rf restored
+            "$RESTORE_DIR/AutoGDBot-Realtime/" ./
           printf '%s\n' 'AutoGDBot-Realtime-source.zip' > canonical/MATERIALIZED
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
