@@ -23,6 +23,8 @@ jobs:
         run: python tools/apply_accuracy_v040_hotfix.py .
       - name: Apply robustness score gate
         run: python tools/apply_accuracy_v040_scorefix.py .
+      - name: Apply adaptive early-stop
+        run: python tools/apply_accuracy_v040_earlystop.py .
       - name: Update dense-sweep regression
         run: python tools/apply_accuracy_v040_testfix.py .
       - name: Configure controller tests
@@ -44,6 +46,8 @@ jobs:
         run: python tools/apply_accuracy_v040_hotfix.py .
       - name: Apply robustness score gate
         run: python tools/apply_accuracy_v040_scorefix.py .
+      - name: Apply adaptive early-stop
+        run: python tools/apply_accuracy_v040_earlystop.py .
       - name: Build Windows x64 Geode mod
         id: build
         uses: geode-sdk/build-geode-mod@main
@@ -70,6 +74,8 @@ jobs:
         run: python tools/apply_accuracy_v040_hotfix.py .
       - name: Apply robustness score gate
         run: python tools/apply_accuracy_v040_scorefix.py .
+      - name: Apply adaptive early-stop
+        run: python tools/apply_accuracy_v040_earlystop.py .
       - name: Build Android64 Geode mod
         id: build
         uses: geode-sdk/build-geode-mod@main
@@ -101,6 +107,7 @@ jobs:
           python tools/apply_accuracy_v040.py .
           python tools/apply_accuracy_v040_hotfix.py .
           python tools/apply_accuracy_v040_scorefix.py .
+          python tools/apply_accuracy_v040_earlystop.py .
           python tools/apply_accuracy_v040_testfix.py .
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
