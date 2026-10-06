@@ -44,7 +44,7 @@ inline bool shouldReflexJump(Bounds player, float dx, std::span<Bounds const> ha
         }
         float gap = dx > 0 ? low[i].minX - player.maxX : player.minX - low[i].maxX;
         const float window = count >= 2
-                                 ? std::clamp(std::abs(dx) * 92.f, 86.f, 132.f)
+                                 ? std::clamp(std::abs(dx) * 72.f, 70.f, 104.f)
                                  : maxGap;
         if (gap >= -std::abs(dx) * 2.f && gap <= window)
             return true;
@@ -67,6 +67,26 @@ inline void addOrbEvent(Config &cfg, int tick) {
         if (cfg.orbEvents[i] == tick)
             return;
     cfg.orbEvents[cfg.orbEventCount++] = tick;
+}
+inline void addLandingEvent(Config &cfg, int tick) {
+    if (tick < 0 || tick >= cfg.horizon ||
+        cfg.landingEventCount >= int(cfg.landingEvents.size()))
+        return;
+    for (int i = 0; i < cfg.landingEventCount; ++i)
+        if (std::abs(cfg.landingEvents[i] - tick) <= 2)
+            return;
+    cfg.landingEvents[cfg.landingEventCount++] = tick;
+}
+
+inline bool shouldUseReflexFallback(bool reflex, bool forceRelease, bool hasValidated,
+                                    bool selectedDied, bool selectedInterrupted,
+                                    int predictedTicks, int horizon) {
+    if (!reflex || forceRelease)
+        return false;
+    if (!hasValidated)
+        return true;
+    const int minimumUsefulForecast = std::clamp(horizon / 7, 18, 36);
+    return selectedDied || selectedInterrupted || predictedTicks < minimumUsefulForecast;
 }
 
 inline GapHint findForwardGap(float x, float footY, float dx, std::span<Bounds const> solids,
@@ -167,6 +187,36 @@ inline GapHint seedCubeEvents(Config &cfg, float x, float footY, float dx,
             break;
         }
         i = j;
+    }
+
+    struct StepTarget { float tick, topY, width; };
+    std::vector<StepTarget> steps;
+    const float directionForSteps = dx > 0 ? 1.f : -1.f;
+    for (auto b : solids) {
+        const float top = b.maxY;
+        const float width = b.maxX - b.minX;
+        if (width < 6.f || width > 120.f)
+            continue;
+        if (top <= footY + 3.f || top > footY + 190.f)
+            continue;
+        const float center = (b.minX + b.maxX) * .5f;
+        const float dist = (center - x) * directionForSteps;
+        if (dist <= 8.f)
+            continue;
+        const float t = dist / std::abs(dx);
+        if (t > 6.f && t < cfg.horizon)
+            steps.push_back({t, top, width});
+    }
+    std::sort(steps.begin(), steps.end(), [](auto a, auto b) { return a.tick < b.tick; });
+    float lastTop = footY;
+    int acceptedSteps = 0;
+    for (auto s : steps) {
+        if (s.topY < lastTop - 8.f || s.topY > lastTop + 72.f)
+            continue;
+        addLandingEvent(cfg, int(std::lround(s.tick)));
+        lastTop = std::max(lastTop, s.topY);
+        if (++acceptedSteps >= 8)
+            break;
     }
 
     gap = findForwardGap(x, footY, dx, solids,
