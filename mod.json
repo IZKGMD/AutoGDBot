@@ -1,0 +1,25 @@
+{
+  "geode": "5.10.1",
+  "gd": {
+    "win": "2.2081"
+  },
+  "id": "izkgmd.autogdbot",
+  "name": "AutoGDBot",
+  "version": "v0.4.0",
+  "developer": "IZKGMD",
+  "description": "Native real-time Geometry Dash level solver with no external Python process.",
+  "settings": {
+    "enabled": {
+      "name": "Enable AutoGDBot",
+      "description": "Let AutoGDBot control Player 1 during gameplay.",
+      "type": "bool",
+      "default": true
+    },
+    "debug-log": {
+      "name": "Debug log",
+      "description": "Periodically log solver state and decisions.",
+      "type": "bool",
+      "default": false
+    }
+  }
+}
