@@ -1,11 +1,11 @@
-name: Build AutoGDBot
+name: Validate AutoGDBot Realtime
 
 on:
   workflow_dispatch:
   push:
     branches:
       - main
-      - android/**
+      - realtime/**
   pull_request:
     branches:
       - main
@@ -14,23 +14,52 @@ permissions:
   contents: read
 
 jobs:
+  canonical-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore exact uploaded source
+        run: python canonical/restore.py --output restored
+
+      - name: Verify solver core hashes
+        run: cd restored/AutoGDBot-Realtime && sha256sum -c "$GITHUB_WORKSPACE/canonical/core-sha256.txt"
+
+      - name: Configure standalone controller tests
+        run: cmake -S restored/AutoGDBot-Realtime -B restored/AutoGDBot-Realtime/build-tests -DAUTOGDBOT_BUILD_MOD=OFF -DAUTOGDBOT_BUILD_TESTS=ON
+
+      - name: Build standalone controller tests
+        run: cmake --build restored/AutoGDBot-Realtime/build-tests --config Release --parallel
+
+      - name: Run standalone controller tests
+        run: ctest --test-dir restored/AutoGDBot-Realtime/build-tests -C Release --output-on-failure
+
   build-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build Windows Geode mod
+      - name: Restore exact uploaded source
+        run: python canonical/restore.py --output restored
+
+      - name: Verify canonical ZIP and solver core
+        shell: bash
+        run: cd restored/AutoGDBot-Realtime && sha256sum -c "$GITHUB_WORKSPACE/canonical/core-sha256.txt"
+
+      - name: Build exact Windows x64 source
         id: build
         uses: geode-sdk/build-geode-mod@main
         with:
+          path: restored/AutoGDBot-Realtime
           sdk: given
           target: Win64
           build-config: Release
+          bindings-ref: f050fd74ad531b0827377c97510cb807903ff1b3
 
-      - name: Upload Windows .geode artifact
+      - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AutoGDBot-Windows
+          name: AutoGDBot-Realtime-Windows
           path: ${{ steps.build.outputs.build-output }}
 
   build-android64:
@@ -38,16 +67,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build Android64 Geode mod
+      - name: Restore exact uploaded source
+        run: python canonical/restore.py --output restored
+
+      - name: Apply isolated Android64 platform layer
+        run: python ports/apply_android.py restored/AutoGDBot-Realtime
+
+      - name: Prove solver core stayed byte-for-byte unchanged
+        run: cd restored/AutoGDBot-Realtime && sha256sum -c "$GITHUB_WORKSPACE/canonical/core-sha256.txt"
+
+      - name: Build Android arm64-v8a Geode mod
         id: build
         uses: geode-sdk/build-geode-mod@main
         with:
+          path: restored/AutoGDBot-Realtime
           sdk: given
           target: Android64
           build-config: Release
+          bindings-ref: f050fd74ad531b0827377c97510cb807903ff1b3
 
-      - name: Upload Android64 .geode artifact
+      - name: Upload Android64 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AutoGDBot-Android64
+          name: AutoGDBot-Realtime-Android64
           path: ${{ steps.build.outputs.build-output }}
