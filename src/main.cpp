@@ -155,6 +155,24 @@ static bool physicsObject(GameObjectType t) {
         return false;
     }
 }
+static bool orbObject(GameObjectType t) {
+    switch (t) {
+    case GameObjectType::YellowJumpRing:
+    case GameObjectType::PinkJumpRing:
+    case GameObjectType::GravityRing:
+    case GameObjectType::GreenRing:
+    case GameObjectType::DropRing:
+    case GameObjectType::RedJumpRing:
+    case GameObjectType::SpiderOrb:
+    case GameObjectType::DashRing:
+    case GameObjectType::GravityDashRing:
+    case GameObjectType::CustomRing:
+    case GameObjectType::TeleportOrb:
+        return true;
+    default:
+        return false;
+    }
+}
 static bool boundaryObject(GameObject *o) {
     switch (o->m_objectType) {
     case GameObjectType::InverseGravityPortal:
@@ -209,13 +227,12 @@ static bool cubeCanPress(PlayerObject *p) {
     return false;
 }
 struct Settings {
-    bool enabled = false, traces = true, gpu = true, telemetry = false;
+    bool enabled = false, gpu = true, telemetry = false;
     int traceHz = 30;
     Config config;
     void read() {
         auto *m = Mod::get();
         enabled = m->getSettingValue<bool>("enabled");
-        traces = m->getSettingValue<bool>("traces");
         gpu = m->getSettingValue<bool>("gpu");
         telemetry = m->getSettingValue<bool>("telemetry");
         traceHz = int(m->getSettingValue<int64_t>("trace-hz"));
@@ -255,6 +272,9 @@ class Runtime {
     CCLabelBMFont *label = nullptr;
     std::vector<std::pair<float, GameObject *>> hintObjects;
     std::vector<std::pair<float, GameObject *>> hintSolids;
+    std::vector<std::pair<float, GameObject *>> hintOrbs;
+    GapHint routeGap;
+    int routeJumpEvents = 0, routeOrbEvents = 0;
     uint64_t ticks = 0;
     bool botHeld = false, wasEnabled = false, gpuTried = false, controlling = false;
     int lastMode = -1;
@@ -280,12 +300,17 @@ class Runtime {
                 if (o && (o->m_objectType == GameObjectType::Hazard ||
                           o->m_objectType == GameObjectType::AnimatedHazard))
                     hintObjects.emplace_back(o->getPositionX(), o);
-                if (o && o->m_objectType == GameObjectType::Solid)
+                if (o && (o->m_objectType == GameObjectType::Solid ||
+                          o->m_objectType == GameObjectType::Slope))
                     hintSolids.emplace_back(o->getPositionX(), o);
+                if (o && orbObject(o->m_objectType))
+                    hintOrbs.emplace_back(o->getPositionX(), o);
             }
         std::sort(hintObjects.begin(), hintObjects.end(),
                   [](auto const &a, auto const &b) { return a.first < b.first; });
         std::sort(hintSolids.begin(), hintSolids.end(),
+                  [](auto const &a, auto const &b) { return a.first < b.first; });
+        std::sort(hintOrbs.begin(), hintOrbs.end(),
                   [](auto const &a, auto const &b) { return a.first < b.first; });
         for (int i = 0; i < 2; ++i) {
             auto *p = PlayerObject::create(1, 1, pl, pl, true);
@@ -338,6 +363,9 @@ class Runtime {
         telemetryPending = false;
         geometryRejects = 0;
         predictionError = 0;
+        routeGap = {};
+        routeJumpEvents = 0;
+        routeOrbEvents = 0;
         hazardGuard.set({});
         lastMode = -1;
         decision = {};
@@ -626,8 +654,13 @@ class Runtime {
         Config searchConfig = settings.config;
         searchConfig.forceRelease = pulseMode && (cubePulse.mustRelease() || !canPress);
         searchConfig.cubePulsePlanning = pulseMode;
-        if (mode(p) == 0)
-            searchConfig.horizon = std::max(searchConfig.horizon, 144);
+        if (mode(p) == 0) {
+            // Keep planning while the cube is still on safe ground. The longer
+            // rolling horizon sees the edge/gap/orb before the takeoff is urgent.
+            searchConfig.horizon = std::max(searchConfig.horizon, 216);
+            searchConfig.candidates = std::max(searchConfig.candidates, 64);
+            searchConfig.budgetMs = std::max(searchConfig.budgetMs, 1.35);
+        }
         // Cache frozen-world geometry once per tick. Candidate steps query the
         // sorted bounds without repeatedly calling native object functions.
         std::vector<Bounds> guardBounds;
@@ -643,8 +676,12 @@ class Runtime {
             auto r = o->getObjectRect();
             guardBounds.push_back({r.getMinX(), r.getMinY(), r.getMaxX(), r.getMaxY()});
         }
+        routeGap = {};
+        routeJumpEvents = 0;
+        routeOrbEvents = 0;
         if (pulseMode && canPress) {
             std::vector<Bounds> solids;
+            std::vector<Bounds> orbs;
             auto firstSolid =
                 std::lower_bound(hintSolids.begin(), hintSolids.end(), originX - range,
                                  [](auto const &a, float x) { return a.first < x; });
@@ -656,14 +693,29 @@ class Runtime {
                 auto r = o->getObjectRect();
                 solids.push_back({r.getMinX(), r.getMinY(), r.getMaxX(), r.getMaxY()});
             }
+            auto firstOrb =
+                std::lower_bound(hintOrbs.begin(), hintOrbs.end(), originX - range,
+                                 [](auto const &a, float x) { return a.first < x; });
+            for (auto it = firstOrb; it != hintOrbs.end() && it->first <= originX + range; ++it) {
+                auto *o = it->second;
+                if (!o || o->m_isDisabled || o->m_isDisabled2 || o->m_isActivated)
+                    continue;
+                auto r = o->getObjectRect();
+                orbs.push_back({r.getMinX(), r.getMinY(), r.getMaxX(), r.getMaxY()});
+            }
             int players = layer->m_gameState.m_isDualMode ? 2 : 1;
             for (int i = 0; i < players; ++i) {
                 auto *real = i == 0 ? p : layer->m_player2;
-                if (real && real->m_isOnGround)
-                    seedCubeEvents(searchConfig, real->getPositionX(),
-                                   real->getObjectRect().getMinY(), travelSteps[i].x, solids,
-                                   guardBounds);
+                if (real && real->m_isOnGround) {
+                    auto gap = seedCubeEvents(searchConfig, real->getPositionX(),
+                                              real->getObjectRect().getMinY(), travelSteps[i].x,
+                                              solids, guardBounds, orbs);
+                    if (i == 0)
+                        routeGap = gap;
+                }
             }
+            routeJumpEvents = searchConfig.jumpEventCount;
+            routeOrbEvents = searchConfig.orbEventCount;
         }
         auto playerRect = p->getObjectRect();
         bool reflex = pulseMode && p->m_isOnGround && !cubePulse.mustRelease() &&
@@ -781,11 +833,12 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.2.1 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
+                "AutoGDBot 0.3.0 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
-                "error={:.2f} | guard={} | light={} | reflex={} | forecast={} | landing={}",
+                "error={:.2f} | guard={} | light={} | reflex={} | forecast={} | landing={}\n"
+                "route: jumps={} orbs={} gap={}",
                 message, decision.elapsedMs, totalMs, decision.candidates, decision.predictedTicks,
                 settings.gpu ? gpu.status() : "CPU", ticks, decision.down ? "DOWN" : "UP",
                 botHeld ? "DOWN" : "UP", inputTransitions, travelSteps[0].x, previousDt,
@@ -799,12 +852,13 @@ class Runtime {
                                                 : "SHORT",
                 decision.selected.requiresLanding
                     ? (decision.selected.landingVerified ? "OK" : "NO")
-                    : "n/a")
+                    : "n/a",
+                routeJumpEvents, routeOrbEvents, routeGap.found ? "YES" : "no")
                 .c_str());
         label->setColor(decision.hasValidatedInput ? ccColor3B{120, 255, 170}
                                                    : ccColor3B{255, 180, 100});
         draw->clear();
-        if (!settings.traces || !settings.enabled)
+        if (!settings.enabled)
             return;
         auto trace = [&](std::vector<Point> const &points, ccColor4F color, float width) {
             for (size_t i = 2; i < points.size(); i += 2)
@@ -843,6 +897,43 @@ class Runtime {
                     CCPoint{r.getMaxX(), r.getMaxY()}, CCPoint{r.getMaxX(), r.getMinY()}};
                 draw->drawPolygon(v.data(), 4, {0, 0, 0, 0}, .25f, {1, .3f, .3f, .18f});
                 ++shown;
+            }
+        }
+
+        if (layer->m_player1) {
+            float x = layer->m_player1->getPositionX();
+            int shownOrbs = 0;
+            auto beginOrb = std::lower_bound(hintOrbs.begin(), hintOrbs.end(), x - 80,
+                                             [](auto const &a, float q) { return a.first < q; });
+            for (auto it = beginOrb;
+                 it != hintOrbs.end() && it->first <= x + 900 && shownOrbs < 48; ++it) {
+                auto *o = it->second;
+                if (!o || o->m_isDisabled || o->m_isActivated)
+                    continue;
+                auto r = o->getObjectRect();
+                std::array<CCPoint, 4> v = {
+                    CCPoint{r.getMinX(), r.getMinY()}, CCPoint{r.getMinX(), r.getMaxY()},
+                    CCPoint{r.getMaxX(), r.getMaxY()}, CCPoint{r.getMaxX(), r.getMinY()}};
+                draw->drawPolygon(v.data(), 4, {0, 0, 0, 0}, .6f, {.2f, .9f, 1.f, .75f});
+                ++shownOrbs;
+            }
+            if (routeGap.found) {
+                float y = layer->m_player1->getPositionY();
+                draw->drawSegment({routeGap.edgeX, y - 80}, {routeGap.edgeX, y + 120}, .7f,
+                                  {1.f, .75f, .15f, .8f});
+                draw->drawSegment({routeGap.landingX, y - 80}, {routeGap.landingX, y + 120}, .5f,
+                                  {.4f, 1.f, .55f, .55f});
+            }
+            auto const &tracePoints = decision.selected.traces[0];
+            for (int t = 0; t < decision.plan.length && size_t(t + 1) < tracePoints.size(); ++t) {
+                if (!decision.plan.at(t))
+                    continue;
+                auto q = tracePoints[t + 1];
+                std::array<CCPoint, 4> v = {
+                    CCPoint{q.x - 4, q.y}, CCPoint{q.x, q.y + 4},
+                    CCPoint{q.x + 4, q.y}, CCPoint{q.x, q.y - 4}};
+                draw->drawPolygon(v.data(), 4, {.2f, 1.f, 1.f, .16f}, .7f,
+                                  {.2f, 1.f, 1.f, .95f});
             }
         }
 

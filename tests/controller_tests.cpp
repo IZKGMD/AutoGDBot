@@ -39,6 +39,9 @@ int main() {
     std::array<Bounds, 1> farSpike{{{130, 0, 154, 30}}};
     require(!shouldReflexJump({0, 0, 30, 30}, 1.3f, farSpike),
             "ground reflex must wait until a distant spike enters the takeoff window");
+    std::array<Bounds, 1> saw{{{64, -4, 112, 50}}};
+    require(!shouldReflexJump({0, 0, 30, 30}, 1.3f, saw),
+            "large saws must be timed by native rollout instead of the early spike reflex");
     CubePulse pulse;
     CubePulse forecast = pulse;
     bool liveHeld = false;
@@ -133,7 +136,28 @@ int main() {
         {{0, 0, 30, 60}, {30, 0, 60, 60}, {60, 0, 90, 60}, {90, 0, 120, 60}}};
     seedCubeEvents(ledgeCfg, 55, 60, 1.3f, support, {});
     require(ledgeCfg.jumpEventCount > 0 && ledgeCfg.jumpEvents[0] == 48,
-            "merge adjoining support tiles and prioritize takeoff near the actual platform edge");
+            "merge adjoing support tiles and prioritize takeoff near the actual platform edge");
+    std::array<Bounds, 5> gapSupport = {
+        {{0, 0, 30, 60}, {30, 0, 60, 60}, {60, 0, 90, 60}, {90, 0, 120, 60},
+          {190, 0, 230, 60}}};
+    auto gap = findForwardGap(55, 60, 1.3f, gapSupport);
+    require(gap.found && gap.edgeX == 120 && gap.width > 60,
+            "route lookahead must expose a platform gap before the cube falls off it");
+    Config orbCfg = ledgeCfg;
+    orbCfg.jumpEventCount = 0;
+    orbCfg.orbEventCount = 0;
+    std::array<Bounds, 1> orb{{{146, 80, 166, 100}}};
+    seedCubeEvents(orbCfg, 55, 60, 1.3f, support, {}, orb);
+    require(orbCfg.orbEventCount > 0 && orbCfg.jumpEventCount > 0,
+            "orb routing must seed both takeoff and orb-activation events");
+    bool foundTwoPulse = false;
+    for (auto const &plan : c.propose(orbCfg, false)) {
+        int pulses = 0;
+        for (int t = 0; t < plan.length; ++t)
+            pulses += plan.at(t);
+        foundTwoPulse |= pulses >= 2;
+    }
+    require(foundTwoPulse, "cube planner must propose takeoff-plus-orb two-pulse routes");
     auto lateLedge = [](Plan const &plan, Clock::time_point) {
         Evaluation e;
         if (plan.at(0)) {
