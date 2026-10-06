@@ -19,6 +19,8 @@ jobs:
         run: python tools/apply_route_v03.py .
       - name: Apply stability v0.3.1 patch
         run: python tools/apply_stability_v031.py .
+      - name: Strengthen warm-plan stability
+        run: python tools/apply_stability_v031_hotfix.py .
       - name: Configure controller tests
         run: cmake -S . -B build-tests -DAUTOGDBOT_BUILD_MOD=OFF -DAUTOGDBOT_BUILD_TESTS=ON
       - name: Build controller tests
@@ -34,6 +36,8 @@ jobs:
         run: python tools/apply_route_v03.py .
       - name: Apply stability v0.3.1 patch
         run: python tools/apply_stability_v031.py .
+      - name: Strengthen warm-plan stability
+        run: python tools/apply_stability_v031_hotfix.py .
       - name: Build Windows x64 Geode mod
         id: build
         uses: geode-sdk/build-geode-mod@main
@@ -56,6 +60,8 @@ jobs:
         run: python tools/apply_route_v03.py .
       - name: Apply stability v0.3.1 patch
         run: python tools/apply_stability_v031.py .
+      - name: Strengthen warm-plan stability
+        run: python tools/apply_stability_v031_hotfix.py .
       - name: Build Android64 Geode mod
         id: build
         uses: geode-sdk/build-geode-mod@main
@@ -85,6 +91,7 @@ jobs:
         run: |
           python tools/apply_route_v03.py .
           python tools/apply_stability_v031.py .
+          python tools/apply_stability_v031_hotfix.py .
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/controller.hpp src/planning_hints.hpp src/hazard_guard.hpp src/main.cpp tests/controller_tests.cpp mod.json
