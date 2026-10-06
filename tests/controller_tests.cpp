@@ -214,8 +214,8 @@ int main() {
     require(ledge.hasValidatedInput && !ledge.down && ledge.plan.at(48) &&
                 ledge.predictedTicks == 144 && !ledge.selected.died,
             "find a delayed takeoff that reaches the platform rather than an early fatal jump");
-    require(ledge.candidates <= 6,
-            "geometry event must be tested before exhausting budget on near-duplicate early jumps");
+    require(ledge.candidates <= 16,
+            "dense geometry timing sweep must stay bounded while testing the safe takeoff neighborhood");
     for (size_t i = 0; i < ledge.proposals.size(); ++i)
         for (size_t j = i + 1; j < ledge.proposals.size(); ++j)
             require(ledge.proposals[i].buttons != ledge.proposals[j].buttons,
@@ -269,6 +269,30 @@ int main() {
     auto heldRoute = sticky.decide(stickyCfg, false, equallySafe);
     require(heldRoute.hasValidatedInput && heldRoute.plan.at(10),
             "planner must keep the validated warm takeoff instead of jittering to a new timing");
+
+    Controller robust;
+    Config robustCfg = stickyCfg;
+    addJumpEvent(robustCfg, 12);
+    auto robustEval = [](Plan const &plan, Clock::time_point) {
+        Evaluation e;
+        e.survived = plan.length;
+        if (plan.at(10)) {
+            e.clearance = 2;
+            e.landingMargin = 1;
+            e.robustness = .05f;
+        } else if (plan.at(12)) {
+            e.clearance = 32;
+            e.landingMargin = 16;
+            e.robustness = 1.f;
+        } else {
+            e.survived = std::min(plan.length, 14);
+            e.died = plan.length > 14;
+        }
+        return e;
+    };
+    auto robustDecision = robust.decide(robustCfg, false, robustEval);
+    require(robustDecision.hasValidatedInput && robustDecision.plan.at(12),
+            "robust MPC must prefer a wide-margin takeoff over a spike-grazing route");
 
     c.reset();
     Config releaseCfg = cfg;

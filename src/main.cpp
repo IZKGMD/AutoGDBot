@@ -11,6 +11,7 @@
 #include "input_motion.hpp"
 #include "hazard_guard.hpp"
 #include "planning_hints.hpp"
+#include "semantic_map.hpp"
 #include <fstream>
 #include <unordered_set>
 
@@ -270,6 +271,7 @@ class Runtime {
     Decision decision;
     TraceNode *draw = nullptr;
     CCLabelBMFont *label = nullptr;
+    SemanticMap semantic;
     std::vector<std::pair<float, GameObject *>> hintObjects;
     std::vector<std::pair<float, GameObject *>> hintSolids;
     std::vector<std::pair<float, GameObject *>> hintOrbs;
@@ -296,24 +298,10 @@ class Runtime {
     void init(PlayLayer *pl) {
         layer = pl;
         settings.read();
-        if (pl->m_objects)
-            for (unsigned i = 0; i < pl->m_objects->count(); ++i) {
-                auto *o = static_cast<GameObject *>(pl->m_objects->objectAtIndex(i));
-                if (o && (o->m_objectType == GameObjectType::Hazard ||
-                          o->m_objectType == GameObjectType::AnimatedHazard))
-                    hintObjects.emplace_back(o->getPositionX(), o);
-                if (o && (o->m_objectType == GameObjectType::Solid ||
-                          o->m_objectType == GameObjectType::Slope))
-                    hintSolids.emplace_back(o->getPositionX(), o);
-                if (o && orbObject(o->m_objectType))
-                    hintOrbs.emplace_back(o->getPositionX(), o);
-            }
-        std::sort(hintObjects.begin(), hintObjects.end(),
-                  [](auto const &a, auto const &b) { return a.first < b.first; });
-        std::sort(hintSolids.begin(), hintSolids.end(),
-                  [](auto const &a, auto const &b) { return a.first < b.first; });
-        std::sort(hintOrbs.begin(), hintOrbs.end(),
-                  [](auto const &a, auto const &b) { return a.first < b.first; });
+        semantic.build(pl);
+        hintObjects = semantic.hazards();
+        hintSolids = semantic.solids();
+        hintOrbs = semantic.orbs();
         for (int i = 0; i < 2; ++i) {
             auto *p = PlayerObject::create(1, 1, pl, pl, true);
             if (!p)
@@ -445,7 +433,9 @@ class Runtime {
                 out.traces[i].push_back({clones[i]->getPositionX(), clones[i]->getPositionY()});
             }
         }
-        out.clearance = 100;
+        out.clearance = 120;
+        out.landingMargin = 0;
+        out.robustness = 1.f;
         for (int t = 0; t < plan.length; ++t) {
             if (Clock::now() >= deadline) {
                 out.interrupted = true;
@@ -501,11 +491,50 @@ class Runtime {
                     break;
                 }
                 out.traces[i].push_back({p->getPositionX(), p->getPositionY()});
+                if (mode(p) == 0 && i == 0) {
+                    auto pos = p->getPosition();
+                    auto pr = p->getObjectRect(.35f, .35f);
+                    auto beginHaz = std::lower_bound(
+                        hintObjects.begin(), hintObjects.end(), pos.x - 100.f,
+                        [](auto const &a, float x) { return a.first < x; });
+                    int seen = 0;
+                    for (auto it = beginHaz; it != hintObjects.end() && it->first <= pos.x + 100.f && seen < 48; ++it) {
+                        auto *o = it->second;
+                        if (!o || o->m_isDisabled || o->m_isDisabled2)
+                            continue;
+                        auto r = o->getObjectRect();
+                        float dxr = std::max({r.getMinX() - pr.getMaxX(), pr.getMinX() - r.getMaxX(), 0.f});
+                        float dyr = std::max({r.getMinY() - pr.getMaxY(), pr.getMinY() - r.getMaxY(), 0.f});
+                        out.clearance = std::min(out.clearance, std::sqrt(dxr * dxr + dyr * dyr));
+                        ++seen;
+                    }
+                }
                 if (needsLanding[i]) {
                     if (!p->m_isOnGround)
                         leftGround[i] = true;
-                    if (leftGround[i] && p->m_isOnGround)
+                    if (leftGround[i] && p->m_isOnGround) {
                         landed[i] = true;
+                        if (i == 0) {
+                            auto pr = p->getObjectRect();
+                            const float px = p->getPositionX();
+                            auto first = std::lower_bound(
+                                hintSolids.begin(), hintSolids.end(), px - 80.f,
+                                [](auto const &a, float x) { return a.first < x; });
+                            for (auto it = first; it != hintSolids.end() && it->first <= px + 80.f; ++it) {
+                                auto *s = it->second;
+                                if (!s || s->m_isDisabled || s->m_isDisabled2)
+                                    continue;
+                                auto sr = s->getObjectRect();
+                                if (std::abs(sr.getMaxY() - pr.getMinY()) > 5.f)
+                                    continue;
+                                if (pr.getMaxX() < sr.getMinX() || pr.getMinX() > sr.getMaxX())
+                                    continue;
+                                const float left = pr.getMinX() - sr.getMinX();
+                                const float right = sr.getMaxX() - pr.getMaxX();
+                                out.landingMargin = std::max(out.landingMargin, std::max(0.f, std::min(left, right)));
+                            }
+                        }
+                    }
                 }
                 // The real layer advances this timer in seconds, separately
                 // from PlayerObject's frame-unit integration argument.
@@ -529,29 +558,9 @@ class Runtime {
         }
         out.landingVerified = out.requiresLanding && allLanded;
         out.firstActionVerified = !out.requiresLanding || allLanded || out.boundary;
-        // Native survival is authoritative only within this frozen-world
-        // rollout; the game can still disagree. Clearance is a tie-breaker.
-        if (out.survived && layer->m_objects) {
-            auto *p = clones[0].data();
-            auto pos = p->getPosition();
-            int checked = 0;
-            auto begin = std::lower_bound(hintObjects.begin(), hintObjects.end(), pos.x - 150,
-                                          [](auto const &a, float x) { return a.first < x; });
-            for (auto it = begin;
-                 it != hintObjects.end() && it->first <= pos.x + 150 && checked < 128; ++it) {
-                auto *o = it->second;
-                if (!o || o->m_isDisabled || std::abs(o->getPositionX() - pos.x) > 100)
-                    continue;
-                if (o->m_objectType != GameObjectType::Hazard &&
-                    o->m_objectType != GameObjectType::AnimatedHazard)
-                    continue;
-                ++checked;
-                auto r = o->getObjectRect();
-                float dx = std::max({r.getMinX() - pos.x, pos.x - r.getMaxX(), 0.f});
-                float dy = std::max({r.getMinY() - pos.y, pos.y - r.getMaxY(), 0.f});
-                out.clearance = std::min(out.clearance, std::sqrt(dx * dx + dy * dy));
-            }
-        }
+        // Robustness is intentionally cheap: map the worst geometric margin to [0,1].
+        // Native collisions remain authoritative; this only ranks surviving candidates.
+        out.robustness = std::clamp(out.clearance / 28.f, 0.f, 1.f);
         return out;
     }
     void tick(float dt) {
@@ -643,7 +652,19 @@ class Runtime {
         // Observe game state and release input every tick. Heavy prediction is
         // 60 Hz during uncontrollable cube flight at 240 TPS, and every tick
         // on the ground, at an orb or in a continuous-control mode.
-        if (pulseMode && !canPress && (ticks & 3) != 0) {
+        bool nearAction = false;
+        if (pulseMode && !canPress) {
+            const float px = p->getPositionX();
+            auto h = std::lower_bound(hintObjects.begin(), hintObjects.end(), px - 12.f,
+                                      [](auto const &a, float x) { return a.first < x; });
+            nearAction = h != hintObjects.end() && h->first <= px + 230.f;
+            if (!nearAction) {
+                auto o = std::lower_bound(hintOrbs.begin(), hintOrbs.end(), px - 12.f,
+                                          [](auto const &a, float x) { return a.first < x; });
+                nearAction = o != hintOrbs.end() && o->first <= px + 230.f;
+            }
+        }
+        if (pulseMode && !canPress && !nearAction && (ticks & 3) != 0) {
             auto shift = [](Evaluation &e) {
                 for (auto &trace : e.traces)
                     if (!trace.empty())
@@ -679,7 +700,9 @@ class Runtime {
             // rolling horizon sees the edge/gap/orb before the takeoff is urgent.
             searchConfig.horizon = std::max(searchConfig.horizon, 216);
             searchConfig.candidates = std::max(searchConfig.candidates, 64);
-            searchConfig.budgetMs = std::max(searchConfig.budgetMs, 1.35);
+            searchConfig.budgetMs = std::max(searchConfig.budgetMs, nearAction ? 2.25 : 1.35);
+            if (nearAction)
+                searchConfig.candidates = std::max(searchConfig.candidates, 80);
         }
         // Cache frozen-world geometry once per tick. Candidate steps query the
         // sorted bounds without repeatedly calling native object functions.
@@ -856,7 +879,7 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.3.2 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
+                "AutoGDBot 0.4.0 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"

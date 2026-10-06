@@ -6,11 +6,11 @@
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v0.3.2",
+  "version": "v0.4.0",
   "developers": [
     "AutoGDBot"
   ],
-  "description": "Realtime rolling-horizon Geometry Dash controller with native rollouts, route lookahead, gap/orb planning and live path rendering.",
+  "description": "Realtime Realtime semantic MPC controller with native rollouts, per-tick replanning, robust clearance scoring and live path rendering.",
   "tags": [
     "gameplay",
     "utility",
