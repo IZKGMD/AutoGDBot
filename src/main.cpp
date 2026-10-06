@@ -274,8 +274,9 @@ class Runtime {
     std::vector<std::pair<float, GameObject *>> hintSolids;
     std::vector<std::pair<float, GameObject *>> hintOrbs;
     GapHint routeGap;
-    HazardClusterHint routeCluster;
     int routeJumpEvents = 0, routeOrbEvents = 0;
+    std::vector<Point> stableTrace;
+    uint64_t stableTraceTick = 0;
     uint64_t ticks = 0;
     bool botHeld = false, wasEnabled = false, gpuTried = false, controlling = false;
     int lastMode = -1;
@@ -365,9 +366,10 @@ class Runtime {
         geometryRejects = 0;
         predictionError = 0;
         routeGap = {};
-        routeCluster = {};
         routeJumpEvents = 0;
         routeOrbEvents = 0;
+        stableTrace.clear();
+        stableTraceTick = 0;
         hazardGuard.set({});
         lastMode = -1;
         decision = {};
@@ -660,8 +662,8 @@ class Runtime {
             // Keep planning while the cube is still on safe ground. The longer
             // rolling horizon sees the edge/gap/orb before the takeoff is urgent.
             searchConfig.horizon = std::max(searchConfig.horizon, 216);
-            searchConfig.candidates = std::max(searchConfig.candidates, 72);
-            searchConfig.budgetMs = std::max(searchConfig.budgetMs, 1.75);
+            searchConfig.candidates = std::max(searchConfig.candidates, 64);
+            searchConfig.budgetMs = std::max(searchConfig.budgetMs, 1.35);
         }
         // Cache frozen-world geometry once per tick. Candidate steps query the
         // sorted bounds without repeatedly calling native object functions.
@@ -679,7 +681,6 @@ class Runtime {
             guardBounds.push_back({r.getMinX(), r.getMinY(), r.getMaxX(), r.getMaxY()});
         }
         routeGap = {};
-        routeCluster = {};
         routeJumpEvents = 0;
         routeOrbEvents = 0;
         if (pulseMode && canPress) {
@@ -713,14 +714,8 @@ class Runtime {
                     auto gap = seedCubeEvents(searchConfig, real->getPositionX(),
                                               real->getObjectRect().getMinY(), travelSteps[i].x,
                                               solids, guardBounds, orbs);
-                    if (i == 0) {
+                    if (i == 0)
                         routeGap = gap;
-                        routeCluster = findForwardHazardCluster(
-                            real->getPositionX(), real->getObjectRect().getMinY(),
-                            travelSteps[i].x, guardBounds,
-                            std::max(420.f, std::abs(travelSteps[i].x) *
-                                                   float(searchConfig.horizon + 24)));
-                    }
                 }
             }
             routeJumpEvents = searchConfig.jumpEventCount;
@@ -732,10 +727,7 @@ class Runtime {
                                         playerRect.getMaxX(), playerRect.getMaxY()},
                                        travelSteps[0].x, guardBounds);
         hazardGuard.set(std::move(guardBounds));
-        // Cube route timing must be deterministic: geometry-derived takeoff
-        // events are already ordered by safety. GPU ordering stays available
-        // for continuous-control modes where it cannot move a jump window.
-        auto priorities = (settings.gpu && !pulseMode) ? gpu.poll() : std::vector<float>{};
+        auto priorities = settings.gpu ? gpu.poll() : std::vector<float>{};
         decision = controller.decide(
             searchConfig, botHeld,
             [&](Plan const &plan, auto deadline) { return evaluate(plan, deadline, dt); },
@@ -842,16 +834,15 @@ class Runtime {
         settings.read();
         if (Clock::now() < redraw)
             return;
-        redraw = Clock::now() +
-                 std::chrono::milliseconds(1000 / std::clamp(settings.traceHz, 5, 20));
+        redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.3.1 STABLE | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
+                "AutoGDBot 0.3.1 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
                 "error={:.2f} | guard={} | light={} | reflex={} | forecast={} | landing={}\n"
-                "route: jumps={} orbs={} gap={} cluster={}",
+                "route: jumps={} orbs={} gap={}",
                 message, decision.elapsedMs, totalMs, decision.candidates, decision.predictedTicks,
                 settings.gpu ? gpu.status() : "CPU", ticks, decision.down ? "DOWN" : "UP",
                 botHeld ? "DOWN" : "UP", inputTransitions, travelSteps[0].x, previousDt,
@@ -866,55 +857,42 @@ class Runtime {
                 decision.selected.requiresLanding
                     ? (decision.selected.landingVerified ? "OK" : "NO")
                     : "n/a",
-                routeJumpEvents, routeOrbEvents, routeGap.found ? "YES" : "no",
-                routeCluster.found ? routeCluster.count : 0)
+                routeJumpEvents, routeOrbEvents, routeGap.found ? "YES" : "no")
                 .c_str());
         label->setColor(decision.hasValidatedInput ? ccColor3B{120, 255, 170}
                                                    : ccColor3B{255, 180, 100});
         draw->clear();
         if (!settings.enabled)
             return;
+        if (layer->m_player1 && !stableTrace.empty()) {
+            auto p = layer->m_player1->getPosition();
+            if (std::hypot(stableTrace.front().x - p.x, stableTrace.front().y - p.y) > 70.f)
+                stableTrace.clear();
+        }
+        if (decision.hasValidatedInput && decision.selected.traces[0].size() >= 6 &&
+            (stableTrace.empty() || ticks >= stableTraceTick + 16)) {
+            stableTrace = decision.selected.traces[0];
+            stableTraceTick = ticks;
+        }
         auto trace = [&](std::vector<Point> const &points, ccColor4F color, float width) {
-            if (points.size() < 2)
-                return;
-            const size_t limit = std::min<size_t>(points.size(), 140);
-            Point last = points[0];
-            size_t lastIndex = 0;
-            for (size_t i = 3; i < limit; i += 3) {
-                auto q = points[i];
-                if (!std::isfinite(q.x) || !std::isfinite(q.y) ||
-                    !std::isfinite(last.x) || !std::isfinite(last.y)) {
-                    last = q;
-                    lastIndex = i;
-                    continue;
-                }
-                const float dx = q.x - last.x;
-                const float dy = q.y - last.y;
-                // Do not draw bogus clone discontinuities / portal jumps as a
-                // giant line across the screen.
-                if (std::abs(dx) <= 72.f && std::abs(dy) <= 96.f)
-                    draw->drawSegment({last.x, last.y}, {q.x, q.y}, width, color);
-                last = q;
-                lastIndex = i;
-            }
-            (void)lastIndex;
-            auto q = points[limit - 1];
-            if (std::isfinite(q.x) && std::isfinite(q.y)) {
-                std::array<CCPoint, 4> v = {
-                    CCPoint{q.x - 4, q.y - 4}, CCPoint{q.x - 4, q.y + 4},
-                    CCPoint{q.x + 4, q.y + 4}, CCPoint{q.x + 4, q.y - 4}};
-                draw->drawPolygon(v.data(), 4, {0, 0, 0, 0}, .35f, color);
+            for (size_t i = 3; i < points.size(); i += 3)
+                draw->drawSegment({points[i - 2].x, points[i - 2].y}, {points[i].x, points[i].y},
+                                  width, color);
+            if (!points.empty()) {
+                auto q = points.back();
+                std::array<CCPoint, 4> v = {CCPoint{q.x - 7, q.y - 7}, CCPoint{q.x - 7, q.y + 7},
+                                            CCPoint{q.x + 7, q.y + 7}, CCPoint{q.x + 7, q.y - 7}};
+                draw->drawPolygon(v.data(), 4, {0, 0, 0, 0}, .5f, color);
             }
         };
+        trace(decision.alternatives[0].traces[0], {1, .25f, .3f, .4f}, .4f);
+        trace(decision.alternatives[1].traces[0], {.35f, .6f, 1, .4f}, .4f);
         bool complete = decision.completeContinuation;
         ccColor4F chosen = decision.selected.died       ? ccColor4F{1, .15f, .15f, .9f}
                            : decision.selected.boundary ? ccColor4F{.3f, .8f, 1, .9f}
                            : complete                   ? ccColor4F{.2f, 1, .45f, .9f}
                                                         : ccColor4F{1, .65f, .1f, .9f};
-        // Only render the route that can actually become input. Alternative
-        // probes are intentionally hidden; they were the main source of the
-        // flickering "spaghetti" trace.
-        trace(decision.selected.traces[0], chosen, .75f);
+        trace(stableTrace, chosen, .85f);
         if (layer->m_player1) {
             float x = layer->m_player1->getPositionX();
             int shown = 0;
@@ -958,6 +936,9 @@ class Runtime {
                 draw->drawSegment({routeGap.landingX, y - 80}, {routeGap.landingX, y + 120}, .5f,
                                   {.4f, 1.f, .55f, .55f});
             }
+            // The selected route line is the only moving forecast overlay.
+            // Input timing remains visible in the HUD instead of flickering as
+            // a cloud of per-tick diamonds.
         }
 
         for (auto *p : {layer->m_player1, layer->m_player2}) {

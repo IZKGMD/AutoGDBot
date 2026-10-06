@@ -13,15 +13,6 @@ struct GapHint {
     int edgeTick = -1;
 };
 
-struct HazardClusterHint {
-    bool found = false;
-    float startX = 0;
-    float endX = 0;
-    float width = 0;
-    int count = 0;
-    int startTick = -1;
-};
-
 // Last-resort reaction for a grounded cube. Keep this deliberately narrow:
 // native rollouts should decide large saws and tall hazards. The reflex exists
 // only for low floor hazards (spikes / short teeth) when the search budget is
@@ -31,42 +22,36 @@ inline bool shouldReflexJump(Bounds player, float dx, std::span<Bounds const> ha
         return false;
     const float playerHeight = std::max(1.f, player.maxY - player.minY);
     const float maxHazardHeight = std::max(38.f, playerHeight * 1.35f);
-    const float baseGap = std::clamp(std::abs(dx) * 52.f, 48.f, 84.f);
-    const float clusterGap = std::clamp(std::abs(dx) * 70.f, 68.f, 112.f);
-
-    struct LowHazard {
-        Bounds b;
-        float gap;
-    };
-    std::vector<LowHazard> low;
-    low.reserve(hazards.size());
+    const float maxGap = std::clamp(std::abs(dx) * 52.f, 48.f, 84.f);
+    std::vector<Bounds> low;
     for (auto b : hazards) {
         const float hazardHeight = b.maxY - b.minY;
         if (hazardHeight > maxHazardHeight)
             continue; // large saw / tall obstacle: let the rollout time it
         if (b.maxY < player.minY + 1.f || b.minY > player.maxY + 14.f)
             continue;
-        float gap = dx > 0 ? b.minX - player.maxX : player.minX - b.maxX;
-        if (gap < -std::abs(dx) * 2.f || gap > clusterGap + 80.f)
-            continue;
-        low.push_back({b, gap});
+        low.push_back(b);
     }
-    std::sort(low.begin(), low.end(), [&](LowHazard const &a, LowHazard const &b) {
-        return a.gap < b.gap;
-    });
+    std::sort(low.begin(), low.end(), [](Bounds a, Bounds b) { return a.minX < b.minX; });
     for (size_t i = 0; i < low.size(); ++i) {
-        bool clustered = false;
-        if (i + 1 < low.size()) {
-            float between = dx > 0 ? low[i + 1].b.minX - low[i].b.maxX
-                                   : low[i].b.minX - low[i + 1].b.maxX;
-            clustered = between <= 24.f;
+        size_t count = 1;
+        float clusterEnd = low[i].maxX;
+        for (size_t j = i + 1; j < low.size(); ++j) {
+            if (low[j].minX - clusterEnd > 38.f)
+                break;
+            clusterEnd = std::max(clusterEnd, low[j].maxX);
+            ++count;
         }
-        const float allowed = clustered ? clusterGap : baseGap;
-        if (low[i].gap <= allowed)
+        float gap = dx > 0 ? low[i].minX - player.maxX : player.minX - low[i].maxX;
+        const float window = count >= 2
+                                 ? std::clamp(std::abs(dx) * 92.f, 86.f, 132.f)
+                                 : maxGap;
+        if (gap >= -std::abs(dx) * 2.f && gap <= window)
             return true;
     }
     return false;
 }
+
 inline void addJumpEvent(Config &cfg, int tick) {
     if (tick < 0 || tick >= cfg.horizon || cfg.jumpEventCount >= int(cfg.jumpEvents.size()))
         return;
@@ -150,59 +135,6 @@ inline GapHint findForwardGap(float x, float footY, float dx, std::span<Bounds c
     return out;
 }
 
-inline HazardClusterHint findForwardHazardCluster(float x, float footY, float dx,
-                                                   std::span<Bounds const> hazards,
-                                                   float lookaheadDistance = 420.f) {
-    HazardClusterHint out;
-    if (!std::isfinite(dx) || std::abs(dx) < .0001f)
-        return out;
-    const float direction = dx > 0 ? 1.f : -1.f;
-
-    std::vector<Bounds> floor;
-    for (auto b : hazards) {
-        if (b.maxY < footY - 3.f || b.minY > footY + 42.f)
-            continue;
-        float face = dx > 0 ? b.minX : b.maxX;
-        float distance = (face - x) * direction;
-        if (distance <= 0 || distance > lookaheadDistance)
-            continue;
-        floor.push_back(b);
-    }
-    std::sort(floor.begin(), floor.end(), [&](Bounds a, Bounds b) {
-        float ax = dx > 0 ? a.minX : -a.maxX;
-        float bx = dx > 0 ? b.minX : -b.maxX;
-        return ax < bx;
-    });
-    if (floor.empty())
-        return out;
-
-    for (size_t i = 0; i < floor.size();) {
-        float startX = dx > 0 ? floor[i].minX : floor[i].maxX;
-        float endX = dx > 0 ? floor[i].maxX : floor[i].minX;
-        int count = 1;
-        size_t j = i + 1;
-        for (; j < floor.size(); ++j) {
-            float gap = dx > 0 ? floor[j].minX - endX : endX - floor[j].maxX;
-            if (gap > 24.f)
-                break;
-            endX = dx > 0 ? std::max(endX, floor[j].maxX) : std::min(endX, floor[j].minX);
-            ++count;
-        }
-        float width = std::abs(endX - startX);
-        if (count >= 2 || width >= 44.f) {
-            out.found = true;
-            out.startX = startX;
-            out.endX = endX;
-            out.width = width;
-            out.count = count;
-            out.startTick = std::max(0, int(std::floor((startX - x) / dx)));
-            return out;
-        }
-        i = j;
-    }
-    return out;
-}
-
 // Seed timing candidates from geometry that is farther ahead than the reflex
 // window. The controller still runs native physics for every accepted plan.
 inline GapHint seedCubeEvents(Config &cfg, float x, float footY, float dx,
@@ -246,16 +178,36 @@ inline GapHint seedCubeEvents(Config &cfg, float x, float footY, float dx,
             addJumpEvent(cfg, std::max(0, gap.edgeTick - lead));
     }
 
-    auto cluster = findForwardHazardCluster(
-        x, footY, dx, hazards, std::max(420.f, std::abs(dx) * float(cfg.horizon + 24)));
-    if (cluster.found) {
-        // Adjacent spikes are less tolerant of a marginal takeoff. Seed the
-        // center of the useful window first, then expand around it.
-        const int widthLead =
-            std::clamp(int(std::lround(cluster.width / std::max(1.f, std::abs(dx)) * .12f)),
-                       0, 10);
-        for (int lead : {34, 38, 30, 42, 26, 46, 22, 50})
-            addJumpEvent(cfg, cluster.startTick - lead - widthLead);
+    struct FloorHazard { float nearDist, farDist; };
+    std::vector<FloorHazard> floorHazards;
+    const float direction = dx > 0 ? 1.f : -1.f;
+    const float speed = std::abs(dx);
+    for (auto b : hazards) {
+        const float h = b.maxY - b.minY;
+        if (h > 46.f || b.maxY < footY || b.minY > footY + 42.f)
+            continue;
+        float nearFace = dx > 0 ? b.minX : b.maxX;
+        float farFace = dx > 0 ? b.maxX : b.minX;
+        float nearDist = (nearFace - x) * direction;
+        float farDist = (farFace - x) * direction;
+        if (farDist > 0)
+            floorHazards.push_back({nearDist, farDist});
+    }
+    std::sort(floorHazards.begin(), floorHazards.end(),
+              [](auto a, auto b) { return a.nearDist < b.nearDist; });
+    for (size_t i = 0; i < floorHazards.size();) {
+        size_t j = i + 1;
+        float end = floorHazards[i].farDist;
+        while (j < floorHazards.size() && floorHazards[j].nearDist - end <= 38.f) {
+            end = std::max(end, floorHazards[j].farDist);
+            ++j;
+        }
+        if (j - i >= 2 && floorHazards[i].nearDist > 0) {
+            int firstTick = int(std::floor(floorHazards[i].nearDist / speed));
+            for (int lead : {40, 48, 56, 64, 72, 80, 88, 96})
+                addJumpEvent(cfg, firstTick - lead);
+        }
+        i = j;
     }
 
     float nearestHazard = float(cfg.horizon + 100);

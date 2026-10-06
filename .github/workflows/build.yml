@@ -3,7 +3,7 @@ name: Build AutoGDBot Realtime
 on:
   workflow_dispatch:
   push:
-    branches: [main, "dev/**", "fix/**"]
+    branches: [main, "dev/**"]
   pull_request:
     branches: [main]
 
@@ -15,14 +15,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Apply pending v0.3.1 stability patches
-        shell: bash
-        run: |
-          for p in tools/v031_core.patch tools/v031_main.patch; do
-            if [ -f "$p" ]; then
-              patch -p1 -F 3 --forward --batch < "$p"
-            fi
-          done
+      - name: Apply route-lookahead v0.3 source patch
+        run: python tools/apply_route_v03.py .
+      - name: Apply stability v0.3.1 patch
+        run: python tools/apply_stability_v031.py .
+      - name: Strengthen warm-plan stability
+        run: python tools/apply_stability_v031_hotfix.py .
       - name: Configure controller tests
         run: cmake -S . -B build-tests -DAUTOGDBOT_BUILD_MOD=OFF -DAUTOGDBOT_BUILD_TESTS=ON
       - name: Build controller tests
@@ -34,14 +32,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Apply pending v0.3.1 stability patches
-        shell: bash
-        run: |
-          for p in tools/v031_core.patch tools/v031_main.patch; do
-            if [ -f "$p" ]; then
-              patch -p1 -F 3 --forward --batch < "$p"
-            fi
-          done
+      - name: Apply route-lookahead v0.3 source patch
+        run: python tools/apply_route_v03.py .
+      - name: Apply stability v0.3.1 patch
+        run: python tools/apply_stability_v031.py .
+      - name: Strengthen warm-plan stability
+        run: python tools/apply_stability_v031_hotfix.py .
       - name: Build Windows x64 Geode mod
         id: build
         uses: geode-sdk/build-geode-mod@main
@@ -53,21 +49,19 @@ jobs:
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AutoGDBot-Realtime-v0.3.1-Windows
+          name: AutoGDBot-Realtime-Windows
           path: ${{ steps.build.outputs.build-output }}
 
   build-android64:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Apply pending v0.3.1 stability patches
-        shell: bash
-        run: |
-          for p in tools/v031_core.patch tools/v031_main.patch; do
-            if [ -f "$p" ]; then
-              patch -p1 -F 3 --forward --batch < "$p"
-            fi
-          done
+      - name: Apply route-lookahead v0.3 source patch
+        run: python tools/apply_route_v03.py .
+      - name: Apply stability v0.3.1 patch
+        run: python tools/apply_stability_v031.py .
+      - name: Strengthen warm-plan stability
+        run: python tools/apply_stability_v031_hotfix.py .
       - name: Build Android64 Geode mod
         id: build
         uses: geode-sdk/build-geode-mod@main
@@ -79,11 +73,11 @@ jobs:
       - name: Upload Android64 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AutoGDBot-Realtime-v0.3.1-Android64
+          name: AutoGDBot-Realtime-Android64
           path: ${{ steps.build.outputs.build-output }}
 
-  materialize-stable-source:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/fix/')
+  materialize-route-source:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/dev/')
     needs: [tests, build-windows, build-android64]
     runs-on: ubuntu-latest
     permissions:
@@ -92,21 +86,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Materialize validated stable source
+      - name: Materialize validated stability source
         shell: bash
         run: |
-          for p in tools/v031_core.patch tools/v031_main.patch; do
-            if [ -f "$p" ]; then
-              patch -p1 -F 3 --forward --batch < "$p"
-            fi
-          done
-          rm -f tools/v031_core.patch tools/v031_main.patch
+          python tools/apply_route_v03.py .
+          python tools/apply_stability_v031.py .
+          python tools/apply_stability_v031_hotfix.py .
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add src/controller.hpp src/planning_hints.hpp src/hazard_guard.hpp src/main.cpp tests/controller_tests.cpp mod.json
           if git diff --cached --quiet; then
-            echo "Stable source already materialized"
+            echo "Stability source already materialized"
             exit 0
           fi
-          git commit -m "source: materialize stable double-spike v0.3.1"
+          git commit -m "source: materialize stability v0.3.1"
           git push origin HEAD:${GITHUB_REF_NAME}

@@ -33,7 +33,7 @@
     "budget-ms": {
       "type": "float",
       "name": "CPU search budget per physics tick (ms)",
-      "default": 1.75,
+      "default": 1.5,
       "min": 0.2,
       "max": 8.0
     },
@@ -47,14 +47,14 @@
     "candidates": {
       "type": "int",
       "name": "Maximum candidates per tick",
-      "default": 72,
+      "default": 64,
       "min": 4,
       "max": 96
     },
     "trace-hz": {
       "type": "int",
       "name": "Trace redraw rate",
-      "default": 18,
+      "default": 20,
       "min": 5,
       "max": 60
     },
