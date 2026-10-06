@@ -4,22 +4,69 @@
     "win": "2.2081",
     "android": "2.2081"
   },
-  "id": "izkgmd.autogdbot",
-  "name": "AutoGDBot",
-  "version": "v0.4.0",
-  "developer": "IZKGMD",
-  "description": "Native real-time Geometry Dash level solver with no external Python process.",
+  "id": "autogdbot.realtime",
+  "name": "AutoGDBot Realtime",
+  "version": "v0.2.1",
+  "developers": [
+    "AutoGDBot"
+  ],
+  "description": "Experimental in-process rolling-horizon controller with native physics rollouts and live traces.",
+  "tags": [
+    "gameplay",
+    "utility",
+    "offline",
+    "cheat"
+  ],
   "settings": {
     "enabled": {
-      "name": "Enable AutoGDBot",
-      "description": "Let AutoGDBot control Player 1 during gameplay.",
       "type": "bool",
+      "name": "Autopilot (experimental)",
+      "description": "Online rolling-horizon control. No level completion is guaranteed. Enable in practice mode first.",
+      "default": false
+    },
+    "traces": {
+      "type": "bool",
+      "name": "Show trajectories and hitboxes",
       "default": true
     },
-    "debug-log": {
-      "name": "Debug log",
-      "description": "Periodically log solver state and decisions.",
+    "gpu": {
       "type": "bool",
+      "name": "GPU candidate ordering",
+      "description": "D3D11 asynchronous candidate ordering on Windows. Android keeps the same CPU-verified planner and falls back to CPU ordering.",
+      "default": true
+    },
+    "budget-ms": {
+      "type": "float",
+      "name": "CPU search budget per physics tick (ms)",
+      "default": 1.0,
+      "min": 0.2,
+      "max": 8.0
+    },
+    "horizon": {
+      "type": "int",
+      "name": "Lookahead in physics ticks",
+      "default": 144,
+      "min": 24,
+      "max": 240
+    },
+    "candidates": {
+      "type": "int",
+      "name": "Maximum candidates per tick",
+      "default": 48,
+      "min": 4,
+      "max": 96
+    },
+    "trace-hz": {
+      "type": "int",
+      "name": "Trace redraw rate",
+      "default": 30,
+      "min": 5,
+      "max": 60
+    },
+    "telemetry": {
+      "type": "bool",
+      "name": "Save timing CSV",
+      "description": "Writes telemetry in the mod save directory every 256 physics ticks.",
       "default": false
     }
   }
