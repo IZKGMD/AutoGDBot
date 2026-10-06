@@ -1,15 +1,16 @@
 {
   "geode": "5.10.1",
   "gd": {
-    "win": "2.2081"
+    "win": "2.2081",
+    "android": "2.2081"
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v0.2.1",
+  "version": "v0.3.0",
   "developers": [
     "AutoGDBot"
   ],
-  "description": "Experimental in-process rolling-horizon controller with native physics rollouts and live traces.",
+  "description": "Realtime rolling-horizon Geometry Dash controller with native rollouts, route lookahead, gap/orb planning and live path rendering.",
   "tags": [
     "gameplay",
     "utility",
@@ -19,39 +20,34 @@
   "settings": {
     "enabled": {
       "type": "bool",
-      "name": "Autopilot (experimental)",
-      "description": "Online rolling-horizon control. No level completion is guaranteed. Enable in practice mode first.",
-      "default": false
-    },
-    "traces": {
-      "type": "bool",
-      "name": "Show trajectories and hitboxes",
+      "name": "Autopilot",
+      "description": "Realtime rolling-horizon control with native physics verification.",
       "default": true
     },
     "gpu": {
       "type": "bool",
-      "name": "GPU candidate ordering (D3D11)",
-      "description": "Asynchronous approximate scoring. The CPU always checks actual candidate trajectories. No fixed CPU/GPU utilization ratio.",
+      "name": "GPU candidate ordering",
+      "description": "D3D11 candidate ordering on Windows; Android uses the same CPU-verified route planner without D3D11.",
       "default": true
     },
     "budget-ms": {
       "type": "float",
       "name": "CPU search budget per physics tick (ms)",
-      "default": 1.0,
+      "default": 1.5,
       "min": 0.2,
       "max": 8.0
     },
     "horizon": {
       "type": "int",
       "name": "Lookahead in physics ticks",
-      "default": 144,
+      "default": 216,
       "min": 24,
       "max": 240
     },
     "candidates": {
       "type": "int",
       "name": "Maximum candidates per tick",
-      "default": 48,
+      "default": 64,
       "min": 4,
       "max": 96
     },
