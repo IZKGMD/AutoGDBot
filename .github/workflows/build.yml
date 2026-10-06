@@ -20,8 +20,7 @@ jobs:
         run: |
           for p in tools/v031_core.patch tools/v031_main.patch; do
             if [ -f "$p" ]; then
-              git apply --check "$p"
-              git apply "$p"
+              patch -p1 -F 3 --forward --batch < "$p"
             fi
           done
       - name: Configure controller tests
@@ -40,8 +39,7 @@ jobs:
         run: |
           for p in tools/v031_core.patch tools/v031_main.patch; do
             if [ -f "$p" ]; then
-              git apply --check "$p"
-              git apply "$p"
+              patch -p1 -F 3 --forward --batch < "$p"
             fi
           done
       - name: Build Windows x64 Geode mod
@@ -67,8 +65,7 @@ jobs:
         run: |
           for p in tools/v031_core.patch tools/v031_main.patch; do
             if [ -f "$p" ]; then
-              git apply --check "$p"
-              git apply "$p"
+              patch -p1 -F 3 --forward --batch < "$p"
             fi
           done
       - name: Build Android64 Geode mod
@@ -100,8 +97,7 @@ jobs:
         run: |
           for p in tools/v031_core.patch tools/v031_main.patch; do
             if [ -f "$p" ]; then
-              git apply --check "$p"
-              git apply "$p"
+              patch -p1 -F 3 --forward --batch < "$p"
             fi
           done
           rm -f tools/v031_core.patch tools/v031_main.patch
