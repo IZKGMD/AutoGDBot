@@ -27,6 +27,8 @@ struct Evaluation {
     bool died = false;
     bool interrupted = false;
     float clearance = 0;
+    float landingMargin = 0;
+    float robustness = 0;
     int buttonChanges = -1;
     bool firstActionVerified = true;
     bool boundary = false;
@@ -120,10 +122,16 @@ class Controller {
             pulseAt(0);
             const int jumpCount = std::clamp(cfg.jumpEventCount, 0, int(cfg.jumpEvents.size()));
             const int orbCount = std::clamp(cfg.orbEventCount, 0, int(cfg.orbEvents.size()));
-            for (int i = 0; i < jumpCount; ++i)
-                pulseAt(cfg.jumpEvents[i]);
-            for (int i = 0; i < orbCount; ++i)
-                pulseAt(cfg.orbEvents[i]);
+            for (int i = 0; i < jumpCount; ++i) {
+                const int t = cfg.jumpEvents[i];
+                for (int d : {0, -1, 1, -2, 2, -3, 3})
+                    pulseAt(t + d);
+            }
+            for (int i = 0; i < orbCount; ++i) {
+                const int t = cfg.orbEvents[i];
+                for (int d : {0, -1, 1, -2, 2})
+                    pulseAt(t + d);
+            }
             // Orbs need two independent cube pulses: one to leave the ground and
             // a later one while touching the ring. Native rollouts still decide
             // whether the pair is actually survivable.
@@ -237,11 +245,19 @@ class Controller {
             for (int k = 0; k < continuityTicks; ++k)
                 continuity += plan.at(k) == warm_.at(k);
             const bool exactWarm = continuityTicks > 0 && continuity == continuityTicks;
+            const float safeClearance = std::clamp(e.clearance, 0.f, 120.f);
+            const float safeLanding = std::clamp(e.landingMargin, 0.f, 80.f);
+            const float robust = std::clamp(e.robustness, 0.f, 1.f);
+            // Clearance is meaningful only when the runtime rollout populated the
+            // robustness metric from the whole trajectory. This prevents an endpoint
+            // or synthetic clearance value from causing an unnecessary jump on open ground.
+            const float marginWeight = robust > 0.f ? 1.f : 0.f;
             float score = e.survived * 10000.f +
-                          std::clamp(e.clearance, 0.f, 100.f) * 18.f - changes * 12.f +
-                          continuity * 10.f;
+                          safeClearance * 85.f * marginWeight +
+                          safeLanding * 55.f * marginWeight + robust * 18000.f -
+                          changes * 18.f + continuity * 5.f;
             if (exactWarm)
-                score += 5000.f;
+                score += 1200.f;
             if (complete)
                 score += 3000000.f;
             if (complete && e.landingVerified)
@@ -268,7 +284,19 @@ class Controller {
                 for (int k = 0; k < n && warmCompatible; ++k)
                     warmCompatible = plan.at(k) == warm_.at(k);
             }
-            return complete && warmCompatible && result.plan.at(0) == plan.at(0) &&
+            // Never stop at the first merely-surviving geometry route. Without a
+            // previously verified warm route, compare the protected timing neighborhood
+            // so a wide-margin takeoff can beat a spike-grazing one. With a warm route,
+            // early-stop is allowed only when that route itself has meaningful margin.
+            const bool currentRobust = robust >= .55f || safeClearance >= 18.f;
+            const bool geometrySensitive = cfg.jumpEventCount > 0 || cfg.orbEventCount > 0 ||
+                                           cfg.landingEventCount > 0;
+            // Open ground keeps the cheap three-evaluation fast path. Around hazards,
+            // orbs and landing chains we compare the protected timing neighborhood unless
+            // an already-verified robust warm route can be reused safely.
+            const bool mayEarlyStop = !geometrySensitive ||
+                                      (warm_.length > 0 && currentRobust && warmCompatible);
+            return complete && mayEarlyStop && result.plan.at(0) == plan.at(0) &&
                    (plan.at(0) == held || (cfg.forceRelease && !plan.at(0)));
         };
         for (int i = 0; i < 2 && i < int(plans.size()) && Clock::now() < deadline; ++i) {
