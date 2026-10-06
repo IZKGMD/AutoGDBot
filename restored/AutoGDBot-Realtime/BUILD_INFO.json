@@ -1,0 +1,58 @@
+{
+  "mod_id": "autogdbot.realtime",
+  "version": "v0.2.1",
+  "target": "Windows x64",
+  "geometry_dash": "2.2081",
+  "geode_sdk": "5.10.1",
+  "geode_cli": "3.9.0",
+  "compiler": "Clang 20.1.2 (MSVC ABI)",
+  "build_type": "Release",
+  "build_platform": "Linux cross-compile with Microsoft CRT/STL and Windows SDK 10.0.26100",
+  "bindings": {
+    "commit": "f050fd74ad531b0827377c97510cb807903ff1b3",
+    "geometry_dash_bro_matches_commit": true,
+    "sha256": "eb74b42cfc6c03f7665f1cf6ed1a5ba21b3f333edeee1f1ff0264851e7cd0272"
+  },
+  "gameplay_verified": false,
+  "deadlocked_verified": false,
+  "bloodbath_verified": false,
+  "gpu_runtime_verified": false,
+  "fps_measured": false,
+  "source_sha256": {
+    ".clang-format": "3b8ff56e5bb3dec7ed2a63be24f7f98dfc640b0583c20c861580c46fe9fdfca2",
+    ".github/workflows/build.yml": "1f5f03e73945daca605fcccb54bee006d17046d3544862931cfd25488b54d725",
+    ".gitignore": "b828a867f35f54da68a00619cdadabd582430c81e95dcdab7fcccb92ab6ad41c",
+    "CMakeLists.txt": "14702d216417320763247eefc7d6ade8b2befdcd43e77f26bd707c2a5a6b11c6",
+    "LICENSE": "ff16309cdfea38d94481c1e268107eaf996b2809116e5973d35bc5b52550b2e1",
+    "README.md": "98aac17d48a398abcb22a8ae5e3ece279ac8dd0f8f83925240f307d838c8e7f8",
+    "SOURCES.md": "7dc797e4c24c384a3c45f12a0258320bc4897de7309bdc4d794728678f50ae6f",
+    "VALIDATION.md": "751cae3068166f7e050e5f4548577596d599d9ee25c4f411111d4e4ebff5d062",
+    "VIDEO_ANALYSIS.md": "b63820efa6ef8b12a0778dcf1cb660109fcb5a97a8c8a29d469127143cbcde74",
+    "mod.json": "4dd1ac17a9cdca95bbc4f000e4a8f3d2e9ea05fa73c2bb8ac2dfe39929e2a1b4",
+    "original/main.cpp": "6094a8a6bc3567e3949dc392f345cccafcbe7209a809558a002be03833176d24",
+    "src/controller.hpp": "4b6b7be46ca6212ca0921ce7e5c161177eaa289d433ab0f3934bbdc7fe10d3ed",
+    "src/gpu_ranker.cpp": "23daf8cdd17f5a85a5384d219e32dafee254438309872cd44d7e51e285e7f688",
+    "src/gpu_ranker.hpp": "eb1fbb55da5ace89a4da12606259ed5d6528a8546e7e50f52af6d505425f1c30",
+    "src/hazard_guard.hpp": "991b2a878c102bd420b2cb3a2a5ed6454da5f942212ac4c5be9e0e92e2a442c2",
+    "src/input_motion.hpp": "7acd5a28c7ead4e01ab1f81966292631581f6e93c8c4a807a1a2b69a54075812",
+    "src/main.cpp": "a6ad0eb72d86cde8c1daa33ef1e47b97d0f3556f28578cda983f77eea85a1a53",
+    "src/planning_hints.hpp": "c13720ba0bff8f37d4e9fc87493b06f2b008ede678518eef40e565b039a48e22",
+    "src/player_scalars.inc": "a1fe6526c01675a8f6e819cfac7f8f1e6c0aa2f6cb767b8d1265d05ff51f8a96",
+    "tests/controller_tests.cpp": "e67bd799f21aebbaf3682535f35701576af5eefe2ccc7d8a9041359a040949a6",
+    "tools/build.ps1": "b177a494d71a79f2cff6454255620cd15da058096f2ad517528fd01770aed9eb"
+  },
+  "package_sha256": "b725ffa52087a4431bd5957061d391bd1d018db03206ff4fb551fe3e3ffd9c6b",
+  "prior_user_video": {
+    "version": "v0.1.4",
+    "level": "Stereo Madness",
+    "shown_percent": 14,
+    "completed": false
+  },
+  "prior_user_screenshot": {
+    "version": "v0.2.0",
+    "level": "Stereo Madness",
+    "shown_percent": 22,
+    "completed": false,
+    "failure": "floor spike"
+  }
+}

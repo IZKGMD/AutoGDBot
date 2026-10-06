@@ -1,0 +1,22 @@
+name: Windows Geode package
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: geode-sdk/build-geode-mod@main
+        id: build
+        with:
+          sdk: given
+          cli: v3.9.0
+          target: Win64
+          bindings-ref: f050fd74ad531b0827377c97510cb807903ff1b3
+          build-config: Release
+          use-lto: false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AutoGDBot-Windows-experimental
+          path: ${{ steps.build.outputs.build-output }}
