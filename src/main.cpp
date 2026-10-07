@@ -290,6 +290,10 @@ class Runtime {
     std::array<Point, 2> previousPositions{}, travelSteps{};
     float previousDt = 0;
     bool motionValid = false, inputPending = false;
+    bool nativeCommandActive = false, nativeSawDown = false;
+    unsigned nativeUpdates = 0, nativeCollisions = 0, nativeUpdatesInside = 0;
+    uint64_t inputPhaseMismatches = 0;
+    std::string lastAttempt;
     uint64_t inputTransitions = 0;
     uint64_t reflexJumps = 0;
     uint64_t lightTicks = 0;
@@ -353,6 +357,19 @@ class Runtime {
         botHeld = false;
     }
     void reset() {
+        if (ticks > 0) {
+            auto *p = layer ? layer->m_player1 : nullptr;
+            lastAttempt = fmt::format(
+                "last attempt: step={} x={:.1f} want={} held={} native={} U={}/{} C={} mismatch={} | "
+                "route={} rejected={} best={} deaths={} landing={} timeout={}",
+                ticks, p ? p->getPositionX() : 0.f, decision.down ? "DOWN" : "UP",
+                botHeld ? "DOWN" : "UP", nativeSawDown ? "DOWN" : "UP",
+                nativeUpdates, nativeUpdatesInside, nativeCollisions, inputPhaseMismatches,
+                decision.hasValidatedInput ? "OK" : "NONE", decision.rejectedUnsafe,
+                decision.bestRejectedTicks, decision.deaths, decision.landingRejects,
+                decision.interruptions);
+        }
+        flush();
         releaseLiveInput();
         controller.reset();
         timing.reset();
@@ -365,6 +382,10 @@ class Runtime {
         positionValid = false;
         motionValid = false;
         inputPending = false;
+        nativeCommandActive = false;
+        nativeSawDown = false;
+        nativeUpdates = nativeCollisions = nativeUpdatesInside = 0;
+        inputPhaseMismatches = 0;
         previousDt = 0;
         inputTransitions = 0;
         reflexJumps = 0;
@@ -388,7 +409,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.5.1.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.5.2.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -899,13 +920,14 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.5.1 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
+                "AutoGDBot 0.5.2 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
                 "error={:.2f} | guard={} | light={} | reflex={} | forecast={} | landing={}\n"
                 "route: jumps={} orbs={} gap={} | rejected={} | order={}{}\n"
-                "failure: best={} deaths={} landing={} timeout={} | landings={}",
+                "failure: best={} deaths={} landing={} timeout={} | landings={}\n"
+                "native: U={}/{} C={} saw={} mismatch={}\n{}",
                 message, decision.elapsedMs, totalMs, decision.candidates, decision.predictedTicks,
                 settings.gpu ? gpu.status() : "CPU", ticks, decision.down ? "DOWN" : "UP",
                 botHeld ? "DOWN" : "UP", inputTransitions, travelSteps[0].x, previousDt,
@@ -924,7 +946,8 @@ class Runtime {
                 decision.rejectedUnsafe, physicsOrder.collisionFirst ? "C-U" : "U-C",
                 physicsOrder.measured ? "*" : "?", decision.bestRejectedTicks,
                 decision.deaths, decision.landingRejects, decision.interruptions,
-                decision.selected.landingCount)
+                decision.selected.landingCount, nativeUpdates, nativeUpdatesInside, nativeCollisions,
+                nativeSawDown ? "DOWN" : "UP", inputPhaseMismatches, lastAttempt)
                 .c_str());
         label->setColor(decision.hasValidatedInput ? ccColor3B{120, 255, 170}
                                                    : ccColor3B{255, 180, 100});
@@ -1070,17 +1093,22 @@ class $modify(AGBPlayLayer, PlayLayer) {
 };
 class $modify(AGBBaseLayer, GJBaseGameLayer) {
     void processCommands(float dt, bool half, bool last) {
-        if (agb::active && static_cast<GJBaseGameLayer *>(agb::active->layer) == this &&
-            !agb::sim.active)
+        const bool live = agb::active && !agb::sim.active &&
+                          static_cast<GJBaseGameLayer *>(agb::active->layer) == this;
+        if (live) {
             agb::active->tick(dt);
-        if (agb::active && !agb::sim.active)
             agb::active->physicsOrder.begin();
-        GJBaseGameLayer::processCommands(dt, half, last);
-        // Native queued input has now been processed; inject the selected
-        // state directly before the current physics tick advances the player.
-        if (agb::active && static_cast<GJBaseGameLayer *>(agb::active->layer) == this &&
-            !agb::sim.active) {
+            agb::active->nativeUpdates = agb::active->nativeCollisions =
+                agb::active->nativeUpdatesInside = 0;
+            agb::active->nativeSawDown = false;
+            // The selected action belongs to this very substep. The native
+            // processCommands call may already update the player and collide.
             agb::active->applyInput();
+            agb::active->nativeCommandActive = true;
+        }
+        GJBaseGameLayer::processCommands(dt, half, last);
+        if (live) {
+            agb::active->nativeCommandActive = false;
             agb::active->recordTelemetry();
         }
     }
@@ -1094,6 +1122,7 @@ class $modify(AGBBaseLayer, GJBaseGameLayer) {
         if (agb::active && !agb::sim.active && p == agb::active->layer->m_player1) {
             agb::active->physicsOrder.collision();
             agb::active->timing.observeNative(dt);
+            ++agb::active->nativeCollisions;
         }
         return GJBaseGameLayer::checkCollisions(p, dt, ignoreDamage);
     }
@@ -1155,6 +1184,12 @@ class $modify(AGBPlayer, PlayerObject) {
         if (agb::active && !agb::sim.active && this == agb::active->layer->m_player1) {
             agb::active->timing.observeNative(dt);
             agb::active->physicsOrder.update();
+            ++agb::active->nativeUpdates;
+            agb::active->nativeUpdatesInside += agb::active->nativeCommandActive;
+            agb::active->nativeSawDown = m_holdingButtons[1];
+            if (agb::active->controlling &&
+                agb::active->nativeSawDown != agb::active->decision.down)
+                ++agb::active->inputPhaseMismatches;
         }
         PlayerObject::update(dt);
     }
@@ -1184,4 +1219,3 @@ class $modify(AGBRing, RingObject) {
         RingObject::spawnCircle();
     }
 };
-
