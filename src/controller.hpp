@@ -134,19 +134,8 @@ class Controller {
             pulseAt(0);
             const int jumpCount = std::clamp(cfg.jumpEventCount, 0, int(cfg.jumpEvents.size()));
             const int orbCount = std::clamp(cfg.orbEventCount, 0, int(cfg.orbEvents.size()));
-            for (int i = 0; i < jumpCount; ++i) {
-                const int t = cfg.jumpEvents[i];
-                for (int d : {0, -1, 1, -2, 2, -3, 3})
-                    pulseAt(t + d);
-            }
-            for (int i = 0; i < orbCount; ++i) {
-                const int t = cfg.orbEvents[i];
-                for (int d : {0, -1, 1, -2, 2})
-                    pulseAt(t + d);
-            }
-            // Orbs need two independent cube pulses: one to leave the ground and
-            // a later one while touching the ring. Native rollouts still decide
-            // whether the pair is actually survivable.
+            // Multi-action routes are more informative than isolated timing
+            // probes and must fit even under a tiny candidate budget.
             int paired = 0;
             for (int i = 0; i < jumpCount && paired < 16; ++i) {
                 for (int j = 0; j < orbCount && paired < 16; ++j) {
@@ -161,6 +150,16 @@ class Controller {
                     add(p);
                     paired += plans.size() != before;
                 }
+            }
+            for (int i = 0; i < jumpCount; ++i) {
+                const int t = cfg.jumpEvents[i];
+                for (int d : {0, -1, 1, -2, 2, -3, 3})
+                    pulseAt(t + d);
+            }
+            for (int i = 0; i < orbCount; ++i) {
+                const int t = cfg.orbEvents[i];
+                for (int d : {0, -1, 1, -2, 2})
+                    pulseAt(t + d);
             }
             const int landingCount =
                 std::clamp(cfg.landingEventCount, 0, int(cfg.landingEvents.size()));
