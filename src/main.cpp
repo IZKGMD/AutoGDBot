@@ -476,7 +476,11 @@ class Runtime {
                 out.groundedActions.push_back(t);
             if (pulseMode && orbContact && !pulse.mustRelease()) {
                 addOrbAction(t);
-                out.decisionPoint = true;
+                // A ring already touching the real/clone player at t=0 is a
+                // decision that must be evaluated now, not a future handoff.
+                // Future contacts are safe replanning boundaries.
+                if (t > 0)
+                    out.decisionPoint = true;
             }
             const bool requested = schedule.request(t < plan.length && plan.at(t),
                 clones[0]->m_isOnGround, pulse.mustRelease(), pulseMode && t < plan.length);
