@@ -98,6 +98,13 @@ struct Decision {
     int guardDeaths = 0, nativeDeaths = 0, interruptions = 0;
     double elapsedMs = 0;
     std::array<int, 2> firstActionCandidates{};
+    // Realtime reachability witnesses. A button is executable only after at
+    // least one native rollout proves a safe continuation for that exact
+    // realized first input. Class 3 = horizon/event, 2 = safe receding prefix.
+    std::array<bool, 2> firstActionCertified{};
+    std::array<uint8_t, 2> firstActionClass{};
+    std::array<float, 2> firstActionNearClearance{};
+    std::array<float, 2> firstActionRobustness{};
     Plan plan;
     Evaluation selected;
     std::array<Evaluation, 2> alternatives;
@@ -635,6 +642,35 @@ class Controller {
         Decision recovery;
         float recoveryScore = -std::numeric_limits<float>::infinity();
         std::array<bool, 2> immediateOrbEvaluated{};
+        struct ReachabilityBest {
+            bool valid = false;
+            uint8_t safetyClass = 0;
+            float nearClearance = 0, clearance = 0, robustness = 0, landingMargin = 0;
+            int survived = 0, certificateTicks = 0;
+            float score = -std::numeric_limits<float>::infinity();
+            bool complete = false;
+            Plan plan;
+            Evaluation evaluation;
+        };
+        std::array<ReachabilityBest, 2> reachable{};
+        auto betterReachability = [&](ReachabilityBest const &a, ReachabilityBest const &b) {
+            if (!a.valid) return false;
+            if (!b.valid) return true;
+            if (a.safetyClass != b.safetyClass) return a.safetyClass > b.safetyClass;
+            // Bucket tiny native-float noise. A materially wider route wins
+            // before progress/continuity bonuses can persuade the controller
+            // to jump into a tighter corridor.
+            if (std::abs(a.nearClearance - b.nearClearance) > 1.5f)
+                return a.nearClearance > b.nearClearance;
+            if (std::abs(a.robustness - b.robustness) > .05f)
+                return a.robustness > b.robustness;
+            if (std::abs(a.clearance - b.clearance) > 2.f)
+                return a.clearance > b.clearance;
+            if (std::abs(a.landingMargin - b.landingMargin) > 2.f)
+                return a.landingMargin > b.landingMargin;
+            if (a.survived != b.survived) return a.survived > b.survived;
+            return a.score > b.score;
+        };
         const double safeTickSeconds =
             std::clamp(cfg.tickSeconds, 1.0 / 1000.0, 1.0 / 30.0);
         auto secondsToTicks = [&](double seconds) {
@@ -783,6 +819,31 @@ class Controller {
                 if (realizedPress)
                     score += 4000.f;
             }
+
+            // gdsolver-style realtime reachability partition: keep the best
+            // certified future for UP and DOWN separately, from the exact
+            // native-realized input rather than from the requested plan bit.
+            // This prevents a good trace from one action being used to justify
+            // execution of the other action after ring/pulse semantics.
+            const bool realizedDown = e.hasRealized ? e.realized.at(0) : plan.at(0);
+            const int action = realizedDown ? 1 : 0;
+            ReachabilityBest witness;
+            witness.valid = true;
+            witness.safetyClass = uint8_t((complete || eventCertified) ? 3 : 2);
+            witness.nearClearance = nearClearance;
+            witness.clearance = safeClearance;
+            witness.robustness = robust;
+            witness.landingMargin = safeLanding;
+            witness.survived = e.survived;
+            witness.certificateTicks =
+                complete ? std::min(cfg.horizon, e.survived)
+                         : (eventCertified ? e.survived : minCertificateTicks);
+            witness.score = score;
+            witness.complete = complete;
+            witness.plan = e.hasRealized ? e.realized : plan;
+            witness.evaluation = e;
+            if (betterReachability(witness, reachable[action]))
+                reachable[action] = std::move(witness);
 
             if (score > bestScore) {
                 bestScore = score;
@@ -1002,6 +1063,40 @@ class Controller {
             if (consider(plans[i], std::move(e)))
                 break;
         }
+        // Choose between the two reachable first-input sets lexicographically,
+        // not by one blended score. This is the realtime counterpart of
+        // reachability-DP state partitioning: survival class and margin are
+        // authoritative, score only breaks genuinely similar safe futures.
+        for (int a = 0; a < 2; ++a) {
+            result.firstActionCertified[a] = reachable[a].valid;
+            result.firstActionClass[a] = reachable[a].safetyClass;
+            result.firstActionNearClearance[a] = reachable[a].nearClearance;
+            result.firstActionRobustness[a] = reachable[a].robustness;
+        }
+        if (cfg.compareFirstActions && !cfg.forceRelease &&
+            (reachable[0].valid || reachable[1].valid)) {
+            int winner = reachable[1].valid && betterReachability(reachable[1], reachable[0]) ? 1 : 0;
+            // Near an actual ring, an equally safe DOWN witness may be the
+            // only route that preserves the required interaction. It may win
+            // only inside a narrow safety tie; larger margin differences stay
+            // survival-first.
+            if (cfg.immediateOrb && reachable[1].valid && reachable[0].valid &&
+                reachable[1].safetyClass == reachable[0].safetyClass &&
+                reachable[1].nearClearance + 1.5f >= reachable[0].nearClearance &&
+                reachable[1].robustness + .05f >= reachable[0].robustness)
+                winner = 1;
+            auto const &w = reachable[winner];
+            result.down = winner != 0;
+            result.predictedTicks = w.survived;
+            result.certificateTicks = w.certificateTicks;
+            result.hasValidatedInput = true;
+            result.completeContinuation = w.complete;
+            result.recedingCertificate = !w.complete;
+            result.recoveryInput = false;
+            result.plan = w.plan;
+            result.selected = w.evaluation;
+        }
+
         if (result.hasValidatedInput && result.completeContinuation) {
             warm_ = result.plan;
             warm_.length = std::min(warm_.length, result.selected.survived);
