@@ -7,6 +7,7 @@
 #include <limits>
 #include <vector>
 #include <utility>
+#include "mode_policy.hpp"
 
 namespace agb {
 constexpr int MaxPlanningHorizon = 240;
@@ -17,18 +18,7 @@ struct Point {
     float x{}, y{};
 };
 
-enum class PlannerMode : uint8_t {
-    Cube = 0,
-    Ship = 1,
-    Ball = 2,
-    Ufo = 3,
-    Wave = 4,
-    Robot = 5,
-    Spider = 6,
-    Swing = 7,
-    Dash = 8,
-    Generic = 255
-};
+struct ControlOpportunity { int tick = 0; PlannerMode mode = PlannerMode::Generic; };
 struct Plan {
     std::array<uint8_t, MaxHorizon> buttons{};
     int length = 0;
@@ -60,6 +50,7 @@ struct Evaluation {
     std::vector<int> groundedActions; // native-confirmed opportunities for a continuation
     std::vector<int> orbActions;      // native-confirmed ring contact ticks
     std::vector<int> dashActions;     // contacts requiring a hold after the rising edge
+    std::vector<ControlOpportunity> controlActions;
 
 };
 struct Config {
@@ -70,6 +61,9 @@ struct Config {
     bool cubePulsePlanning = false;
     bool immediateOrb = false; // touching or within the certified pre-contact orb window
     PlannerMode plannerMode = PlannerMode::Generic;
+    PlannerMode secondaryMode = PlannerMode::Generic;
+    bool dual = false;
+    bool compareFirstActions = false;
     std::array<int, 32> jumpEvents{};
     int jumpEventCount = 0;
     std::array<int, 32> orbEvents{};
@@ -116,6 +110,28 @@ class Controller {
     std::vector<Plan> propose(Config cfg, bool held) {
         cfg.horizon = std::clamp(cfg.horizon, 24, MaxPlanningHorizon);
         cfg.candidates = std::clamp(cfg.candidates, 4, MaxCandidates);
+        if (cfg.dual && cfg.secondaryMode != PlannerMode::Generic &&
+            cfg.secondaryMode != cfg.plannerMode) {
+            Config primary = cfg;
+            primary.dual = false;
+            primary.cubePulsePlanning = primary.plannerMode == PlannerMode::Cube;
+            Config secondary = primary;
+            secondary.plannerMode = cfg.secondaryMode;
+            secondary.cubePulsePlanning = secondary.plannerMode == PlannerMode::Cube;
+            auto a = propose(primary, held), b = propose(secondary, held);
+            std::vector<Plan> merged;
+            for (size_t i = 0; i < std::max(a.size(), b.size()); ++i) {
+                for (auto const *list : {&a, &b}) {
+                    if (i >= list->size() || int(merged.size()) >= cfg.candidates) continue;
+                    auto const &p = (*list)[i];
+                    bool duplicate = false;
+                    for (auto const &old : merged)
+                        duplicate |= old.buttons == p.buttons && old.landingDelay == p.landingDelay;
+                    if (!duplicate) merged.push_back(p);
+                }
+            }
+            return merged;
+        }
         std::vector<Plan> plans;
         plans.reserve(cfg.candidates);
         const double tickSeconds =
@@ -362,7 +378,12 @@ class Controller {
             // Real ring contacts are timing-critical in every game mode, not
             // only cube. Seed an explicit rising edge at the native contact
             // window before filling the rest of the mode-specific candidates.
-            for (int i = 0; i < orbCount && i < 12; ++i) {
+            // Reserve immediate control before distant ring events. A large
+            // orb array used to fill the entire cheap ship/robot action list.
+            constant(false);
+            if (!discretePulseMode) constant(true);
+            else edgePulse(0, false);
+            for (int i = 0; i < orbCount && i < 3; ++i) {
                 edgePulse(cfg.orbEvents[i], false);
                 edgePulse(cfg.orbEvents[i], held);
             }
@@ -442,6 +463,22 @@ class Controller {
                 Plan flipped = warm;
                 flipped.buttons[0] = !warm.at(0);
                 add(flipped);
+
+                // Put recurrent steering in the first few slots. Previously
+                // single-switch plans consumed all 10-40 fast/rescue slots
+                // before PWM or a second correction could be proposed.
+                if (cfg.plannerMode == PlannerMode::Ship) {
+                    for (int basePeriod : {16, 32, 48}) {
+                        const int period = T(basePeriod);
+                        pwm(period, std::max(1, period / 2), 0);
+                        pwm(period, std::max(1, period / 3), period / 2);
+                    }
+                } else {
+                    for (int basePeriod : {24, 48, 72}) {
+                        const int period = T(basePeriod);
+                        pwm(period, std::max(1, period / 2), 0);
+                    }
+                }
 
                 for (int base : {1, 2, 3, 4, 6, 8, 12, 18, 24, 32, 40, 48, 64, 80, 96, 120, 144, 180})
                     for (bool first : {held, !held})
@@ -647,6 +684,8 @@ class Controller {
                 !cfg.immediateOrb || (immediateOrbEvaluated[0] && immediateOrbEvaluated[1]);
             const bool mayEarlyStop =
                 comparedImmediateOrb &&
+                (!cfg.compareFirstActions ||
+                 (immediateOrbEvaluated[0] && immediateOrbEvaluated[1])) &&
                 (!geometrySensitive ||
                  (warm_.length > 0 && currentRobust && warmCompatible));
             // Receding certificates are intentionally compared against more
@@ -667,6 +706,7 @@ class Controller {
             std::stable_sort(order.begin() + protectedCount, order.end(),
                              [&](int a, int b) { return priority[a] > priority[b]; });
         int furthestFailure = -1;
+        std::array<int, 2> furthestControlFailure{-1, -1};
         for (size_t cursor = 0; cursor < order.size(); ++cursor) {
             const int i = order[cursor];
             if (Clock::now() >= deadline) {
@@ -722,6 +762,52 @@ class Controller {
                         children.push_back(int(plans.size()));
                         plans.push_back(child);
                         ++emitted;
+                    }
+                }
+                order.insert(order.begin() + cursor + 1, children.begin(), children.end());
+            }
+
+            // Repair failed native trajectories at mode-valid control times.
+            // This can add multiple non-periodic corrections, preserving the
+            // already observed prefix instead of replacing the whole route.
+            const int first = plans[i].at(0) ? 1 : 0;
+            if (e.died && e.survived > furthestControlFailure[first] &&
+                !e.controlActions.empty() && int(plans.size()) < cfg.candidates) {
+                furthestControlFailure[first] = e.survived;
+                std::vector<int> children;
+                for (int baseLead : {24, 48, 12, 64, 96, 8}) {
+                    const int lead = std::max(1, int(std::lround((baseLead / 240.0) / safeTickSeconds)));
+                    const int target = std::max(0, e.survived - lead);
+                    for (PlannerMode m : {cfg.plannerMode, cfg.secondaryMode}) {
+                        if (m == PlannerMode::Generic) continue;
+                        auto it = std::find_if(e.controlActions.rbegin(), e.controlActions.rend(),
+                            [&](ControlOpportunity o) { return o.mode == m && o.tick <= target; });
+                        if (it == e.controlActions.rend()) continue;
+                        const int at = it->tick;
+                        const auto input = modePolicy(m).input;
+                        for (int duration : {1, 8, 24, 64}) {
+                            const bool edge = input == InputKind::GroundPulse ||
+                                input == InputKind::GroundEdge || input == InputKind::AirEdge;
+                            if (edge && duration != 1) break;
+                            if (int(plans.size()) >= cfg.candidates || children.size() >= 8) break;
+                            Plan child = plans[i];
+                            if (e.hasRealized)
+                                std::copy_n(e.realized.buttons.begin(), at, child.buttons.begin());
+                            child.length = cfg.horizon;
+                            child.landingDelay = -1;
+                            const bool down = edge || input == InputKind::JumpHold ? true : !child.at(at);
+                            if ((edge || input == InputKind::JumpHold) && at > 0) child.buttons[at - 1] = false;
+                            const int hold = std::max(1, int(std::lround((duration / 240.0) / safeTickSeconds)));
+                            const int end = std::min(cfg.horizon, at + hold);
+                            std::fill(child.buttons.begin() + at, child.buttons.begin() + end, down);
+                            if (end < cfg.horizon && (edge || input == InputKind::JumpHold)) child.buttons[end] = false;
+                            bool duplicate = false;
+                            for (auto const &old : plans)
+                                duplicate |= old.buttons == child.buttons && old.landingDelay == child.landingDelay;
+                            if (duplicate) continue;
+                            children.push_back(int(plans.size()));
+                            plans.push_back(child);
+                        }
                     }
                 }
                 order.insert(order.begin() + cursor + 1, children.begin(), children.end());

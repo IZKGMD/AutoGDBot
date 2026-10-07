@@ -10,6 +10,7 @@
 #include "gpu_ranker.hpp"
 #include "input_motion.hpp"
 #include "hazard_guard.hpp"
+#include "landing_frame.hpp"
 #include "planning_hints.hpp"
 #include "semantic_map.hpp"
 #include "object_semantics.hpp"
@@ -148,15 +149,24 @@ static bool orbObject(GameObject *o) {
 static bool boundaryObject(GameObject *o) {
     return isForecastBoundary(o);
 }
-static int mode(PlayerObject *p) {
-    return p->m_isShip     ? 1
-           : p->m_isBall   ? 2
-           : p->m_isBird   ? 3
-           : p->m_isDart   ? 4
-           : p->m_isRobot  ? 5
-           : p->m_isSpider ? 6
-           : p->m_isSwing  ? 7
-                           : 0;
+static ModeState modeState(PlayerObject *p) {
+    ModeState s;
+    if (!p) return s;
+    s.flags = uint8_t(p->m_isShip | (p->m_isBall << 1) | (p->m_isBird << 2) |
+        (p->m_isDart << 3) | (p->m_isRobot << 4) | (p->m_isSpider << 5) |
+        (p->m_isSwing << 6));
+    s.mode = modeFromFlags(s.flags);
+    s.mini = p->m_vehicleSize < .75f;
+    s.upsideDown = p->m_isUpsideDown;
+    s.sideways = p->m_isSideways;
+    s.goingLeft = p->m_isGoingLeft;
+    s.dash = p->m_isDashing;
+    s.speed = int(std::round(p->m_playerSpeed * 1000.f));
+    return s;
+}
+static int mode(PlayerObject *p) { return int(modeState(p).mode); }
+static bool landingMode(PlayerObject *p) {
+    return p && modePolicy(modeState(p).controlMode()).mustLand;
 }
 static bool cubePulseMode(PlayerObject *p1, PlayerObject *p2, bool dual) {
     return p1 && mode(p1) == 0 && !p1->m_isDashing &&
@@ -238,7 +248,8 @@ class Runtime {
     uint64_t stableTraceTick = 0;
     uint64_t ticks = 0;
     bool botHeld = false, wasEnabled = false, gpuTried = false, controlling = false;
-    int lastMode = -1;
+    std::array<ModeState, 2> lastModes{};
+    bool modeStateValid = false, lastDual = false;
     CCPoint lastPosition;
     bool positionValid = false;
     std::array<Point, 2> previousPositions{}, travelSteps{};
@@ -341,71 +352,54 @@ class Runtime {
     }
 
     int landingRunwayTicks(PlayerObject *p, float dx) const {
-        if (!p || !std::isfinite(dx) || std::abs(dx) < .0001f)
-            return MaxHorizon;
-        auto pr = p->getObjectRect(.35f, .35f);
-        const float footY = pr.getMinY();
+        if (!p || !std::isfinite(dx) || std::abs(dx) < .0001f) return MaxHorizon;
+        auto local = [&](CCRect r) {
+            return landingFrame({r.getMinX(), r.getMinY(), r.getMaxX(), r.getMaxY()},
+                                p->m_isSideways, p->m_isUpsideDown);
+        };
+        const auto pr = local(p->getObjectRect(.35f, .35f));
         const float dir = dx > 0 ? 1.f : -1.f;
         const float speed = std::abs(dx);
         float best = std::numeric_limits<float>::infinity();
-
+        auto nearby = [&](auto const &objects, auto visit) {
+            const float px = p->getPositionX();
+            auto first = p->m_isSideways ? objects.begin() : std::lower_bound(
+                objects.begin(), objects.end(), px - 260.f,
+                [](auto const &a, float x) { return a.first < x; });
+            for (auto it = first; it != objects.end(); ++it) {
+                if (!p->m_isSideways && it->first > px + 260.f) break;
+                auto *o = it->second;
+                if (!o || o->m_isDisabled || o->m_isDisabled2) continue;
+                auto b = local(o->getObjectRect());
+                if (b.maxX >= pr.minX - 260.f && b.minX <= pr.maxX + 260.f) visit(b);
+            }
+        };
         std::vector<std::pair<float, float>> support;
-        const float px = p->getPositionX();
-        auto first = std::lower_bound(
-            hintSolids.begin(), hintSolids.end(), px - 240.f,
-            [](auto const &a, float x) { return a.first < x; });
-        for (auto it = first; it != hintSolids.end() && it->first <= px + 240.f; ++it) {
-            auto *o = it->second;
-            if (!o || o->m_isDisabled || o->m_isDisabled2)
-                continue;
-            auto r = o->getObjectRect();
-            if (std::abs(r.getMaxY() - footY) <= 5.f)
-                support.emplace_back(r.getMinX(), r.getMaxX());
-        }
+        nearby(hintSolids, [&](Bounds b) {
+            if (std::abs(b.maxY - pr.minY) <= 5.f) support.emplace_back(b.minX, b.maxX);
+        });
         std::sort(support.begin(), support.end());
         std::vector<std::pair<float, float>> merged;
         for (auto span : support) {
             if (!merged.empty() && span.first <= merged.back().second + 1.5f)
                 merged.back().second = std::max(merged.back().second, span.second);
-            else
-                merged.push_back(span);
+            else merged.push_back(span);
         }
         for (auto span : merged) {
-            if (pr.getMaxX() < span.first || pr.getMinX() > span.second)
-                continue;
-            const float runway =
-                dx > 0 ? span.second - pr.getMaxX() : pr.getMinX() - span.first;
-            if (runway >= 0)
-                best = std::min(best, runway);
+            if (pr.maxX < span.first || pr.minX > span.second) continue;
+            const float runway = dx > 0 ? span.second - pr.maxX : pr.minX - span.first;
+            if (runway >= 0) best = std::min(best, runway);
         }
-
-        auto consider = [&](CCRect r, float extraY) {
-            if (r.getMaxY() <= pr.getMinY() + 3.f ||
-                r.getMinY() >= pr.getMaxY() + extraY)
-                return;
-            const float face = dx > 0 ? r.getMinX() : r.getMaxX();
-            const float lead = dx > 0 ? pr.getMaxX() : pr.getMinX();
-            const float dist = (face - lead) * dir;
-            if (dist > 2.f)
-                best = std::min(best, dist);
+        auto consider = [&](Bounds b, float extraY) {
+            if (b.maxY <= pr.minY + 3.f || b.minY >= pr.maxY + extraY) return;
+            const float dist = ((dx > 0 ? b.minX : b.maxX) -
+                                (dx > 0 ? pr.maxX : pr.minX)) * dir;
+            if (dist > 2.f) best = std::min(best, dist);
         };
-        for (auto it = first; it != hintSolids.end() && it->first <= px + 240.f; ++it) {
-            auto *o = it->second;
-            if (o && !o->m_isDisabled && !o->m_isDisabled2)
-                consider(o->getObjectRect(), 8.f);
-        }
-        auto hz = std::lower_bound(
-            hintObjects.begin(), hintObjects.end(), px - 40.f,
-            [](auto const &a, float x) { return a.first < x; });
-        for (auto it = hz; it != hintObjects.end() && it->first <= px + 240.f; ++it) {
-            auto *o = it->second;
-            if (o && !o->m_isDisabled && !o->m_isDisabled2)
-                consider(o->getObjectRect(), 42.f);
-        }
-
-        if (!std::isfinite(best))
-            return MaxHorizon;
-        return std::clamp(int(std::floor(best / speed)), 0, MaxHorizon);
+        nearby(hintSolids, [&](Bounds b) { consider(b, 8.f); });
+        nearby(hintObjects, [&](Bounds b) { consider(b, 42.f); });
+        return std::isfinite(best) ? std::clamp(int(std::floor(best / speed)), 0, MaxHorizon)
+                                   : MaxHorizon;
     }
 
     void releaseLiveInput() {
@@ -471,7 +465,7 @@ class Runtime {
         stableTrace.clear();
         stableTraceTick = 0;
         hazardGuard.set({});
-        lastMode = -1;
+        modeStateValid = false;
         decision = {};
         csv.clear();
         if (draw)
@@ -480,7 +474,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.13.0.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.14.0.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -542,9 +536,10 @@ class Runtime {
         layer->m_player2 = clones[1];
         LandingSchedule schedule(plan.landingDelay, clones[0]->m_isOnGround);
         out.hasRealized = true;
-        const bool cubeRollout = cubePulseMode(clones[0], clones[1], dual);
+        const bool landingRollout = landingMode(clones[0]) || (dual && landingMode(clones[1]));
+        std::array<bool, 2> safeLanding{};
         const int limit =
-            cubeRollout ? std::clamp(std::max(plan.length, cubeTailCap), plan.length, MaxHorizon)
+            landingRollout ? std::clamp(std::max(plan.length, cubeTailCap), plan.length, MaxHorizon)
                         : plan.length;
         out.clearance = 120;
         out.nearClearance = 120;
@@ -592,6 +587,13 @@ class Runtime {
                 // Contact is an action opportunity, not a certificate. Reaching
                 // a ring does not prove that pressing/skipping it is safe.
                 addOrbAction(t);
+            }
+            for (int i = 0; i < players; ++i) {
+                auto *cp = clones[i].data();
+                const auto cm = modeState(cp).controlMode();
+                if ((cm != PlannerMode::Cube || !pulseMode) && t < plan.length &&
+                    controlOpportunity(cm, cp->m_isOnGround, touchingUsableOrb(cp)))
+                    out.controlActions.push_back({t, cm});
             }
             const bool requested = schedule.request(t < plan.length && plan.at(t),
                 clones[0]->m_isOnGround, pulse.mustRelease(), pulseMode && t < plan.length);
@@ -669,7 +671,7 @@ class Runtime {
                     break;
                 }
                 out.traces[i].push_back({p->getPositionX(), p->getPositionY()});
-                if (i == 0) {
+                {
                     auto pos = p->getPosition();
                     auto pr = p->getObjectRect(.35f, .35f);
                     auto beginHaz = std::lower_bound(
@@ -690,7 +692,7 @@ class Runtime {
                         ++seen;
                     }
                 }
-                if (mode(p) == 0 && !p->m_isDashing) {
+                if (landingMode(p)) {
                     if (!groundedBefore[i] && p->m_isOnGround && i == 0) {
                         ++out.landingCount;
                         if (out.firstLandingTick < 0) out.firstLandingTick = t;
@@ -698,51 +700,13 @@ class Runtime {
                     const bool wasVerified = flights[i].verified();
                     flights[i].observe(groundedBefore[i], p->m_isOnGround, down);
                     if (!wasVerified && flights[i].verified()) {
-                        if (i == 0) {
-                            auto pr = p->getObjectRect();
-                            const float px = p->getPositionX();
-                            std::vector<std::pair<float, float>> spans;
-                            auto first = std::lower_bound(
-                                hintSolids.begin(), hintSolids.end(), px - 180.f,
-                                [](auto const &a, float x) { return a.first < x; });
-                            for (auto it = first; it != hintSolids.end() && it->first <= px + 180.f;
-                                 ++it) {
-                                auto *solid = it->second;
-                                if (!solid || solid->m_isDisabled || solid->m_isDisabled2)
-                                    continue;
-                                auto sr = solid->getObjectRect();
-                                if (std::abs(sr.getMaxY() - pr.getMinY()) > 5.f)
-                                    continue;
-                                spans.emplace_back(sr.getMinX(), sr.getMaxX());
-                            }
-                            std::sort(spans.begin(), spans.end());
-                            std::vector<std::pair<float, float>> merged;
-                            for (auto span : spans) {
-                                if (!merged.empty() && span.first <= merged.back().second + 1.5f)
-                                    merged.back().second = std::max(merged.back().second, span.second);
-                                else
-                                    merged.push_back(span);
-                            }
-                            for (auto span : merged) {
-                                if (pr.getMaxX() < span.first || pr.getMinX() > span.second)
-                                    continue;
-                                const float left = pr.getMinX() - span.first;
-                                const float right = span.second - pr.getMaxX();
-                                out.landingMargin =
-                                    std::max(out.landingMargin, std::max(0.f, std::min(left, right)));
-                            }
-                            out.landingRunwayTicks =
-                                landingRunwayTicks(p, travelSteps[i].x);
-                            // A stable touchdown is only a safe MPC handoff if
-                            // the next action still has reaction runway. This
-                            // rejects the Fingerdash failure where the rollout
-                            // stopped on the floor directly in front of a wall.
-                            if (landingDecisionSafe(
-                                    out.landingRunwayTicks, landingReactionTicks,
-                                    p->m_collidingWithLeft, p->m_collidingWithRight))
-                                out.decisionPoint = true;
-                        }
+                        const float travel = p->m_isSideways ? travelSteps[i].y : travelSteps[i].x;
+                        const int runway = landingRunwayTicks(p, travel);
+                        safeLanding[i] = landingDecisionSafe(runway, landingReactionTicks,
+                            p->m_collidingWithLeft, p->m_collidingWithRight);
+                        if (i == 0) out.landingRunwayTicks = runway;
                     }
+                    if (!flights[i].verified()) safeLanding[i] = false;
                 }
                 // The real layer advances this timer in seconds, separately
                 // from PlayerObject's frame-unit integration argument.
@@ -754,11 +718,17 @@ class Runtime {
             out.realized.length = out.survived;
             bool settled = true;
             for (int i = 0; i < players; ++i)
-                if (mode(clones[i]) == 0 && !clones[i]->m_isDashing)
+                if (landingMode(clones[i]))
                     settled &= flights[i].verified();
-            if (cubeRollout && out.decisionPoint)
-                break;
-            if (out.survived >= plan.length && (!cubeRollout || settled))
+            bool safeHandoff = true, anyFlight = false;
+            for (int i = 0; i < players; ++i) {
+                if (!landingMode(clones[i])) continue;
+                anyFlight |= flights[i].required;
+                safeHandoff &= flights[i].verified() && (!flights[i].required || safeLanding[i]);
+            }
+            out.decisionPoint = anyFlight && safeHandoff;
+            if (landingRollout && out.decisionPoint) break;
+            if (out.survived >= plan.length && (!landingRollout || settled))
                 break;
             // Do not invent a future after a mode/speed/dual portal. The actual
             // game performs it; the following physics tick starts a fresh plan.
@@ -769,9 +739,9 @@ class Runtime {
         out.boundary = sim.boundary && !out.died;
         bool allLanded = true;
         for (int i = 0; i < players; ++i) {
-            if (mode(clones[i]) == 0 && !clones[i]->m_isDashing) {
+            if (landingMode(clones[i])) {
                 out.requiresLanding |= flights[i].required;
-                allLanded &= flights[i].verified();
+                allLanded &= flights[i].verified() && (!flights[i].required || safeLanding[i]);
             }
         }
         out.landingVerified = out.requiresLanding && allLanded && out.decisionPoint;
@@ -861,16 +831,27 @@ class Runtime {
             gpu.init();
         }
         float error = 0;
-        if (!decision.selected.traces[0].empty() && decision.selected.traces[0].size() > 1) {
-            auto predicted = decision.selected.traces[0][1];
-            error = std::hypot(p->getPositionX() - predicted.x, p->getPositionY() - predicted.y);
+        for (int i = 0; i < (layer->m_gameState.m_isDualMode ? 2 : 1); ++i) {
+            auto *real = i == 0 ? p : layer->m_player2;
+            if (!real || decision.selected.traces[i].size() <= 1) continue;
+            auto predicted = decision.selected.traces[i][1];
+            error = std::max(error, std::hypot(real->getPositionX() - predicted.x,
+                                             real->getPositionY() - predicted.y));
         }
-        if (lastMode != mode(p) ||
-            (positionValid && std::abs(p->getPositionX() - lastPosition.x) > 40) || error > 2.0f) {
+        const bool liveDual = layer->m_gameState.m_isDualMode;
+        std::array<ModeState, 2> liveModes{modeState(p), modeState(layer->m_player2)};
+        const bool stateChanged = !modeStateValid || lastDual != liveDual ||
+            lastModes[0] != liveModes[0] || (liveDual && lastModes[1] != liveModes[1]);
+        if (stateChanged ||
+            (positionValid && std::hypot(p->getPositionX() - lastPosition.x,
+                                        p->getPositionY() - lastPosition.y) > 40) || error > 2.0f) {
             controller.reset();
             fastController.reset();
+            if (stateChanged) cubePulse.reset();
         }
-        lastMode = mode(p);
+        lastModes = liveModes;
+        lastDual = liveDual;
+        modeStateValid = true;
         lastPosition = p->getPosition();
         positionValid = true;
         predictionError = error;
@@ -1011,10 +992,10 @@ class Runtime {
             (pulseMode && (cubePulse.mustRelease() || (!canPress && !orbOpportunity))) ||
             (!pulseMode && touchingOrb && botHeld && !p->m_isDashing);
         searchConfig.cubePulsePlanning = pulseMode;
-        searchConfig.plannerMode =
-            p->m_isDashing ? PlannerMode::Dash : liveMode >= 0 && liveMode <= 7
-                ? static_cast<PlannerMode>(liveMode)
-                : PlannerMode::Generic;
+        searchConfig.plannerMode = liveModes[0].controlMode();
+        searchConfig.dual = liveDual;
+        searchConfig.secondaryMode = liveDual ? liveModes[1].controlMode() : PlannerMode::Generic;
+        searchConfig.compareFirstActions = !pulseMode;
         searchConfig.immediateOrb =
             orbOpportunity && (!pulseMode || !cubePulse.mustRelease());
         if (liveMode == 0) {
@@ -1202,7 +1183,8 @@ class Runtime {
         fastConfig.budgetMs = std::min(
             {searchConfig.budgetMs, (nearAction ? .90 : .55) * loadScale,
              hardPlannerCap * .36});
-        const int fastTailCap = pulseMode ? (nearAction ? 180 : 120) : fastConfig.horizon;
+        const bool landingPlanning = landingMode(p) || (liveDual && landingMode(layer->m_player2));
+        const int fastTailCap = landingPlanning ? (nearAction ? 180 : 120) : fastConfig.horizon;
 
         auto fast = fastController.decide(
             fastConfig, botHeld,
@@ -1231,7 +1213,7 @@ class Runtime {
             {searchConfig.budgetMs, (nearAction ? 1.90 : 1.20) * loadScale,
              hardPlannerCap * .72});
         const int rescueTailCap =
-            pulseMode ? (nearAction ? 320 : 240) : rescueConfig.horizon;
+            landingPlanning ? (nearAction ? 320 : 240) : rescueConfig.horizon;
 
         if (fastStrong) {
             decision = std::move(fast);
@@ -1448,7 +1430,7 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.13.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
+                "AutoGDBot 0.14.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
@@ -1476,7 +1458,10 @@ class Runtime {
                     ? (decision.selected.landingVerified ? "OK" : "NO")
                     : "n/a",
                 decision.selected.landingRunwayTicks,
-                mode(layer->m_player1), routeJumpEvents, routeOrbEvents,
+                fmt::format("{}{}", modeName(modeState(layer->m_player1).controlMode()),
+                    layer->m_gameState.m_isDualMode
+                        ? fmt::format("+{}", modeName(modeState(layer->m_player2).controlMode())) : ""),
+                routeJumpEvents, routeOrbEvents,
                 semantic.stats().counts[static_cast<size_t>(SemanticKind::Orb)],
                 touchingUsableOrb(layer->m_player1)
                     ? "ORB"
