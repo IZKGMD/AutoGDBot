@@ -703,8 +703,9 @@ class Runtime {
                             // the next action still has reaction runway. This
                             // rejects the Fingerdash failure where the rollout
                             // stopped on the floor directly in front of a wall.
-                            if (!p->m_collidingWithLeft && !p->m_collidingWithRight &&
-                                out.landingRunwayTicks >= landingReactionTicks)
+                            if (landingDecisionSafe(
+                                    out.landingRunwayTicks, landingReactionTicks,
+                                    p->m_collidingWithLeft, p->m_collidingWithRight))
                                 out.decisionPoint = true;
                         }
                     }
