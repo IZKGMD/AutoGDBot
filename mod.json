@@ -6,11 +6,11 @@
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v0.4.0",
+  "version": "v0.6.0",
   "developers": [
     "AutoGDBot"
   ],
-  "description": "Realtime Realtime semantic MPC controller with native rollouts, per-tick replanning, robust clearance scoring and live path rendering.",
+  "description": "First-attempt realtime native-physics controller with touchdown-aware replanning, deterministic action coverage and certified trajectories.",
   "tags": [
     "gameplay",
     "utility",

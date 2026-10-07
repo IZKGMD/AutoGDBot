@@ -9,7 +9,8 @@
 #include <utility>
 
 namespace agb {
-constexpr int MaxHorizon = 240;
+constexpr int MaxPlanningHorizon = 240;
+constexpr int MaxHorizon = 512; // bounded tail for completing a flight beyond lookahead
 constexpr int MaxCandidates = 96;
 using Clock = std::chrono::steady_clock;
 struct Point {
@@ -18,6 +19,7 @@ struct Point {
 struct Plan {
     std::array<uint8_t, MaxHorizon> buttons{};
     int length = 0;
+    int landingDelay = -1; // -1: fixed timeline; >=0: native-grounded policy
     bool at(int tick) const {
         return buttons[std::clamp(tick, 0, MaxHorizon - 1)] != 0;
     }
@@ -34,6 +36,11 @@ struct Evaluation {
     bool boundary = false;
     bool requiresLanding = false, landingVerified = false;
     std::array<std::vector<Point>, 2> traces;
+    Plan realized;
+    bool hasRealized = false;
+    int firstLandingTick = -1, landingCount = 0;
+    std::vector<int> groundedActions; // native-confirmed opportunities for a continuation
+
 };
 struct Config {
     int horizon = 144, candidates = 48;
@@ -50,7 +57,8 @@ struct Config {
 struct Decision {
     bool down = false, hasValidatedInput = false, exhausted = false;
     bool completeContinuation = false;
-    int candidates = 0, predictedTicks = 0;
+    int candidates = 0, predictedTicks = 0, rejectedUnsafe = 0;
+    int bestRejectedTicks = 0, landingRejects = 0, deaths = 0, interruptions = 0;
     double elapsedMs = 0;
     Plan plan;
     Evaluation selected;
@@ -84,7 +92,7 @@ class Controller {
         std::fill(warm_.buttons.begin() + warm_.length, warm_.buttons.end(), false);
     }
     std::vector<Plan> propose(Config cfg, bool held) {
-        cfg.horizon = std::clamp(cfg.horizon, 24, MaxHorizon);
+        cfg.horizon = std::clamp(cfg.horizon, 24, MaxPlanningHorizon);
         cfg.candidates = std::clamp(cfg.candidates, 4, MaxCandidates);
         std::vector<Plan> plans;
         plans.reserve(cfg.candidates);
@@ -95,22 +103,27 @@ class Controller {
             if (cfg.forceRelease)
                 p.buttons[0] = false;
             for (auto const &old : plans)
-                if (std::equal(p.buttons.begin(), p.buttons.begin() + p.length,
+                if (p.landingDelay == old.landingDelay &&
+                    std::equal(p.buttons.begin(), p.buttons.begin() + p.length,
                                old.buttons.begin()))
                     return;
             plans.push_back(p);
         };
-        for (bool down : {held, !held}) {
-            Plan p;
-            p.buttons.fill(down);
-            add(p);
+
+        // Revalidate the previous collision-checked route first. This keeps a
+        // stable takeoff timing when the real state still matches the forecast.
+        if (warm_.length > 0) {
+            Plan w = warm_;
+            std::fill(w.buttons.begin() + warm_.length, w.buttons.end(), false);
+            add(w);
         }
+
         Plan warm = warm_;
         int known = std::min(warm_.length, cfg.horizon);
         std::fill(warm.buttons.begin() + known, warm.buttons.end(),
                   cfg.cubePulsePlanning ? false : held);
         warm.length = cfg.horizon;
-        add(warm);
+
         auto pulseAt = [&](int t) {
             if (t < 0 || t >= cfg.horizon)
                 return;
@@ -118,38 +131,80 @@ class Controller {
             p.buttons[t] = true;
             add(p);
         };
+
         if (cfg.cubePulsePlanning) {
+            // Cube decisions are pulses, not held states. Do not spend one of
+            // the first candidates on an all-DOWN timeline that CubePulse will
+            // immediately reinterpret.
+            Plan coast;
+            coast.buttons.fill(false);
+            add(coast);
             pulseAt(0);
+
             const int jumpCount = std::clamp(cfg.jumpEventCount, 0, int(cfg.jumpEvents.size()));
             const int orbCount = std::clamp(cfg.orbEventCount, 0, int(cfg.orbEvents.size()));
-            for (int i = 0; i < jumpCount; ++i) {
-                const int t = cfg.jumpEvents[i];
-                for (int d : {0, -1, 1, -2, 2, -3, 3})
-                    pulseAt(t + d);
+
+            auto addOrbPairs = [&](int targetPairs) {
+                int paired = 0;
+                for (int i = 0; i < jumpCount && paired < targetPairs; ++i) {
+                    for (int j = 0; j < orbCount && paired < targetPairs; ++j) {
+                        const int takeoff = cfg.jumpEvents[i];
+                        const int orb = cfg.orbEvents[j];
+                        if (takeoff < 0 || orb < 0 || takeoff >= orb - 3 || orb >= cfg.horizon)
+                            continue;
+                        Plan p;
+                        p.buttons[takeoff] = true;
+                        p.buttons[orb] = true;
+                        const auto before = plans.size();
+                        add(p);
+                        paired += plans.size() != before;
+                    }
+                }
+            };
+
+            // Coverage before refinement: reserve room for a real multi-action
+            // route and for several distinct geometry events even with a tiny
+            // candidate budget.
+            addOrbPairs(4);
+            const int earlyJumpCount = std::min(jumpCount, 8);
+            for (int i = 0; i < earlyJumpCount; ++i)
+                pulseAt(cfg.jumpEvents[i]);
+
+            // Native-touchdown policies remain the primary staircase mechanism,
+            // but they no longer monopolize the list before event coverage.
+            for (int delay : {0, 1, 3, 6}) {
+                Plan p;
+                p.buttons[0] = true;
+                p.landingDelay = delay;
+                add(p);
             }
-            for (int i = 0; i < orbCount; ++i) {
-                const int t = cfg.orbEvents[i];
-                for (int d : {0, -1, 1, -2, 2})
-                    pulseAt(t + d);
+
+            for (int i = earlyJumpCount; i < jumpCount; ++i)
+                pulseAt(cfg.jumpEvents[i]);
+
+            // A zero-delay touchdown policy for several geometry takeoffs gives
+            // the search a cheap repeated-jump route before denser refinements.
+            for (int i = 0; i < jumpCount && i < 10; ++i) {
+                Plan p;
+                p.buttons[cfg.jumpEvents[i]] = true;
+                p.landingDelay = 0;
+                add(p);
             }
-            // Orbs need two independent cube pulses: one to leave the ground and
-            // a later one while touching the ring. Native rollouts still decide
-            // whether the pair is actually survivable.
-            int paired = 0;
-            for (int i = 0; i < jumpCount && paired < 16; ++i) {
-                for (int j = 0; j < orbCount && paired < 16; ++j) {
-                    const int takeoff = cfg.jumpEvents[i];
-                    const int orb = cfg.orbEvents[j];
-                    if (takeoff < 0 || orb < 0 || takeoff >= orb - 3 || orb >= cfg.horizon)
-                        continue;
+            for (int delay : {1, 3, 6}) {
+                for (int i = 0; i < jumpCount && i < 6; ++i) {
                     Plan p;
-                    p.buttons[takeoff] = true;
-                    p.buttons[orb] = true;
-                    const auto before = plans.size();
+                    p.buttons[cfg.jumpEvents[i]] = true;
+                    p.landingDelay = delay;
                     add(p);
-                    paired += plans.size() != before;
                 }
             }
+
+            // Orb contact itself may be the next controllable action while the
+            // cube is already airborne.
+            for (int i = 0; i < orbCount; ++i)
+                pulseAt(cfg.orbEvents[i]);
+            addOrbPairs(16);
+
             const int landingCount =
                 std::clamp(cfg.landingEventCount, 0, int(cfg.landingEvents.size()));
             auto addStepRoute = [&](int takeoff, int radius) {
@@ -172,16 +227,40 @@ class Controller {
             };
             if (landingCount) {
                 addStepRoute(0, 6);
-                for (int i = 0; i < jumpCount && i < 10; ++i)
+                for (int i = 0; i < jumpCount && i < 8; ++i)
                     addStepRoute(cfg.jumpEvents[i], 6);
             }
 
-            // Spread fallback candidates over the horizon. Geometry-derived
-            // takeoff/orb/landing events are inserted first.
+            // Refine only after all important action classes have had a chance
+            // to enter the bounded list.
+            for (int t = 1; t <= 12; ++t)
+                pulseAt(t);
+            for (int d : {-1, 1, -2, 2, -3, 3})
+                for (int i = 0; i < jumpCount; ++i)
+                    pulseAt(cfg.jumpEvents[i] + d);
+            for (int i = 0; i < orbCount; ++i)
+                for (int d : {-1, 1, -2, 2})
+                    pulseAt(cfg.orbEvents[i] + d);
+
             for (int t : {24, 48, 72, 96, 12, 36, 60, 84, 120, 144, 168, 192, 216,
                           6, 18, 1, 2, 3, 4, 8})
                 pulseAt(t);
+
+            // No pseudo-random cube tail. Spare slots are a deterministic
+            // timing lattice, so identical game states produce identical
+            // proposals on the first attempt.
+            for (int phase : {0, 3}) {
+                for (int t = phase; t < cfg.horizon && int(plans.size()) < cfg.candidates;
+                     t += 6)
+                    pulseAt(t);
+            }
         } else {
+            for (bool down : {held, !held}) {
+                Plan p;
+                p.buttons.fill(down);
+                add(p);
+            }
+            add(warm);
             Plan flipped = warm;
             flipped.buttons[0] = !warm.at(0);
             add(flipped);
@@ -195,24 +274,25 @@ class Controller {
                     add(p);
                 }
             }
-        }
-        for (int attempts = 0; int(plans.size()) < cfg.candidates && attempts < cfg.candidates * 16;
-             ++attempts) {
-            Plan p = warm;
-            int from = nextRandom() % cfg.horizon;
-            int to = std::min(cfg.horizon, from + 1 + int(nextRandom() % 36));
-            for (int k = from; k < to; ++k)
-                p.buttons[k] ^= 1;
-            if (attempts & 1)
-                p.buttons[0] = !held;
-            add(p);
+            for (int attempts = 0;
+                 int(plans.size()) < cfg.candidates && attempts < cfg.candidates * 16;
+                 ++attempts) {
+                Plan p = warm;
+                int from = nextRandom() % cfg.horizon;
+                int to = std::min(cfg.horizon, from + 1 + int(nextRandom() % 36));
+                for (int k = from; k < to; ++k)
+                    p.buttons[k] ^= 1;
+                if (attempts & 1)
+                    p.buttons[0] = !held;
+                add(p);
+            }
         }
         return plans;
     }
     template <class Evaluator>
     Decision decide(Config cfg, bool held, Evaluator &&evaluate,
                     std::vector<float> const &priority = {}) {
-        cfg.horizon = std::clamp(cfg.horizon, 24, MaxHorizon);
+        cfg.horizon = std::clamp(cfg.horizon, 24, MaxPlanningHorizon);
         cfg.candidates = std::clamp(cfg.candidates, 4, MaxCandidates);
         cfg.jumpEventCount = std::clamp(cfg.jumpEventCount, 0, int(cfg.jumpEvents.size()));
         cfg.orbEventCount = std::clamp(cfg.orbEventCount, 0, int(cfg.orbEvents.size()));
@@ -223,13 +303,29 @@ class Controller {
             start +
             std::chrono::duration_cast<Clock::duration>(
                 std::chrono::duration<double, std::milli>(std::clamp(cfg.budgetMs, 0.2, 8.0)));
-        auto plans = propose(cfg, held);
+        Config proposalConfig = cfg;
+        const int expansionReserve = cfg.cubePulsePlanning ? std::min(24, cfg.candidates / 3) : 0;
+        proposalConfig.candidates -= expansionReserve;
+        auto plans = propose(proposalConfig, held);
         Decision result;
         result.down = cfg.forceRelease ? false : held;
         float bestScore = -std::numeric_limits<float>::infinity();
         auto consider = [&](Plan const &plan, Evaluation e) {
-            if (e.survived <= 0 || !e.firstActionVerified)
+            const bool complete = !e.died && !e.interrupted &&
+                (e.boundary || e.survived >= cfg.horizon);
+            // A short probe does not certify a jump or its landing. Never rank
+            // a known death, even if it survives longer than another prefix.
+            // Continuous modes may use a checked prefix; cube decisions need
+            // a complete trajectory with all landings checked by the evaluator.
+            if (e.survived <= 0 || !e.firstActionVerified || e.died ||
+                (cfg.cubePulsePlanning && !complete)) {
+                ++result.rejectedUnsafe;
+                result.bestRejectedTicks = std::max(result.bestRejectedTicks, e.survived);
+                result.landingRejects += !e.firstActionVerified;
+                result.deaths += e.died;
+                result.interruptions += e.interrupted;
                 return false;
+            }
             int changes = e.buttonChanges;
             if (changes < 0) {
                 changes = 0;
@@ -239,7 +335,6 @@ class Controller {
                     old = plan.at(k);
                 }
             }
-            bool complete = !e.died && !e.interrupted && (e.boundary || e.survived >= cfg.horizon);
             const int continuityTicks = std::min({e.survived, warm_.length, 64});
             int continuity = 0;
             for (int k = 0; k < continuityTicks; ++k)
@@ -252,7 +347,8 @@ class Controller {
             // robustness metric from the whole trajectory. This prevents an endpoint
             // or synthetic clearance value from causing an unnecessary jump on open ground.
             const float marginWeight = robust > 0.f ? 1.f : 0.f;
-            float score = e.survived * 10000.f +
+            float score = std::min(e.survived, cfg.horizon) * 10000.f -
+                          std::max(0, e.survived - cfg.horizon) * 10.f +
                           safeClearance * 85.f * marginWeight +
                           safeLanding * 55.f * marginWeight + robust * 18000.f -
                           changes * 18.f + continuity * 5.f;
@@ -266,11 +362,11 @@ class Controller {
                 score += 100.f;
             if (score > bestScore) {
                 bestScore = score;
-                result.down = plan.at(0);
+                result.down = e.hasRealized ? e.realized.at(0) : plan.at(0);
                 result.predictedTicks = e.survived;
                 result.hasValidatedInput = true;
                 result.completeContinuation = complete;
-                result.plan = plan;
+                result.plan = e.hasRealized ? e.realized : plan;
                 result.selected = std::move(e);
             }
             // Once a route has been validated, do not stop on a different
@@ -299,14 +395,8 @@ class Controller {
             return complete && mayEarlyStop && result.plan.at(0) == plan.at(0) &&
                    (plan.at(0) == held || (cfg.forceRelease && !plan.at(0)));
         };
-        for (int i = 0; i < 2 && i < int(plans.size()) && Clock::now() < deadline; ++i) {
-            Plan probe = plans[i];
-            probe.length = std::min(8, probe.length);
-            auto e = evaluate(probe, deadline);
-            ++result.candidates;
-            result.alternatives[probe.at(0)] = e;
-            consider(probe, std::move(e));
-        }
+        // Probes are diagnostics only. They must never become executable
+        // plans or consume the budget before a full takeoff/landing check.
         std::vector<int> order(plans.size());
         for (size_t i = 0; i < order.size(); ++i)
             order[i] = int(i);
@@ -317,21 +407,56 @@ class Controller {
         if (priority.size() == plans.size() && plans.size() > protectedCount)
             std::stable_sort(order.begin() + protectedCount, order.end(),
                              [&](int a, int b) { return priority[a] > priority[b]; });
-        for (int i : order) {
+        int furthestFailure = -1;
+        for (size_t cursor = 0; cursor < order.size(); ++cursor) {
+            const int i = order[cursor];
             if (Clock::now() >= deadline) {
                 result.exhausted = true;
                 break;
             }
             auto e = evaluate(plans[i], deadline);
             ++result.candidates;
-            if (i < 2)
-                result.alternatives[plans[i].at(0)] = e;
+            auto &alternative = result.alternatives[plans[i].at(0)];
+            if (e.survived > alternative.survived || alternative.traces[0].empty())
+                alternative = e;
+            // A rejected route is useful as a search prefix, never as input.
+            // Branch at real grounded states to discover a second/third jump
+            // instead of relying only on guessed platform-arrival timestamps.
+            if (cfg.cubePulsePlanning && e.died && e.survived > furthestFailure &&
+                !e.groundedActions.empty() && int(plans.size()) < cfg.candidates) {
+                furthestFailure = e.survived;
+                Plan prefix = plans[i];
+                std::vector<int> children;
+                for (int lead : {24, 32, 16, 40, 8, 48, 0, 56}) {
+                    const int index = std::max(0, int(e.groundedActions.size()) - 1 - lead);
+                    const int at = e.groundedActions[index];
+                    if (at < 1 || at >= cfg.horizon || prefix.at(at)) continue;
+                    Plan child = e.hasRealized ? e.realized : prefix;
+                    child.length = cfg.horizon;
+                    child.landingDelay = -1;
+                    std::fill(child.buttons.begin() + at, child.buttons.end(), false);
+                    child.buttons[at] = true;
+                    bool duplicate = false;
+                    for (auto const &old : plans)
+                        duplicate |= old.buttons == child.buttons && old.landingDelay == child.landingDelay;
+                    if (duplicate) continue;
+                    children.push_back(int(plans.size()));
+                    plans.push_back(child);
+                    if (int(plans.size()) >= cfg.candidates) break;
+                }
+                order.insert(order.begin() + cursor + 1, children.begin(), children.end());
+            }
             if (consider(plans[i], std::move(e)))
                 break;
         }
-        if (result.hasValidatedInput) {
+        if (result.hasValidatedInput && result.completeContinuation) {
             warm_ = result.plan;
             warm_.length = std::min(warm_.length, result.selected.survived);
+        }
+        if (!result.hasValidatedInput) {
+            warm_ = {};
+            if (cfg.cubePulsePlanning)
+                result.down = false;
         }
         result.proposals = std::move(plans);
         result.elapsedMs = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
@@ -339,3 +464,4 @@ class Controller {
     }
 };
 } // namespace agb
+

@@ -13,45 +13,6 @@ struct GapHint {
     int edgeTick = -1;
 };
 
-// Last-resort reaction for a grounded cube. Keep this deliberately narrow:
-// native rollouts should decide large saws and tall hazards. The reflex exists
-// only for low floor hazards (spikes / short teeth) when the search budget is
-// exhausted before a takeoff can be certified.
-inline bool shouldReflexJump(Bounds player, float dx, std::span<Bounds const> hazards) {
-    if (!std::isfinite(dx) || std::abs(dx) < .0001f)
-        return false;
-    const float playerHeight = std::max(1.f, player.maxY - player.minY);
-    const float maxHazardHeight = std::max(38.f, playerHeight * 1.35f);
-    const float maxGap = std::clamp(std::abs(dx) * 52.f, 48.f, 84.f);
-    std::vector<Bounds> low;
-    for (auto b : hazards) {
-        const float hazardHeight = b.maxY - b.minY;
-        if (hazardHeight > maxHazardHeight)
-            continue; // large saw / tall obstacle: let the rollout time it
-        if (b.maxY < player.minY + 1.f || b.minY > player.maxY + 14.f)
-            continue;
-        low.push_back(b);
-    }
-    std::sort(low.begin(), low.end(), [](Bounds a, Bounds b) { return a.minX < b.minX; });
-    for (size_t i = 0; i < low.size(); ++i) {
-        size_t count = 1;
-        float clusterEnd = low[i].maxX;
-        for (size_t j = i + 1; j < low.size(); ++j) {
-            if (low[j].minX - clusterEnd > 38.f)
-                break;
-            clusterEnd = std::max(clusterEnd, low[j].maxX);
-            ++count;
-        }
-        float gap = dx > 0 ? low[i].minX - player.maxX : player.minX - low[i].maxX;
-        const float window = count >= 2
-                                 ? std::clamp(std::abs(dx) * 72.f, 70.f, 104.f)
-                                 : maxGap;
-        if (gap >= -std::abs(dx) * 2.f && gap <= window)
-            return true;
-    }
-    return false;
-}
-
 inline void addJumpEvent(Config &cfg, int tick) {
     if (tick < 0 || tick >= cfg.horizon || cfg.jumpEventCount >= int(cfg.jumpEvents.size()))
         return;
@@ -76,17 +37,6 @@ inline void addLandingEvent(Config &cfg, int tick) {
         if (std::abs(cfg.landingEvents[i] - tick) <= 2)
             return;
     cfg.landingEvents[cfg.landingEventCount++] = tick;
-}
-
-inline bool shouldUseReflexFallback(bool reflex, bool forceRelease, bool hasValidated,
-                                    bool selectedDied, bool selectedInterrupted,
-                                    int predictedTicks, int horizon) {
-    if (!reflex || forceRelease)
-        return false;
-    if (!hasValidated)
-        return true;
-    const int minimumUsefulForecast = std::clamp(horizon / 7, 18, 36);
-    return selectedDied || selectedInterrupted || predictedTicks < minimumUsefulForecast;
 }
 
 inline GapHint findForwardGap(float x, float footY, float dx, std::span<Bounds const> solids,
@@ -189,23 +139,44 @@ inline GapHint seedCubeEvents(Config &cfg, float x, float footY, float dx,
         i = j;
     }
 
+    // Adjacent tiles at the same height are one landing surface. Geometry
+    // events should target an interior part of the platform, not a tile seam.
+    struct Surface { float lo, hi, top; };
+    std::vector<Surface> rawSurfaces;
+    for (auto b : solids) {
+        if (b.maxX - b.minX < 6.f)
+            continue;
+        if (b.maxY <= footY + 3.f || b.maxY > footY + 190.f)
+            continue;
+        rawSurfaces.push_back({b.minX, b.maxX, b.maxY});
+    }
+    std::sort(rawSurfaces.begin(), rawSurfaces.end(), [](Surface a, Surface b) {
+        if (a.top != b.top)
+            return a.top < b.top;
+        return a.lo < b.lo;
+    });
+    std::vector<Surface> surfaces;
+    for (auto r : rawSurfaces) {
+        if (!surfaces.empty() && std::abs(surfaces.back().top - r.top) <= 2.5f &&
+            r.lo <= surfaces.back().hi + 1.5f)
+            surfaces.back().hi = std::max(surfaces.back().hi, r.hi);
+        else
+            surfaces.push_back(r);
+    }
+
     struct StepTarget { float tick, topY, width; };
     std::vector<StepTarget> steps;
     const float directionForSteps = dx > 0 ? 1.f : -1.f;
-    for (auto b : solids) {
-        const float top = b.maxY;
-        const float width = b.maxX - b.minX;
-        if (width < 6.f || width > 120.f)
-            continue;
-        if (top <= footY + 3.f || top > footY + 190.f)
-            continue;
-        const float center = (b.minX + b.maxX) * .5f;
-        const float dist = (center - x) * directionForSteps;
+    for (auto surface : surfaces) {
+        const float width = surface.hi - surface.lo;
+        const float inset = std::clamp(width * .35f, 10.f, 34.f);
+        const float targetX = dx > 0 ? surface.lo + inset : surface.hi - inset;
+        const float dist = (targetX - x) * directionForSteps;
         if (dist <= 8.f)
             continue;
         const float t = dist / std::abs(dx);
         if (t > 6.f && t < cfg.horizon)
-            steps.push_back({t, top, width});
+            steps.push_back({t, surface.top, width});
     }
     std::sort(steps.begin(), steps.end(), [](auto a, auto b) { return a.tick < b.tick; });
     float lastTop = footY;
@@ -252,10 +223,19 @@ inline GapHint seedCubeEvents(Config &cfg, float x, float footY, float dx,
             end = std::max(end, floorHazards[j].farDist);
             ++j;
         }
-        if (j - i >= 2 && floorHazards[i].nearDist > 0) {
-            int firstTick = int(std::floor(floorHazards[i].nearDist / speed));
-            for (int lead : {40, 48, 56, 64, 72, 80, 88, 96})
-                addJumpEvent(cfg, firstTick - lead);
+        if (floorHazards[i].nearDist > 0) {
+            const size_t count = j - i;
+            const int firstTick = int(std::floor(floorHazards[i].nearDist / speed));
+            if (count >= 3) {
+                for (int lead : {48, 56, 64, 72, 80, 88, 96, 104})
+                    addJumpEvent(cfg, firstTick - lead);
+            } else if (count == 2) {
+                for (int lead : {40, 48, 56, 64, 72, 80, 88, 96})
+                    addJumpEvent(cfg, firstTick - lead);
+            } else {
+                for (int lead : {24, 32, 40, 48, 56, 64, 72})
+                    addJumpEvent(cfg, firstTick - lead);
+            }
         }
         i = j;
     }
@@ -297,3 +277,4 @@ inline GapHint seedCubeEvents(Config &cfg, float x, float footY, float dx,
     return gap;
 }
 } // namespace agb
+
