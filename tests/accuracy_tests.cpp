@@ -77,6 +77,36 @@ int main() {
     });
     check(reserved && fair.firstActionCandidates[0]>0 && fair.firstActionCandidates[1]>0 && fair.hasValidatedInput,
           "slow first forecast cannot starve the opposite button");
+    // First-input reachability is survival-first. Both actions may be
+    // collision-free for the whole horizon, but the wider action must win
+    // regardless of continuity/progress score details.
+    {
+        Config r; r.horizon=96; r.candidates=24; r.budgetMs=8;
+        r.plannerMode=PlannerMode::Ship; r.compareFirstActions=true;
+        Controller reach;
+        auto wideUp=reach.decide(r,false,[&](Plan const&p,auto){
+            Evaluation e; e.survived=r.horizon;
+            e.nearClearance=p.at(0)?4.f:24.f;
+            e.clearance=p.at(0)?8.f:36.f;
+            e.robustness=p.at(0)?.35f:.95f;
+            return e;
+        });
+        check(wideUp.hasValidatedInput && !wideUp.down &&
+              wideUp.firstActionCertified[0] && wideUp.firstActionCertified[1] &&
+              wideUp.firstActionClass[0]==3 && wideUp.firstActionClass[1]==3,
+              "wider certified UP reachability dominates a tighter safe PRESS");
+
+        reach.reset();
+        auto wideDown=reach.decide(r,false,[&](Plan const&p,auto){
+            Evaluation e; e.survived=r.horizon;
+            e.nearClearance=p.at(0)?28.f:5.f;
+            e.clearance=p.at(0)?40.f:9.f;
+            e.robustness=p.at(0)?.9f:.3f;
+            return e;
+        });
+        check(wideDown.hasValidatedInput && wideDown.down,
+              "wider certified PRESS reachability can still win when it is safer");
+    }
     c.sharedDeadline=Clock::now();calls=0;bot.reset();
     auto expired=bot.decide(c,false,[&](Plan const&,auto){++calls;return Evaluation{};});
     check(expired.exhausted && !expired.hasValidatedInput && calls==0,"expired shared deadline does not create a fresh tier budget");
@@ -99,5 +129,5 @@ int main() {
             check(hold,"optional ring does not remove continuous hold");
         }
     }
-    std::cout<<"PASS: fatal/unknown launch rejection, grounded waits, delayed safe takeoffs, fair deadlines and queued airborne edges\n";
+    std::cout<<"PASS: fatal/unknown launch rejection, grounded waits, delayed safe takeoffs, first-input reachability, fair deadlines and queued airborne edges\n";
 }
