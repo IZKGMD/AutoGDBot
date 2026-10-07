@@ -333,6 +333,75 @@ class Runtime {
         }
         return false;
     }
+
+    int landingRunwayTicks(PlayerObject *p, float dx) const {
+        if (!p || !std::isfinite(dx) || std::abs(dx) < .0001f)
+            return MaxHorizon;
+        auto pr = p->getObjectRect(.35f, .35f);
+        const float footY = pr.getMinY();
+        const float dir = dx > 0 ? 1.f : -1.f;
+        const float speed = std::abs(dx);
+        float best = std::numeric_limits<float>::infinity();
+
+        std::vector<std::pair<float, float>> support;
+        const float px = p->getPositionX();
+        auto first = std::lower_bound(
+            hintSolids.begin(), hintSolids.end(), px - 240.f,
+            [](auto const &a, float x) { return a.first < x; });
+        for (auto it = first; it != hintSolids.end() && it->first <= px + 240.f; ++it) {
+            auto *o = it->second;
+            if (!o || o->m_isDisabled || o->m_isDisabled2)
+                continue;
+            auto r = o->getObjectRect();
+            if (std::abs(r.getMaxY() - footY) <= 5.f)
+                support.emplace_back(r.getMinX(), r.getMaxX());
+        }
+        std::sort(support.begin(), support.end());
+        std::vector<std::pair<float, float>> merged;
+        for (auto span : support) {
+            if (!merged.empty() && span.first <= merged.back().second + 1.5f)
+                merged.back().second = std::max(merged.back().second, span.second);
+            else
+                merged.push_back(span);
+        }
+        for (auto span : merged) {
+            if (pr.getMaxX() < span.first || pr.getMinX() > span.second)
+                continue;
+            const float runway =
+                dx > 0 ? span.second - pr.getMaxX() : pr.getMinX() - span.first;
+            if (runway >= 0)
+                best = std::min(best, runway);
+        }
+
+        auto consider = [&](CCRect r, float extraY) {
+            if (r.getMaxY() <= pr.getMinY() + 3.f ||
+                r.getMinY() >= pr.getMaxY() + extraY)
+                return;
+            const float face = dx > 0 ? r.getMinX() : r.getMaxX();
+            const float lead = dx > 0 ? pr.getMaxX() : pr.getMinX();
+            const float dist = (face - lead) * dir;
+            if (dist > 2.f)
+                best = std::min(best, dist);
+        };
+        for (auto it = first; it != hintSolids.end() && it->first <= px + 240.f; ++it) {
+            auto *o = it->second;
+            if (o && !o->m_isDisabled && !o->m_isDisabled2)
+                consider(o->getObjectRect(), 8.f);
+        }
+        auto hz = std::lower_bound(
+            hintObjects.begin(), hintObjects.end(), px - 40.f,
+            [](auto const &a, float x) { return a.first < x; });
+        for (auto it = hz; it != hintObjects.end() && it->first <= px + 240.f; ++it) {
+            auto *o = it->second;
+            if (o && !o->m_isDisabled && !o->m_isDisabled2)
+                consider(o->getObjectRect(), 42.f);
+        }
+
+        if (!std::isfinite(best))
+            return MaxHorizon;
+        return std::clamp(int(std::floor(best / speed)), 0, MaxHorizon);
+    }
+
     void releaseLiveInput() {
         if (!layer)
             return;
