@@ -1054,27 +1054,116 @@ class Runtime {
         }
         hazardGuard.set(guardBounds);
         auto priorities = settings.gpu ? gpu.poll() : std::vector<float>{};
-        decision = controller.decide(
-            searchConfig, botHeld,
-            [&](Plan const &plan, auto deadline) { return evaluate(plan, deadline, dt); },
-            priorities);
+
+        // Tier 1: cheap receding MPC. Most frames should finish here.
+        Config fastConfig = searchConfig;
+        fastConfig.horizon =
+            std::min(searchConfig.horizon, pulseMode ? (nearAction ? 120 : 84)
+                                                    : (nearAction ? 96 : 72));
+        fastConfig.candidates =
+            std::min(searchConfig.candidates, nearAction ? 16 : 10);
+        fastConfig.budgetMs =
+            std::min(searchConfig.budgetMs, nearAction ? .90 : .55);
+        const int fastTailCap = pulseMode ? (nearAction ? 180 : 120) : fastConfig.horizon;
+
+        auto fast = fastController.decide(
+            fastConfig, botHeld,
+            [&](Plan const &plan, auto deadline) {
+                return evaluate(plan, deadline, dt, fastTailCap);
+            });
+
+        const float fastNear = fast.selected.nearClearance;
+        const bool fastMarginGood =
+            fastNear >= (nearAction ? 10.f : 5.f) || fast.selected.clearance >= 20.f;
+        const bool fastStrong =
+            fast.hasValidatedInput && !fast.selected.died && fastMarginGood &&
+            (fast.completeContinuation || fast.selected.decisionPoint ||
+             fast.recedingCertificate);
+
+        Config rescueConfig = searchConfig;
+        rescueConfig.horizon =
+            std::min(searchConfig.horizon, pulseMode ? (nearAction ? 180 : 144)
+                                                    : (nearAction ? 156 : 120));
+        rescueConfig.candidates =
+            std::min(searchConfig.candidates, nearAction ? 40 : 28);
+        rescueConfig.budgetMs =
+            std::min(searchConfig.budgetMs, nearAction ? 1.90 : 1.20);
+        const int rescueTailCap =
+            pulseMode ? (nearAction ? 320 : 240) : rescueConfig.horizon;
+
+        if (fastStrong) {
+            decision = std::move(fast);
+            plannerStage = "FAST";
+        } else {
+            decision = controller.decide(
+                rescueConfig, botHeld,
+                [&](Plan const &plan, auto deadline) {
+                    return evaluate(plan, deadline, dt, rescueTailCap);
+                },
+                priorities);
+            plannerStage = "RESCUE";
+
+            // If rescue found only a narrow known-later-death route right next
+            // to geometry, spend one bounded emergency burst. This is rare and
+            // keeps the normal phone path far below the old 5ms/96-candidate load.
+            const bool poorRescue =
+                !decision.hasValidatedInput ||
+                (decision.selected.died && decision.selected.nearClearance < 12.f) ||
+                (nearAction && decision.selected.nearClearance < 7.f);
+            if (poorRescue && nearAction) {
+                Config emergencyConfig = searchConfig;
+                emergencyConfig.horizon = std::min(searchConfig.horizon, 216);
+                emergencyConfig.candidates = std::min(searchConfig.candidates, 64);
+                emergencyConfig.budgetMs = std::min(searchConfig.budgetMs, 3.0);
+                Controller emergencyController;
+                auto emergency = emergencyController.decide(
+                    emergencyConfig, botHeld,
+                    [&](Plan const &plan, auto deadline) {
+                        return evaluate(plan, deadline, dt, MaxHorizon);
+                    },
+                    priorities);
+                const bool emergencyBetter =
+                    emergency.hasValidatedInput &&
+                    (!decision.hasValidatedInput ||
+                     (!emergency.selected.died && decision.selected.died) ||
+                     emergency.selected.nearClearance >
+                         decision.selected.nearClearance + 3.f ||
+                     (std::abs(emergency.selected.nearClearance -
+                               decision.selected.nearClearance) <= 3.f &&
+                      emergency.predictedTicks > decision.predictedTicks));
+                if (emergencyBetter) {
+                    decision = std::move(emergency);
+                    plannerStage = "EMERGENCY";
+                }
+            }
+        }
+
+        // Share only the proven prefix, never an unchecked tail. This lets the
+        // cheap tier revalidate yesterday's rescue route first on the next tick.
+        if (decision.hasValidatedInput && decision.certificateTicks > 0) {
+            fastController.seedVerifiedPrefix(decision.plan, decision.certificateTicks);
+            controller.seedVerifiedPrefix(decision.plan, decision.certificateTicks);
+        }
 
         // A virtual portal gate is advisory safety, never an authority allowed
         // to erase the whole action space. If every candidate dies before even
         // one simulated tick, retry once with only physical hazards/native
-        // collisions. This specifically catches malformed/late handoff gates
-        // without weakening normal spike protection.
+        // collisions.
         if (routeHandoff.found && !decision.hasValidatedInput && decision.candidates > 0 &&
             decision.deaths == decision.candidates && decision.bestRejectedTicks == 0) {
             hazardGuard.set(physicalGuardBounds);
             controller.reset();
+            fastController.reset();
             auto retry = controller.decide(
-                searchConfig, botHeld,
-                [&](Plan const &plan, auto deadline) { return evaluate(plan, deadline, dt); },
+                rescueConfig, botHeld,
+                [&](Plan const &plan, auto deadline) {
+                    return evaluate(plan, deadline, dt, rescueTailCap);
+                },
                 priorities);
             if (retry.hasValidatedInput) {
                 decision = std::move(retry);
                 routeHandoffBypassed = true;
+                plannerStage = "BYPASS";
             } else {
                 hazardGuard.set(guardBounds);
             }
