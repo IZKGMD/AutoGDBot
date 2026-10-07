@@ -226,6 +226,7 @@ class Runtime {
     std::vector<std::pair<float, GameObject *>> hintControls;
     GapHint routeGap;
     BoundaryHandoffHint routeHandoff;
+    bool routeHandoffBypassed = false;
     int routeJumpEvents = 0, routeOrbEvents = 0;
     std::vector<Point> stableTrace;
     uint64_t stableTraceTick = 0;
@@ -379,6 +380,7 @@ class Runtime {
         predictionError = 0;
         routeGap = {};
         routeHandoff = {};
+        routeHandoffBypassed = false;
         routeJumpEvents = 0;
         routeOrbEvents = 0;
         stableTrace.clear();
@@ -393,7 +395,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.8.0.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.8.1.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -897,8 +899,10 @@ class Runtime {
             auto r = o->getObjectRect();
             guardBounds.push_back({r.getMinX(), r.getMinY(), r.getMaxX(), r.getMaxY()});
         }
+        const std::vector<Bounds> physicalGuardBounds = guardBounds;
         routeGap = {};
         routeHandoff = {};
+        routeHandoffBypassed = false;
         routeJumpEvents = 0;
         routeOrbEvents = 0;
         if (pulseMode) {
@@ -974,12 +978,33 @@ class Runtime {
             routeJumpEvents = searchConfig.jumpEventCount;
             routeOrbEvents = searchConfig.orbEventCount;
         }
-        hazardGuard.set(std::move(guardBounds));
+        hazardGuard.set(guardBounds);
         auto priorities = settings.gpu ? gpu.poll() : std::vector<float>{};
         decision = controller.decide(
             searchConfig, botHeld,
             [&](Plan const &plan, auto deadline) { return evaluate(plan, deadline, dt); },
             priorities);
+
+        // A virtual portal gate is advisory safety, never an authority allowed
+        // to erase the whole action space. If every candidate dies before even
+        // one simulated tick, retry once with only physical hazards/native
+        // collisions. This specifically catches malformed/late handoff gates
+        // without weakening normal spike protection.
+        if (routeHandoff.found && !decision.hasValidatedInput && decision.candidates > 0 &&
+            decision.deaths == decision.candidates && decision.bestRejectedTicks == 0) {
+            hazardGuard.set(physicalGuardBounds);
+            controller.reset();
+            auto retry = controller.decide(
+                searchConfig, botHeld,
+                [&](Plan const &plan, auto deadline) { return evaluate(plan, deadline, dt); },
+                priorities);
+            if (retry.hasValidatedInput) {
+                decision = std::move(retry);
+                routeHandoffBypassed = true;
+            } else {
+                hazardGuard.set(guardBounds);
+            }
+        }
         if (decision.hasValidatedInput || searchConfig.forceRelease) {
             inputPending = true;
             message = !decision.hasValidatedInput     ? "BOT | forced release"
@@ -1088,7 +1113,7 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.8.0 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
+                "AutoGDBot 0.8.1 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
@@ -1114,7 +1139,8 @@ class Runtime {
                 touchingUsableOrb(layer->m_player1)
                     ? "ORB"
                     : (cubePulse.orbArmed() ? "ARM" : "no"),
-                routeGap.found ? "YES" : "no", routeHandoff.found ? "GUARD" : "no",
+                routeGap.found ? "YES" : "no",
+                routeHandoffBypassed ? "BYPASS" : (routeHandoff.found ? "GUARD" : "no"),
                 decision.rejectedUnsafe,
                 physicsOrder.collisionFirst ? "C-U" : "U-C",
                 physicsOrder.measured ? "*" : "?", decision.bestRejectedTicks,
