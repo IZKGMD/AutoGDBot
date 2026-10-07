@@ -6,11 +6,11 @@
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v0.5.2",
+  "version": "v0.6.0",
   "developers": [
     "AutoGDBot"
   ],
-  "description": "Realtime native-physics controller with same-step input injection and native input phase diagnostics.",
+  "description": "First-attempt realtime native-physics controller with touchdown-aware replanning, deterministic action coverage and certified trajectories.",
   "tags": [
     "gameplay",
     "utility",
