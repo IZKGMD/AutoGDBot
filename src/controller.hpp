@@ -400,12 +400,14 @@ class Controller {
                 flipped.buttons[0] = !warm.at(0);
                 add(flipped);
 
-                for (int t : {1, 2, 3, 4, 6, 8, 12, 18, 24, 32, 40, 48, 64, 80, 96, 120, 144, 180})
+                for (int base : {1, 2, 3, 4, 6, 8, 12, 18, 24, 32, 40, 48, 64, 80, 96, 120, 144, 180})
                     for (bool first : {held, !held})
-                        switchAt(t, first);
+                        switchAt(T(base), first);
 
-                for (int firstSwitch : {4, 8, 12, 18, 24, 32}) {
-                    for (int width : {4, 8, 12, 18, 24, 32}) {
+                for (int baseFirst : {4, 8, 12, 18, 24, 32}) {
+                    for (int baseWidth : {4, 8, 12, 18, 24, 32}) {
+                        const int firstSwitch = T(baseFirst);
+                        const int width = T(baseWidth);
                         Plan p;
                         p.buttons.fill(held);
                         for (int k = firstSwitch;
@@ -415,7 +417,8 @@ class Controller {
                     }
                 }
 
-                for (int period : {4, 6, 8, 12, 16, 24, 32}) {
+                for (int basePeriod : {4, 6, 8, 12, 16, 24, 32}) {
+                    const int period = std::max(2, T(basePeriod));
                     pwm(period, std::max(1, period / 3), 0);
                     pwm(period, std::max(1, period / 2), period / 4);
                     pwm(period, std::max(1, (period * 2) / 3), period / 2);
@@ -429,11 +432,13 @@ class Controller {
                 constant(held);
                 constant(!held);
                 add(warm);
-                for (int t : {1, 2, 3, 4, 6, 8, 12, 18, 24, 36, 48, 72, 96, 120, 144})
+                for (int base : {1, 2, 3, 4, 6, 8, 12, 18, 24, 36, 48, 72, 96, 120, 144})
                     for (bool first : {held, !held})
-                        switchAt(t, first);
-                for (int period : {8, 12, 16, 24, 32})
+                        switchAt(T(base), first);
+                for (int basePeriod : {8, 12, 16, 24, 32}) {
+                    const int period = std::max(2, T(basePeriod));
                     pwm(period, period / 2, 0);
+                }
                 break;
             }
             }
