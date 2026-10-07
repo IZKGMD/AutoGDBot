@@ -409,7 +409,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.5.2.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.6.0.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -563,21 +563,35 @@ class Runtime {
                         if (i == 0) {
                             auto pr = p->getObjectRect();
                             const float px = p->getPositionX();
+                            std::vector<std::pair<float, float>> spans;
                             auto first = std::lower_bound(
-                                hintSolids.begin(), hintSolids.end(), px - 80.f,
+                                hintSolids.begin(), hintSolids.end(), px - 180.f,
                                 [](auto const &a, float x) { return a.first < x; });
-                            for (auto it = first; it != hintSolids.end() && it->first <= px + 80.f; ++it) {
-                                auto *s = it->second;
-                                if (!s || s->m_isDisabled || s->m_isDisabled2)
+                            for (auto it = first; it != hintSolids.end() && it->first <= px + 180.f;
+                                 ++it) {
+                                auto *solid = it->second;
+                                if (!solid || solid->m_isDisabled || solid->m_isDisabled2)
                                     continue;
-                                auto sr = s->getObjectRect();
+                                auto sr = solid->getObjectRect();
                                 if (std::abs(sr.getMaxY() - pr.getMinY()) > 5.f)
                                     continue;
-                                if (pr.getMaxX() < sr.getMinX() || pr.getMinX() > sr.getMaxX())
+                                spans.emplace_back(sr.getMinX(), sr.getMaxX());
+                            }
+                            std::sort(spans.begin(), spans.end());
+                            std::vector<std::pair<float, float>> merged;
+                            for (auto span : spans) {
+                                if (!merged.empty() && span.first <= merged.back().second + 1.5f)
+                                    merged.back().second = std::max(merged.back().second, span.second);
+                                else
+                                    merged.push_back(span);
+                            }
+                            for (auto span : merged) {
+                                if (pr.getMaxX() < span.first || pr.getMinX() > span.second)
                                     continue;
-                                const float left = pr.getMinX() - sr.getMinX();
-                                const float right = sr.getMaxX() - pr.getMaxX();
-                                out.landingMargin = std::max(out.landingMargin, std::max(0.f, std::min(left, right)));
+                                const float left = pr.getMinX() - span.first;
+                                const float right = span.second - pr.getMaxX();
+                                out.landingMargin =
+                                    std::max(out.landingMargin, std::max(0.f, std::min(left, right)));
                             }
                         }
                     }
@@ -716,8 +730,45 @@ class Runtime {
                                           [](auto const &a, float x) { return a.first < x; });
                 nearAction = o != hintOrbs.end() && o->first <= px + 230.f;
             }
+            // A native touchdown can immediately enable the next staircase
+            // pulse. Replan at full rate while descending into a nearby
+            // support surface instead of skipping the exact landing substep.
+            if (!nearAction && !canPress) {
+                const double vy = p->m_yVelocity;
+                const bool towardGravity = p->m_isUpsideDown ? vy >= 0.0 : vy <= 0.0;
+                if (towardGravity) {
+                    auto pr = p->getObjectRect();
+                    auto solid = std::lower_bound(
+                        hintSolids.begin(), hintSolids.end(), px - 220.f,
+                        [](auto const &a, float x) { return a.first < x; });
+                    int checked = 0;
+                    for (auto it = solid;
+                         it != hintSolids.end() && it->first <= px + 220.f && checked < 48;
+                         ++it, ++checked) {
+                        auto *obj = it->second;
+                        if (!obj || obj->m_isDisabled || obj->m_isDisabled2)
+                            continue;
+                        auto sr = obj->getObjectRect();
+                        const bool horizontalReach =
+                            p->m_isGoingLeft
+                                ? sr.getMaxX() >= pr.getMinX() - 180.f &&
+                                      sr.getMinX() <= pr.getMaxX() + 20.f
+                                : sr.getMinX() <= pr.getMaxX() + 180.f &&
+                                      sr.getMaxX() >= pr.getMinX() - 20.f;
+                        if (!horizontalReach)
+                            continue;
+                        const float gap = p->m_isUpsideDown
+                                              ? sr.getMinY() - pr.getMaxY()
+                                              : pr.getMinY() - sr.getMaxY();
+                        if (gap >= -6.f && gap <= 90.f) {
+                            nearAction = true;
+                            break;
+                        }
+                    }
+                }
+            }
         }
-        if (pulseMode && !canPress && (ticks & 3) != 0) {
+        if (pulseMode && !canPress && !nearAction && (ticks & 3) != 0) {
             auto shift = [](Evaluation &e) {
                 for (auto &trace : e.traces)
                     if (!trace.empty())
@@ -920,7 +971,7 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.5.2 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
+                "AutoGDBot 0.6.0 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
