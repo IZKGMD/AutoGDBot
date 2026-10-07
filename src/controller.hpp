@@ -48,7 +48,7 @@ struct Config {
     double budgetMs = 1.0;
     bool forceRelease = false;
     bool cubePulsePlanning = false;
-    bool immediateOrb = false; // real player is touching an activatable orb now
+    bool immediateOrb = false; // touching or within the certified pre-contact orb window
     std::array<int, 32> jumpEvents{};
     int jumpEventCount = 0;
     std::array<int, 32> orbEvents{};

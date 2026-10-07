@@ -72,6 +72,24 @@ int main() {
     require(pulse.command(true, true, true), "new grounded jump can press again");
     require(!pulse.command(true, true, true), "mandatory release prevents a persistent cube hold");
     require(pulse.command(true, true, true), "orb or grounded action can issue a subsequent pulse");
+
+    CubePulse armedOrb;
+    require(armedOrb.command(true, true, false, true, false) && armedOrb.orbArmed(),
+            "airborne orb route may pre-arm DOWN before native contact");
+    require(armedOrb.command(false, true, false, true, false) && armedOrb.orbArmed(),
+            "pre-armed orb input stays held through the short approach window");
+    require(armedOrb.command(false, true, true, true, true) && !armedOrb.orbArmed() &&
+                armedOrb.mustRelease(),
+            "native ring contact consumes the armed input and schedules release");
+    require(!armedOrb.command(false, true, false, false, false) && !armedOrb.mustRelease(),
+            "orb input releases immediately after the confirmed activation tick");
+
+    CubePulse abortedArm;
+    require(abortedArm.command(true, true, false, true, false),
+            "pre-arm begins on an imminent orb");
+    require(!abortedArm.command(false, true, false, false, false) && !abortedArm.orbArmed(),
+            "pre-arm aborts instead of holding forever when the contact disappears");
+
     require(pulse.command(true, false, false), "dash transition must preserve continuous holding");
     for (int t = 0; t < 12; ++t)
         require(pulse.command(true, false, false),

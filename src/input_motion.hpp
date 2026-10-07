@@ -6,27 +6,70 @@ namespace agb {
 // the optimizer repeats DOWN. Continuous modes and active dash keep holding.
 class CubePulse {
     bool releasePending_ = false;
+    bool orbArmed_ = false;
+    int orbArmTicks_ = 0;
 
   public:
     void reset() {
         releasePending_ = false;
+        orbArmed_ = false;
+        orbArmTicks_ = 0;
     }
     bool mustRelease() const {
         return releasePending_;
     }
-    bool command(bool requested, bool pulseMode, bool canPress) {
+    bool orbArmed() const {
+        return orbArmed_;
+    }
+
+    // orbImminent means an airborne cube is expected to enter an activatable
+    // ring within the next ~2 physics ticks. Keep DOWN buffered until native
+    // collision confirms the contact, then release on the following tick.
+    bool command(bool requested, bool pulseMode, bool canPress,
+                 bool orbImminent = false, bool orbContact = false) {
         if (!pulseMode) {
-            releasePending_ = false;
+            reset();
             return requested;
         }
+
         if (releasePending_) {
             releasePending_ = false;
+            orbArmed_ = false;
+            orbArmTicks_ = 0;
             return false;
         }
-        if (!requested || !canPress)
+
+        if (orbArmed_) {
+            if (orbContact || canPress) {
+                releasePending_ = true;
+                orbArmed_ = false;
+                orbArmTicks_ = 0;
+                return true;
+            }
+            if (orbImminent && orbArmTicks_ < 3) {
+                ++orbArmTicks_;
+                return true;
+            }
+            orbArmed_ = false;
+            orbArmTicks_ = 0;
             return false;
-        releasePending_ = true;
-        return true;
+        }
+
+        if (!requested)
+            return false;
+
+        if (canPress) {
+            releasePending_ = true;
+            return true;
+        }
+
+        if (orbImminent) {
+            orbArmed_ = true;
+            orbArmTicks_ = 1;
+            return true;
+        }
+
+        return false;
     }
 };
 
