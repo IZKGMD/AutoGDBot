@@ -590,6 +590,33 @@ int main() {
             "continuous MPC must use a safe receding prefix when all long forecasts eventually die");
 
     c.reset();
+    Config marginCfg = recedingCfg;
+    marginCfg.candidates = 16;
+    auto nearMarginEval = [](Plan const &p, Clock::time_point) {
+        Evaluation e;
+        e.died = true;
+        if (p.at(0)) {
+            // Lives much longer, but immediately grazes the hazard.
+            e.survived = 58;
+            e.nearClearance = 2.f;
+            e.clearance = 2.f;
+            e.robustness = .05f;
+        } else {
+            // Dies sooner in the long forecast, but has a wide recoverable
+            // margin for the next realtime replanning interval.
+            e.survived = 36;
+            e.nearClearance = 22.f;
+            e.clearance = 12.f;
+            e.robustness = .6f;
+        }
+        return e;
+    };
+    auto marginDecision = c.decide(marginCfg, false, nearMarginEval);
+    require(marginDecision.hasValidatedInput && !marginDecision.down &&
+                marginDecision.selected.nearClearance >= 20.f,
+            "receding MPC must prefer immediate clearance over a longer spike-grazing death");
+
+    c.reset();
     Config eventCfg = cfg;
     eventCfg.cubePulsePlanning = true;
     eventCfg.plannerMode = PlannerMode::Cube;
