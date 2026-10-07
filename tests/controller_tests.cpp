@@ -146,6 +146,40 @@ int main() {
     auto gap = findForwardGap(55, 60, 1.3f, gapSupport);
     require(gap.found && gap.edgeX == 120 && gap.width > 60,
             "route lookahead must expose a platform gap before the cube falls off it");
+
+    Config wallCfg = ledgeCfg;
+    wallCfg.jumpEventCount = 0;
+    std::array<Bounds, 1> frontWall{{{118, 0, 148, 90}}};
+    auto wall = seedForwardWallEvents(wallCfg, 55, 0, 1.3f, frontWall);
+    require(wall.found && wallCfg.jumpEventCount > 0,
+            "a solid front face must create takeoff timings before impact");
+
+    Config handoffCfg = ledgeCfg;
+    handoffCfg.horizon = 144;
+    handoffCfg.jumpEventCount = 0;
+    std::array<Bounds, 1> portalBounds{{{92, -30, 100, 120}}};
+    std::array<Bounds, 1> postPortalWall{{{112, 0, 142, 90}}};
+    auto handoff = seedBoundaryHandoff(
+        handoffCfg, {40, 0, 70, 30}, 1.3f, postPortalWall, {}, portalBounds, false);
+    require(handoff.found && handoff.obstacleTick > handoff.boundaryTick &&
+                handoffCfg.jumpEventCount > 0,
+            "an immediate post-portal wall must require a pre-portal takeoff");
+    bool hasPrePortalTiming = false;
+    for (int i = 0; i < handoffCfg.jumpEventCount; ++i)
+        hasPrePortalTiming |= handoffCfg.jumpEvents[i] <= handoff.boundaryTick - 2;
+    require(hasPrePortalTiming,
+            "portal handoff timings must execute before the forecast boundary");
+    HazardGuard portalGate;
+    portalGate.set({handoff.gate});
+    require(portalGate.hit({80, 0, 90, 30}, {94, 10, 104, 40}),
+            "a low portal crossing must be rejected before the hidden wall");
+    require(!portalGate.hit({80, 110, 90, 140}, {94, 112, 104, 142}),
+            "a high portal crossing with wall clearance must remain available");
+    std::array<Bounds, 1> farPostPortalWall{{{210, 0, 240, 90}}};
+    auto farHandoff = seedBoundaryHandoff(
+        handoffCfg, {40, 0, 70, 30}, 1.3f, farPostPortalWall, {}, portalBounds, false);
+    require(!farHandoff.found,
+            "a distant post-portal wall must be left for normal replanning after the portal");
     Config orbCfg = ledgeCfg;
     orbCfg.jumpEventCount = 0;
     orbCfg.orbEventCount = 0;
