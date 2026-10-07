@@ -384,7 +384,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.2.1.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.6.0.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -517,21 +517,35 @@ class Runtime {
                         if (i == 0) {
                             auto pr = p->getObjectRect();
                             const float px = p->getPositionX();
+                            std::vector<std::pair<float, float>> spans;
                             auto first = std::lower_bound(
-                                hintSolids.begin(), hintSolids.end(), px - 80.f,
+                                hintSolids.begin(), hintSolids.end(), px - 180.f,
                                 [](auto const &a, float x) { return a.first < x; });
-                            for (auto it = first; it != hintSolids.end() && it->first <= px + 80.f; ++it) {
-                                auto *s = it->second;
-                                if (!s || s->m_isDisabled || s->m_isDisabled2)
+                            for (auto it = first; it != hintSolids.end() && it->first <= px + 180.f;
+                                 ++it) {
+                                auto *solid = it->second;
+                                if (!solid || solid->m_isDisabled || solid->m_isDisabled2)
                                     continue;
-                                auto sr = s->getObjectRect();
+                                auto sr = solid->getObjectRect();
                                 if (std::abs(sr.getMaxY() - pr.getMinY()) > 5.f)
                                     continue;
-                                if (pr.getMaxX() < sr.getMinX() || pr.getMinX() > sr.getMaxX())
+                                spans.emplace_back(sr.getMinX(), sr.getMaxX());
+                            }
+                            std::sort(spans.begin(), spans.end());
+                            std::vector<std::pair<float, float>> merged;
+                            for (auto span : spans) {
+                                if (!merged.empty() && span.first <= merged.back().second + 1.5f)
+                                    merged.back().second = std::max(merged.back().second, span.second);
+                                else
+                                    merged.push_back(span);
+                            }
+                            for (auto span : merged) {
+                                if (pr.getMaxX() < span.first || pr.getMinX() > span.second)
                                     continue;
-                                const float left = pr.getMinX() - sr.getMinX();
-                                const float right = sr.getMaxX() - pr.getMaxX();
-                                out.landingMargin = std::max(out.landingMargin, std::max(0.f, std::min(left, right)));
+                                const float left = pr.getMinX() - span.first;
+                                const float right = span.second - pr.getMaxX();
+                                out.landingMargin =
+                                    std::max(out.landingMargin, std::max(0.f, std::min(left, right)));
                             }
                         }
                     }
@@ -557,7 +571,12 @@ class Runtime {
                 allLanded = false;
         }
         out.landingVerified = out.requiresLanding && allLanded;
-        out.firstActionVerified = !out.requiresLanding || allLanded || out.boundary;
+        // A complete native rollout is a valid safety proof even if a long
+        // jump has not landed yet. Requiring a landing inside every horizon
+        // incorrectly rejects safe staircase/gap takeoffs.
+        out.firstActionVerified =
+            !out.requiresLanding || allLanded || out.boundary ||
+            (!out.died && !out.interrupted && out.survived >= plan.length);
         // Robustness is intentionally cheap: map the worst geometric margin to [0,1].
         // Native collisions remain authoritative; this only ranks surviving candidates.
         out.robustness = std::clamp(out.clearance / 28.f, 0.f, 1.f);
@@ -662,6 +681,14 @@ class Runtime {
                 auto o = std::lower_bound(hintOrbs.begin(), hintOrbs.end(), px - 12.f,
                                           [](auto const &a, float x) { return a.first < x; });
                 nearAction = o != hintOrbs.end() && o->first <= px + 230.f;
+            }
+            if (!nearAction) {
+                // A platform landing is an input event too. Without this,
+                // cube flight used the 60 Hz light path and could skip the
+                // exact landing tick that should buffer the next stair jump.
+                auto solid = std::lower_bound(hintSolids.begin(), hintSolids.end(), px + 6.f,
+                                              [](auto const &a, float x) { return a.first < x; });
+                nearAction = solid != hintSolids.end() && solid->first <= px + 260.f;
             }
         }
         if (pulseMode && !canPress && !nearAction && (ticks & 3) != 0) {
@@ -780,20 +807,39 @@ class Runtime {
                                                       : "BOT | short forecast";
         } else
             message = "BOT | no surviving candidate";
-        // A nearby floor spike is actionable from the real grounded state.
-        // Use the reflex only when the bounded search did not already choose
-        // the jump; the next tick still performs the mandatory cube release.
+        // Emergency input is a safety shield, never a blind override. If the
+        // normal budget misses a nearby spike window, verify one immediate
+        // jump with the same native clone physics + swept hazard guard.
         const bool reflexRescue = shouldUseReflexFallback(
             reflex, searchConfig.forceRelease, decision.hasValidatedInput,
             decision.selected.died, decision.selected.interrupted,
             decision.predictedTicks, searchConfig.horizon);
         if (reflexRescue && !decision.down) {
-            decision.down = true;
-            decision.completeContinuation = false;
-            decision.plan.buttons[0] = true;
-            inputPending = true;
-            message = "BOT | hazard reflex";
-            ++reflexJumps;
+            Plan rescue;
+            rescue.length = std::min(searchConfig.horizon, 96);
+            rescue.buttons.fill(false);
+            rescue.buttons[0] = true;
+            const double shieldMs = std::clamp(searchConfig.budgetMs * .45, .35, 1.0);
+            const auto shieldDeadline =
+                Clock::now() + std::chrono::duration_cast<Clock::duration>(
+                                   std::chrono::duration<double, std::milli>(shieldMs));
+            auto shield = evaluate(rescue, shieldDeadline, dt);
+            const bool verified =
+                shield.firstActionVerified && !shield.died && !shield.interrupted &&
+                (shield.boundary || shield.survived >= rescue.length);
+            if (verified) {
+                decision.down = true;
+                decision.hasValidatedInput = true;
+                decision.completeContinuation = shield.boundary || shield.survived >= rescue.length;
+                decision.predictedTicks = shield.survived;
+                decision.plan = rescue;
+                decision.selected = std::move(shield);
+                inputPending = true;
+                message = "BOT | verified safety shield";
+                ++reflexJumps;
+            } else {
+                message = "BOT | shield blocked unsafe jump";
+            }
         }
         if (settings.gpu && gpu.ready() && (ticks & 7) == 0) {
             GpuState s;
@@ -879,7 +925,7 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.4.0 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
+                "AutoGDBot 0.6.0 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
@@ -1050,17 +1096,18 @@ class $modify(AGBPlayLayer, PlayLayer) {
 };
 class $modify(AGBBaseLayer, GJBaseGameLayer) {
     void processCommands(float dt, bool half, bool last) {
-        if (agb::active && static_cast<GJBaseGameLayer *>(agb::active->layer) == this &&
-            !agb::sim.active)
-            agb::active->tick(dt);
-        GJBaseGameLayer::processCommands(dt, half, last);
-        // Native queued input has now been processed; inject the selected
-        // state directly before the current physics tick advances the player.
+        // Decide and inject before the native command/physics step. This makes
+        // the live player see the exact same first action that the clone
+        // rollout simulated for this tick instead of one tick later.
         if (agb::active && static_cast<GJBaseGameLayer *>(agb::active->layer) == this &&
             !agb::sim.active) {
+            agb::active->tick(dt);
             agb::active->applyInput();
-            agb::active->recordTelemetry();
         }
+        GJBaseGameLayer::processCommands(dt, half, last);
+        if (agb::active && static_cast<GJBaseGameLayer *>(agb::active->layer) == this &&
+            !agb::sim.active)
+            agb::active->recordTelemetry();
     }
     void handleButton(bool down, int button, bool p1) {
         if (agb::active && static_cast<GJBaseGameLayer *>(agb::active->layer) == this &&
