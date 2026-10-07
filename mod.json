@@ -6,11 +6,11 @@
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v0.6.1",
+  "version": "v0.6.2",
   "developers": [
     "AutoGDBot"
   ],
-  "description": "Realtime native-physics controller with wall anticipation, portal-handoff safety gates and certified trajectories.",
+  "description": "Realtime native-physics controller with portal-handoff safety plus Android libc++ compatibility.",
   "tags": [
     "gameplay",
     "utility",
