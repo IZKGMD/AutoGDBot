@@ -6,11 +6,11 @@
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v0.5.0",
+  "version": "v0.5.1",
   "developers": [
     "AutoGDBot"
   ],
-  "description": "Realtime native-physics planner with complete cube flight validation and no unverified jump overrides.",
+  "description": "Realtime native-physics controller with touchdown-relative staircase routes and completed flight tails.",
   "tags": [
     "gameplay",
     "utility",

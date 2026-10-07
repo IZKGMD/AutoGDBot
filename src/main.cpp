@@ -13,6 +13,7 @@
 #include "planning_hints.hpp"
 #include "semantic_map.hpp"
 #include "flight_certificate.hpp"
+#include "landing_schedule.hpp"
 #include <fstream>
 #include <unordered_set>
 
@@ -387,7 +388,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.5.0.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.5.1.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -438,10 +439,14 @@ class Runtime {
                 out.traces[i].push_back({clones[i]->getPositionX(), clones[i]->getPositionY()});
             }
         }
+        LandingSchedule schedule(plan.landingDelay, clones[0]->m_isOnGround);
+        out.hasRealized = true;
+        const bool cubeRollout = cubePulseMode(clones[0], clones[1], dual);
+        const int limit = cubeRollout ? MaxHorizon : plan.length;
         out.clearance = 120;
         out.landingMargin = 0;
         out.robustness = 1.f;
-        for (int t = 0; t < plan.length; ++t) {
+        for (int t = 0; t < limit; ++t) {
             if (Clock::now() >= deadline) {
                 out.interrupted = true;
                 break;
@@ -450,7 +455,11 @@ class Runtime {
             bool canPress = cubeCanPress(clones[0]) || (dual && cubeCanPress(clones[1]));
             if (pulseMode && clones[0]->m_isOnGround && !pulse.mustRelease())
                 out.groundedActions.push_back(t);
-            bool down = pulse.command(plan.at(t), pulseMode, canPress);
+            const bool requested = schedule.request(t < plan.length && plan.at(t),
+                clones[0]->m_isOnGround, pulse.mustRelease(), pulseMode && t < plan.length);
+            bool down = pulse.command(requested, pulseMode, canPress);
+            schedule.sent(down, clones[0]->m_isOnGround);
+            out.realized.buttons[t] = down;
             for (int i = 0; i < players; ++i)
                 groundedBefore[i] = clones[i]->m_isOnGround;
             out.buttonChanges += down != previousButton;
@@ -523,6 +532,10 @@ class Runtime {
                     }
                 }
                 if (mode(p) == 0) {
+                    if (!groundedBefore[i] && p->m_isOnGround && i == 0) {
+                        ++out.landingCount;
+                        if (out.firstLandingTick < 0) out.firstLandingTick = t;
+                    }
                     const bool wasVerified = flights[i].verified();
                     flights[i].observe(groundedBefore[i], p->m_isOnGround, down);
                     if (!wasVerified && flights[i].verified()) {
@@ -555,6 +568,12 @@ class Runtime {
             if (out.died)
                 break;
             ++out.survived;
+            out.realized.length = out.survived;
+            bool settled = true;
+            for (int i = 0; i < players; ++i)
+                if (mode(clones[i]) == 0) settled &= flights[i].verified();
+            if (out.survived >= plan.length && (!cubeRollout || settled))
+                break;
             // Do not invent a future after a mode/speed/dual portal. The actual
             // game performs it; the following physics tick starts a fresh plan.
             if (sim.boundary)
@@ -677,7 +696,7 @@ class Runtime {
                 nearAction = o != hintOrbs.end() && o->first <= px + 230.f;
             }
         }
-        if (pulseMode && !canPress && !nearAction && (ticks & 3) != 0) {
+        if (pulseMode && !canPress && (ticks & 3) != 0) {
             auto shift = [](Evaluation &e) {
                 for (auto &trace : e.traces)
                     if (!trace.empty())
@@ -715,7 +734,7 @@ class Runtime {
             searchConfig.candidates = std::max(searchConfig.candidates, 64);
             searchConfig.budgetMs = std::max(searchConfig.budgetMs, nearAction ? 3.5 : 1.35);
             if (nearAction)
-                searchConfig.candidates = std::max(searchConfig.candidates, 80);
+                searchConfig.candidates = std::max(searchConfig.candidates, 96);
         }
         // Cache frozen-world geometry once per tick. Candidate steps query the
         // sorted bounds without repeatedly calling native object functions.
@@ -880,12 +899,13 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.5.0 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
+                "AutoGDBot 0.5.1 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
                 "error={:.2f} | guard={} | light={} | reflex={} | forecast={} | landing={}\n"
-                "route: jumps={} orbs={} gap={} | rejected={} | order={}{}",
+                "route: jumps={} orbs={} gap={} | rejected={} | order={}{}\n"
+                "failure: best={} deaths={} landing={} timeout={} | landings={}",
                 message, decision.elapsedMs, totalMs, decision.candidates, decision.predictedTicks,
                 settings.gpu ? gpu.status() : "CPU", ticks, decision.down ? "DOWN" : "UP",
                 botHeld ? "DOWN" : "UP", inputTransitions, travelSteps[0].x, previousDt,
@@ -902,7 +922,9 @@ class Runtime {
                     : "n/a",
                 routeJumpEvents, routeOrbEvents, routeGap.found ? "YES" : "no",
                 decision.rejectedUnsafe, physicsOrder.collisionFirst ? "C-U" : "U-C",
-                physicsOrder.measured ? "*" : "?")
+                physicsOrder.measured ? "*" : "?", decision.bestRejectedTicks,
+                decision.deaths, decision.landingRejects, decision.interruptions,
+                decision.selected.landingCount)
                 .c_str());
         label->setColor(decision.hasValidatedInput ? ccColor3B{120, 255, 170}
                                                    : ccColor3B{255, 180, 100});

@@ -214,7 +214,8 @@ int main() {
             "dense geometry timing sweep must stay bounded while testing the safe takeoff neighborhood");
     for (size_t i = 0; i < ledge.proposals.size(); ++i)
         for (size_t j = i + 1; j < ledge.proposals.size(); ++j)
-            require(ledge.proposals[i].buttons != ledge.proposals[j].buttons,
+            require(ledge.proposals[i].buttons != ledge.proposals[j].buttons ||
+                        ledge.proposals[i].landingDelay != ledge.proposals[j].landingDelay,
                     "GPU receives the same unique proposals that CPU search used");
     Config reverseCfg = ledgeCfg;
     reverseCfg.jumpEventCount = 0;

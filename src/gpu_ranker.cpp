@@ -14,7 +14,7 @@ RWStructuredBuffer<float> results:register(u0);
  uint id=tid.x;if(id>=cfg.w)return;
  float2 p=pose.xy;float vy=pose.w,margin=100;uint survived=0;bool held=cfg.y!=0;
  for(uint t=0;t<cfg.z;++t){
-  bool down=inputs[id*240+t]!=0;
+  bool down=inputs[id*512+t]!=0;
   if(cfg.x==4)vy=(down?1:-1)*params.x*abs(pose.z)*4;
   else if(cfg.x==1||cfg.x==7)vy=clamp(vy+(down?1:-1)*params.x*params.z,-params.w,params.w);
   else {if(down&&!held&&(cfg.x==0||cfg.x==3||cfg.x==5))vy=params.x*10;
