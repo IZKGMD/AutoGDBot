@@ -36,8 +36,23 @@ class HazardGuard {
         auto b = sweptBounds(before, after);
         auto first = std::lower_bound(hazards_.begin(), hazards_.end(), b.minX - maxWidth_,
                                       [](Bounds a, float x) { return a.minX < x; });
+        auto overlaps = [](Bounds a, Bounds h) {
+            // Inclusive on purpose: if the real player is already touching the
+            // guard's coarse AABB at the start of a tick and is still alive,
+            // that overlap is demonstrably not an authoritative death state.
+            return a.maxX >= h.minX && a.minX <= h.maxX &&
+                   a.maxY >= h.minY && a.minY <= h.maxY;
+        };
         for (auto it = first; it != hazards_.end() && it->minX <= b.maxX; ++it)
             if (it->maxX >= b.minX && it->maxY >= b.minY && it->minY <= b.maxY) {
+                // The independent guard supplements native collision; it must
+                // detect ENTERING a coarse hazard region, not retroactively kill
+                // a state the real game already proved alive. Full rectangular
+                // spike/saw bounds are intentionally conservative and often
+                // overlap the real player a tick or two before native geometry.
+                if (overlaps(before, *it))
+                    continue;
+
                 double enter = 0, leave = 1;
                 auto nonnegative = [&](double start, double end) {
                     const double delta = end - start;
