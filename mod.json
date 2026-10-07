@@ -6,7 +6,7 @@
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v0.16.0",
+  "version": "v0.17.0",
   "developers": [
     "AutoGDBot"
   ],
@@ -42,7 +42,7 @@
       "name": "Lookahead in physics ticks",
       "default": 180,
       "min": 24,
-      "max": 240
+      "max": 384
     },
     "candidates": {
       "type": "int",
@@ -63,6 +63,12 @@
       "name": "Save timing CSV",
       "description": "Writes telemetry in the mod save directory every 256 physics ticks.",
       "default": false
+    },
+    "flight-recovery": {
+      "type": "bool",
+      "name": "Survival recovery",
+      "description": "Try a collision-checked action when its distant landing is still unproved. The HUD marks these actions as recovery.",
+      "default": true
     }
   }
 }

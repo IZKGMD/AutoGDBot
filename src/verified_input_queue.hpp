@@ -12,6 +12,7 @@ class VerifiedInputQueue {
     int cursor_ = 0, checked_ = 0;
     double dt_ = 0;
     bool dual_ = false;
+    bool motionProof_ = false;
   public:
     void reset() { cursor_ = checked_ = 0; }
     bool seed(Decision const &d, std::array<ModeState, 2> states, bool dual, double dt) {
@@ -22,13 +23,16 @@ class VerifiedInputQueue {
         for (int i = 0; i < (dual ? 2 : 1); ++i)
             checked_ = std::min(checked_, int(d.selected.traces[i].size()) - 1);
         if (checked_ <= 0) { reset(); return false; }
+        motionProof_ = !d.selected.motions[0].empty();
+        if (motionProof_) for (int i = 0; i < (dual ? 2 : 1); ++i)
+            if (int(d.selected.motions[i].size()) <= checked_) { reset(); return false; }
         plan_ = d.plan;
         evaluation_ = d.selected;
         states_ = states; dual_ = dual; dt_ = dt;
         return true;
     }
     bool matches(std::array<Point, 2> real, std::array<ModeState, 2> states,
-                 bool dual, double dt) const {
+                 bool dual, double dt, std::array<MotionSample, 2> const *motion = nullptr) const {
         if (cursor_ >= checked_ || dual != dual_ || !std::isfinite(dt) ||
             dt <= 0 || std::abs(dt / dt_ - 1) > .05) return false;
         for (int i = 0; i < (dual ? 2 : 1); ++i) {
@@ -36,6 +40,8 @@ class VerifiedInputQueue {
             auto expected = evaluation_.traces[i][cursor_];
             if (!std::isfinite(real[i].x) || !std::isfinite(real[i].y) ||
                 std::hypot(real[i].x - expected.x, real[i].y - expected.y) > .75f) return false;
+            if (motionProof_ && (!motion || !evaluation_.motions[i][cursor_].matches((*motion)[i])))
+                return false;
         }
         return true;
     }
@@ -59,6 +65,11 @@ class VerifiedInputQueue {
             if (trace.size() <= size_t(cursor_)) { trace.clear(); continue; }
             trace.erase(trace.begin(), trace.begin() + cursor_);
             if (trace.size() > size_t(remaining() + 1)) trace.resize(remaining() + 1);
+        }
+        for (auto &motion : d.selected.motions) {
+            if (motion.size() <= size_t(cursor_)) { motion.clear(); continue; }
+            motion.erase(motion.begin(), motion.begin() + cursor_);
+            if (motion.size() > size_t(remaining() + 1)) motion.resize(remaining() + 1);
         }
         // Contact/repair indices belong to the old timeline, not this suffix.
         d.selected.orbActions.clear(); d.selected.dashActions.clear();
