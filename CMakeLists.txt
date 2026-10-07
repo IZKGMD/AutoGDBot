@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(AutoGDBot VERSION 0.6.1 LANGUAGES CXX C)
+project(AutoGDBot VERSION 0.6.2 LANGUAGES CXX C)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
@@ -19,7 +19,11 @@ if(AUTOGDBOT_BUILD_MOD)
   message(FATAL_ERROR "Set GEODE_SDK to the Geode 5.10.1 SDK directory")
  endif()
  if(ANDROID)
-  add_library(${PROJECT_NAME} SHARED src/main.cpp src/gpu_ranker_stub.cpp)
+  add_library(${PROJECT_NAME} SHARED
+   src/main.cpp
+   src/gpu_ranker_stub.cpp
+   src/android_libcpp_compat.cpp
+  )
  else()
   add_library(${PROJECT_NAME} SHARED src/main.cpp src/gpu_ranker.cpp)
  endif()
