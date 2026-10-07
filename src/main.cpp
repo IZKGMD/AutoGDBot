@@ -386,6 +386,7 @@ class Runtime {
         routeHandoffBypassed = false;
         routeJumpEvents = 0;
         routeOrbEvents = 0;
+        plannerStage = "IDLE";
         stableTrace.clear();
         stableTraceTick = 0;
         hazardGuard.set({});
@@ -398,7 +399,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.10.0.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.11.0.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -1277,7 +1278,7 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.10.0 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
+                "AutoGDBot 0.11.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
@@ -1285,8 +1286,9 @@ class Runtime {
                 "route: mode={} jumps={} orbs={} touch={} gap={} handoff={} | rejected={} | order={}{}\n"
                 "failure: best={} deaths={} landing={} timeout={} | landings={}\n"
                 "native: U={}/{} C={} saw={} mismatch={}\n{}",
-                message, decision.elapsedMs, totalMs, decision.candidates, decision.predictedTicks,
-                decision.certificateTicks, settings.gpu ? gpu.status() : "CPU",
+                message, plannerStage, decision.elapsedMs, totalMs, decision.candidates,
+                decision.predictedTicks, decision.certificateTicks,
+                settings.gpu ? gpu.status() : "CPU",
                 ticks, decision.down ? "DOWN" : "UP",
                 botHeld ? "DOWN" : "UP", inputTransitions, travelSteps[0].x, previousDt,
                 timing.nativeStep(previousDt), timing.measured() ? "*" : "",
