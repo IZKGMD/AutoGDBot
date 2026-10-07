@@ -134,14 +134,14 @@ struct SimulationContext {
 };
 static SimulationContext sim;
 static bool injected = false;
-static bool physicsObject(GameObjectType t) {
-    return isClonePhysicsType(t);
+static bool physicsObject(GameObject *o) {
+    return isClonePhysicsObject(o);
 }
-static bool padObject(GameObjectType t) {
-    return isPadType(t);
+static bool padObject(GameObject *o) {
+    return isPadObject(o);
 }
-static bool orbObject(GameObjectType t) {
-    return isOrbType(t);
+static bool orbObject(GameObject *o) {
+    return isOrbObject(o);
 }
 static bool boundaryObject(GameObject *o) {
     return isForecastBoundary(o);
@@ -165,7 +165,7 @@ static bool touchingUsableOrb(PlayerObject *p) {
         return false;
     for (unsigned i = 0; i < p->m_touchingRings->count(); ++i) {
         auto *o = static_cast<GameObject *>(p->m_touchingRings->objectAtIndex(i));
-        if (o && orbObject(o->m_objectType) && !o->m_isDisabled && !o->m_isDisabled2 &&
+        if (o && orbObject(o) && !o->m_isDisabled && !o->m_isDisabled2 &&
             !o->m_isActivated)
             return true;
     }
@@ -780,8 +780,7 @@ class Runtime {
              it != hintControls.end() && it->first <= px + 300.f; ++it) {
             auto *obj = it->second;
             if (obj && !obj->m_isDisabled && !obj->m_isDisabled2 &&
-                (boundaryObject(obj) || padObject(obj->m_objectType) ||
-                 orbObject(obj->m_objectType))) {
+                (boundaryObject(obj) || padObject(obj) || orbObject(obj))) {
                 nearAction = true;
                 break;
             }
@@ -1560,7 +1559,7 @@ class $modify(AGBBaseLayer, GJBaseGameLayer) {
                 continue;
             if (agb::boundaryObject(o) && p->getObjectRect().intersectsRect(o->getObjectRect()))
                 agb::sim.boundary = true;
-            if (agb::physicsObject(o->m_objectType)) {
+            if (agb::physicsObject(o)) {
                 agb::sim.save(o);
                 filtered.push_back(o);
             }
