@@ -537,6 +537,8 @@ class Runtime {
         out.robustness = 1.f;
         const int nearClearanceTicks =
             std::clamp(int(std::ceil(.15 / std::max(0.001f, dt))), 8, 64);
+        const int landingReactionTicks =
+            std::clamp(int(std::ceil(.11 / std::max(0.001f, dt))), 18, 40);
         auto addOrbAction = [&](int tick) {
             if (tick < 0 || tick >= plan.length)
                 return;
@@ -559,12 +561,9 @@ class Runtime {
             if (pulseMode && clones[0]->m_isOnGround && !pulse.mustRelease())
                 out.groundedActions.push_back(t);
             if (pulseMode && orbContact && !pulse.mustRelease()) {
+                // Contact is an action opportunity, not a certificate. Reaching
+                // a ring does not prove that pressing/skipping it is safe.
                 addOrbAction(t);
-                // A ring already touching the real/clone player at t=0 is a
-                // decision that must be evaluated now, not a future handoff.
-                // Future contacts are safe replanning boundaries.
-                if (t > 0)
-                    out.decisionPoint = true;
             }
             const bool requested = schedule.request(t < plan.length && plan.at(t),
                 clones[0]->m_isOnGround, pulse.mustRelease(), pulseMode && t < plan.length);
@@ -611,7 +610,6 @@ class Runtime {
                 if (!down && touchingUsableOrb(p) && !pulse.mustRelease()) {
                     addOrbAction(t - 1);
                     addOrbAction(t);
-                    out.decisionPoint = true;
                 }
                 if (sim.dead[i] || p->m_isDead) {
                     out.died = true;
@@ -667,7 +665,6 @@ class Runtime {
                     flights[i].observe(groundedBefore[i], p->m_isOnGround, down);
                     if (!wasVerified && flights[i].verified()) {
                         if (i == 0) {
-                            out.decisionPoint = true;
                             auto pr = p->getObjectRect();
                             const float px = p->getPositionX();
                             std::vector<std::pair<float, float>> spans;
@@ -700,6 +697,15 @@ class Runtime {
                                 out.landingMargin =
                                     std::max(out.landingMargin, std::max(0.f, std::min(left, right)));
                             }
+                            out.landingRunwayTicks =
+                                landingRunwayTicks(p, travelSteps[i].x);
+                            // A stable touchdown is only a safe MPC handoff if
+                            // the next action still has reaction runway. This
+                            // rejects the Fingerdash failure where the rollout
+                            // stopped on the floor directly in front of a wall.
+                            if (!p->m_collidingWithLeft && !p->m_collidingWithRight &&
+                                out.landingRunwayTicks >= landingReactionTicks)
+                                out.decisionPoint = true;
                         }
                     }
                 }
