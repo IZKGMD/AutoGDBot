@@ -29,6 +29,76 @@ Evaluation corridor(Plan const &p, Clock::time_point deadline) {
     return e;
 }
 int main() {
+    // Video 578: repairs to a failed coast used to consume the phone's
+    // available work before PRESS NOW was ever evaluated. Give the evaluator
+    // a deterministic two-route allowance rather than a machine-speed timer.
+    {
+        Controller planner;
+        Config limited;
+        limited.cubePulsePlanning = true;
+        limited.plannerMode = PlannerMode::Cube;
+        limited.horizon = 120;
+        limited.candidates = 40;
+        limited.budgetMs = 8;
+        Plan coast; coast.length = 120;
+        planner.seedVerifiedPrefix(coast, 120);
+        int calls = 0;
+        auto choice = planner.decide(limited, false, [&](Plan const &p, auto) {
+            Evaluation e;
+            if (++calls > 2) { e.interrupted = true; return e; }
+            if (p.at(0)) {
+                e.survived = 120; e.decisionPoint = e.landingVerified = true;
+                e.nearClearance = e.clearance = 20;
+            } else {
+                e.survived = 80; e.died = e.nativeDeath = true;
+                e.firstActionVerified = false;
+                for (int t = 0; t < 80; ++t) {
+                    e.groundedActions.push_back(t);
+                    e.controlActions.push_back({t, PlannerMode::Cube});
+                }
+                e.orbActions.push_back(70);
+            }
+            return e;
+        });
+        require(choice.hasValidatedInput && choice.down,
+                "all repair families must leave PRESS NOW inside the first two evaluations");
+        require(choice.firstActionCandidates[0] && choice.firstActionCandidates[1],
+                "input coverage diagnostics include both tested first actions");
+    }
+    {
+        Controller planner;
+        Config cfg;
+        cfg.horizon = 120; cfg.budgetMs = 8;
+        cfg.cubePulsePlanning = true;
+        auto boundary = planner.decide(cfg, false, [](Plan const &, auto) {
+            Evaluation e; e.survived = 7; e.boundary = true; return e;
+        });
+        require(boundary.hasValidatedInput && boundary.certificateTicks == 7,
+                "portal boundary cannot certify 120 ticks after only 7 simulated ticks");
+        Decision failed, early = boundary;
+        require(preferVerifiedFallback(failed, early),
+                "failed long search must preserve a checked fast route");
+        failed.hasValidatedInput = true; failed.selected.died = true;
+        require(preferVerifiedFallback(failed, early),
+                "safe fast route outranks a known fatal rescue prefix");
+        failed.selected.died = false;
+        require(!preferVerifiedFallback(failed, early),
+                "successful rescue must retain its own decision");
+        failed.hasValidatedInput = false; early.selected.died = true;
+        require(!preferVerifiedFallback(failed, early),
+                "fatal early route cannot become the safe fallback");
+        early.selected.died = false; early.selected.firstActionVerified = false;
+        require(!preferVerifiedFallback(failed, early),
+                "unchecked jump cannot become the fallback");
+        Decision queued = boundary;
+        failed.candidates = 3; failed.firstActionCandidates = {2, 1};
+        failed.nativeDeaths = 2; failed.landingRejects = 1; failed.elapsedMs = 1.2;
+        retainSearchDiagnostics(queued, failed);
+        require(queued.hasValidatedInput && queued.certificateTicks == 7 &&
+                queued.candidates == 3 && queued.firstActionCandidates[1] == 1 &&
+                queued.nativeDeaths == 2 && queued.elapsedMs == 1.2,
+                "queued fallback retains failure diagnostics without changing its proof");
+    }
     FlightCertificate flight;
     flight.observe(true, false, true);
     flight.observe(false, true, false);

@@ -460,7 +460,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.15.0.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.16.0.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -1004,7 +1004,8 @@ class Runtime {
         searchConfig.plannerMode = liveModes[0].controlMode();
         searchConfig.dual = liveDual;
         searchConfig.secondaryMode = liveDual ? liveModes[1].controlMode() : PlannerMode::Generic;
-        searchConfig.compareFirstActions = !pulseMode;
+        searchConfig.compareFirstActions = !pulseMode ||
+            (nearAction && canPress && !searchConfig.forceRelease);
         searchConfig.immediateOrb =
             orbOpportunity && (!pulseMode || !cubePulse.mustRelease());
         if (liveMode == 0) {
@@ -1273,8 +1274,14 @@ class Runtime {
             }
         }
 
+        if (preferVerifiedFallback(decision, fast)) {
+            decision = std::move(fast);
+            plannerStage = "FAST-KEPT";
+        }
         if (!decision.hasValidatedInput && queueReady) {
-            decision = inputQueue.continuation();
+            auto queued = inputQueue.continuation();
+            retainSearchDiagnostics(queued, decision);
+            decision = std::move(queued);
             usingQueuedInput = true;
             plannerStage = "QUEUED";
         }
@@ -1455,10 +1462,10 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.15.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
+                "AutoGDBot 0.16.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
-                "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
+                "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={} | tested={}/{}\n"
                 "error={:.2f} | guard={} | light={} | reflex={} | forecast={} | landing={} runway={}\n"
                 "route: mode={} jumps={} orbs={} map-orbs={} touch={} gap={} handoff={} | rejected={} | order={}{}\n"
                 "failure: best={} deaths={} guard={} native={} landing={} timeout={} | landings={}\n"
@@ -1470,6 +1477,7 @@ class Runtime {
                 botHeld ? "DOWN" : "UP", inputTransitions, travelSteps[0].x, previousDt,
                 timing.nativeStep(previousDt), timing.measured() ? "*" : "",
                 decision.alternatives[0].survived, decision.alternatives[1].survived,
+                decision.firstActionCandidates[0], decision.firstActionCandidates[1],
                 predictionError, geometryRejects, lightTicks, reflexJumps,
                 decision.completeContinuation  ? "HORIZON"
                 : decision.selected.boundary   ? "PORTAL"

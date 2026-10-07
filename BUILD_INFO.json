@@ -1,6 +1,6 @@
 {
   "mod_id": "autogdbot.realtime",
-  "version": "v0.15.0",
+  "version": "v0.16.0",
   "targets": [
     "Android64",
     "Windows x64"
@@ -21,11 +21,11 @@
   "success_rate_measured": false,
   "gpu_runtime_verified": false,
   "fps_measured": false,
-  "regression_video": "573.mp4",
+  "regression_video": "578.mp4",
   "regressions": [
-    "shared pad/orb activation leakage",
-    "same-substep press snapshots",
-    "verified input scheduling",
-    "full collider ledge runway"
+    "adaptive repairs starve immediate jump",
+    "safe fast result discarded by later search failure",
+    "boundary certificate exceeds simulated steps",
+    "near-ground first-action comparison"
   ]
 }
