@@ -13,45 +13,6 @@ struct GapHint {
     int edgeTick = -1;
 };
 
-// Last-resort reaction for a grounded cube. Keep this deliberately narrow:
-// native rollouts should decide large saws and tall hazards. The reflex exists
-// only for low floor hazards (spikes / short teeth) when the search budget is
-// exhausted before a takeoff can be certified.
-inline bool shouldReflexJump(Bounds player, float dx, std::span<Bounds const> hazards) {
-    if (!std::isfinite(dx) || std::abs(dx) < .0001f)
-        return false;
-    const float playerHeight = std::max(1.f, player.maxY - player.minY);
-    const float maxHazardHeight = std::max(38.f, playerHeight * 1.35f);
-    const float maxGap = std::clamp(std::abs(dx) * 52.f, 48.f, 84.f);
-    std::vector<Bounds> low;
-    for (auto b : hazards) {
-        const float hazardHeight = b.maxY - b.minY;
-        if (hazardHeight > maxHazardHeight)
-            continue; // large saw / tall obstacle: let the rollout time it
-        if (b.maxY < player.minY + 1.f || b.minY > player.maxY + 14.f)
-            continue;
-        low.push_back(b);
-    }
-    std::sort(low.begin(), low.end(), [](Bounds a, Bounds b) { return a.minX < b.minX; });
-    for (size_t i = 0; i < low.size(); ++i) {
-        size_t count = 1;
-        float clusterEnd = low[i].maxX;
-        for (size_t j = i + 1; j < low.size(); ++j) {
-            if (low[j].minX - clusterEnd > 38.f)
-                break;
-            clusterEnd = std::max(clusterEnd, low[j].maxX);
-            ++count;
-        }
-        float gap = dx > 0 ? low[i].minX - player.maxX : player.minX - low[i].maxX;
-        const float window = count >= 2
-                                 ? std::clamp(std::abs(dx) * 72.f, 70.f, 104.f)
-                                 : maxGap;
-        if (gap >= -std::abs(dx) * 2.f && gap <= window)
-            return true;
-    }
-    return false;
-}
-
 inline void addJumpEvent(Config &cfg, int tick) {
     if (tick < 0 || tick >= cfg.horizon || cfg.jumpEventCount >= int(cfg.jumpEvents.size()))
         return;
@@ -76,17 +37,6 @@ inline void addLandingEvent(Config &cfg, int tick) {
         if (std::abs(cfg.landingEvents[i] - tick) <= 2)
             return;
     cfg.landingEvents[cfg.landingEventCount++] = tick;
-}
-
-inline bool shouldUseReflexFallback(bool reflex, bool forceRelease, bool hasValidated,
-                                    bool selectedDied, bool selectedInterrupted,
-                                    int predictedTicks, int horizon) {
-    if (!reflex || forceRelease)
-        return false;
-    if (!hasValidated)
-        return true;
-    const int minimumUsefulForecast = std::clamp(horizon / 7, 18, 36);
-    return selectedDied || selectedInterrupted || predictedTicks < minimumUsefulForecast;
 }
 
 inline GapHint findForwardGap(float x, float footY, float dx, std::span<Bounds const> solids,
@@ -297,3 +247,4 @@ inline GapHint seedCubeEvents(Config &cfg, float x, float footY, float dx,
     return gap;
 }
 } // namespace agb
+

@@ -12,6 +12,7 @@
 #include "hazard_guard.hpp"
 #include "planning_hints.hpp"
 #include "semantic_map.hpp"
+#include "flight_certificate.hpp"
 #include <fstream>
 #include <unordered_set>
 
@@ -262,6 +263,7 @@ class Runtime {
     std::array<PlayerSeed, 2> seeds;
     Controller controller;
     PhysicsTiming timing;
+    PhysicsOrder physicsOrder;
     CubePulse cubePulse;
     HazardGuard hazardGuard;
     uint64_t geometryRejects = 0;
@@ -353,6 +355,7 @@ class Runtime {
         releaseLiveInput();
         controller.reset();
         timing.reset();
+        physicsOrder = {};
         cubePulse.reset();
         ticks = 0;
         botHeld = false;
@@ -384,7 +387,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.2.1.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.5.0.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -402,7 +405,8 @@ class Runtime {
         Evaluation out;
         CubePulse pulse = cubePulse;
         bool previousButton = botHeld;
-        std::array<bool, 2> needsLanding{}, leftGround{}, landed{};
+        std::array<FlightCertificate, 2> flights;
+        std::array<bool, 2> groundedBefore{};
         out.buttonChanges = 0;
         const float physicsDt = timing.nativeStep(dt);
         bool dual = layer->m_gameState.m_isDualMode;
@@ -429,6 +433,7 @@ class Runtime {
             sim.clones[i] = clones[i];
             if (i < players) {
                 seeds[i].restore(clones[i]);
+                flights[i] = FlightCertificate(clones[i]->m_isOnGround);
                 out.traces[i].reserve(plan.length + 1);
                 out.traces[i].push_back({clones[i]->getPositionX(), clones[i]->getPositionY()});
             }
@@ -443,10 +448,11 @@ class Runtime {
             }
             bool pulseMode = cubePulseMode(clones[0], clones[1], dual);
             bool canPress = cubeCanPress(clones[0]) || (dual && cubeCanPress(clones[1]));
+            if (pulseMode && clones[0]->m_isOnGround && !pulse.mustRelease())
+                out.groundedActions.push_back(t);
             bool down = pulse.command(plan.at(t), pulseMode, canPress);
-            if (t == 0 && pulseMode && down)
-                for (int i = 0; i < players; ++i)
-                    needsLanding[i] = clones[i]->m_isOnGround;
+            for (int i = 0; i < players; ++i)
+                groundedBefore[i] = clones[i]->m_isOnGround;
             out.buttonChanges += down != previousButton;
             previousButton = down;
             for (int i = 0; i < players; ++i) {
@@ -461,14 +467,21 @@ class Runtime {
                 p->resetCollisionLog(false);
                 auto rectBefore = p->getObjectRect(.35f, .35f);
                 Point before{p->getPositionX(), p->getPositionY()};
+                if (physicsOrder.collisionFirst)
+                    layer->checkCollisions(p, physicsDt, false);
+                if (sim.dead[i] || p->m_isDead) {
+                    out.died = true;
+                    break;
+                }
                 p->update(physicsDt);
                 Point after{p->getPositionX(), p->getPositionY()};
                 auto completed = completeTravelStep(before, after, travelSteps[i], p->m_isSideways);
                 if (completed.x != after.x || completed.y != after.y)
                     p->setPosition({completed.x, completed.y});
-                // checkCollisions owns the native pre/post-collision cycle.
-                // Do not run it twice or mix command seconds with frame units.
-                layer->checkCollisions(p, physicsDt, false);
+                // Mirror the real collision/update order observed in this game.
+                // Never run the native collision cycle twice for one step.
+                if (!physicsOrder.collisionFirst)
+                    layer->checkCollisions(p, physicsDt, false);
                 if (sim.dead[i] || p->m_isDead) {
                     out.died = true;
                     out.traces[i].push_back({p->getPositionX(), p->getPositionY()});
@@ -509,11 +522,10 @@ class Runtime {
                         ++seen;
                     }
                 }
-                if (needsLanding[i]) {
-                    if (!p->m_isOnGround)
-                        leftGround[i] = true;
-                    if (leftGround[i] && p->m_isOnGround) {
-                        landed[i] = true;
+                if (mode(p) == 0) {
+                    const bool wasVerified = flights[i].verified();
+                    flights[i].observe(groundedBefore[i], p->m_isOnGround, down);
+                    if (!wasVerified && flights[i].verified()) {
                         if (i == 0) {
                             auto pr = p->getObjectRect();
                             const float px = p->getPositionX();
@@ -552,9 +564,10 @@ class Runtime {
         out.boundary = sim.boundary && !out.died;
         bool allLanded = true;
         for (int i = 0; i < players; ++i) {
-            out.requiresLanding |= needsLanding[i];
-            if (needsLanding[i] && !landed[i])
-                allLanded = false;
+            if (mode(clones[i]) == 0) {
+                out.requiresLanding |= flights[i].required;
+                allLanded &= flights[i].verified();
+            }
         }
         out.landingVerified = out.requiresLanding && allLanded;
         out.firstActionVerified = !out.requiresLanding || allLanded || out.boundary;
@@ -653,7 +666,7 @@ class Runtime {
         // 60 Hz during uncontrollable cube flight at 240 TPS, and every tick
         // on the ground, at an orb or in a continuous-control mode.
         bool nearAction = false;
-        if (pulseMode && !canPress) {
+        if (pulseMode) {
             const float px = p->getPositionX();
             auto h = std::lower_bound(hintObjects.begin(), hintObjects.end(), px - 12.f,
                                       [](auto const &a, float x) { return a.first < x; });
@@ -700,7 +713,7 @@ class Runtime {
             // rolling horizon sees the edge/gap/orb before the takeoff is urgent.
             searchConfig.horizon = std::max(searchConfig.horizon, 216);
             searchConfig.candidates = std::max(searchConfig.candidates, 64);
-            searchConfig.budgetMs = std::max(searchConfig.budgetMs, nearAction ? 2.25 : 1.35);
+            searchConfig.budgetMs = std::max(searchConfig.budgetMs, nearAction ? 3.5 : 1.35);
             if (nearAction)
                 searchConfig.candidates = std::max(searchConfig.candidates, 80);
         }
@@ -760,11 +773,6 @@ class Runtime {
             routeJumpEvents = searchConfig.jumpEventCount;
             routeOrbEvents = searchConfig.orbEventCount;
         }
-        auto playerRect = p->getObjectRect();
-        bool reflex = pulseMode && p->m_isOnGround && !cubePulse.mustRelease() &&
-                      shouldReflexJump({playerRect.getMinX(), playerRect.getMinY(),
-                                        playerRect.getMaxX(), playerRect.getMaxY()},
-                                       travelSteps[0].x, guardBounds);
         hazardGuard.set(std::move(guardBounds));
         auto priorities = settings.gpu ? gpu.poll() : std::vector<float>{};
         decision = controller.decide(
@@ -780,20 +788,13 @@ class Runtime {
                                                       : "BOT | short forecast";
         } else
             message = "BOT | no surviving candidate";
-        // A nearby floor spike is actionable from the real grounded state.
-        // Use the reflex only when the bounded search did not already choose
-        // the jump; the next tick still performs the mandatory cube release.
-        const bool reflexRescue = shouldUseReflexFallback(
-            reflex, searchConfig.forceRelease, decision.hasValidatedInput,
-            decision.selected.died, decision.selected.interrupted,
-            decision.predictedTicks, searchConfig.horizon);
-        if (reflexRescue && !decision.down) {
-            decision.down = true;
-            decision.completeContinuation = false;
-            decision.plan.buttons[0] = true;
+        // No unverified reflex override: when no complete cube route exists,
+        // release deterministically and expose the failure in the HUD.
+        if (!decision.hasValidatedInput && pulseMode) {
+            decision.down = false;
             inputPending = true;
-            message = "BOT | hazard reflex";
-            ++reflexJumps;
+            message = "BOT | NO VERIFIED ROUTE";
+            stableTrace.clear();
         }
         if (settings.gpu && gpu.ready() && (ticks & 7) == 0) {
             GpuState s;
@@ -879,12 +880,12 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.4.0 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
+                "AutoGDBot 0.5.0 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
                 "error={:.2f} | guard={} | light={} | reflex={} | forecast={} | landing={}\n"
-                "route: jumps={} orbs={} gap={}",
+                "route: jumps={} orbs={} gap={} | rejected={} | order={}{}",
                 message, decision.elapsedMs, totalMs, decision.candidates, decision.predictedTicks,
                 settings.gpu ? gpu.status() : "CPU", ticks, decision.down ? "DOWN" : "UP",
                 botHeld ? "DOWN" : "UP", inputTransitions, travelSteps[0].x, previousDt,
@@ -899,23 +900,20 @@ class Runtime {
                 decision.selected.requiresLanding
                     ? (decision.selected.landingVerified ? "OK" : "NO")
                     : "n/a",
-                routeJumpEvents, routeOrbEvents, routeGap.found ? "YES" : "no")
+                routeJumpEvents, routeOrbEvents, routeGap.found ? "YES" : "no",
+                decision.rejectedUnsafe, physicsOrder.collisionFirst ? "C-U" : "U-C",
+                physicsOrder.measured ? "*" : "?")
                 .c_str());
         label->setColor(decision.hasValidatedInput ? ccColor3B{120, 255, 170}
                                                    : ccColor3B{255, 180, 100});
         draw->clear();
         if (!settings.enabled)
             return;
-        if (layer->m_player1 && !stableTrace.empty()) {
-            auto p = layer->m_player1->getPosition();
-            if (std::hypot(stableTrace.front().x - p.x, stableTrace.front().y - p.y) > 70.f)
-                stableTrace.clear();
-        }
-        if (decision.hasValidatedInput && decision.selected.traces[0].size() >= 6 &&
-            (stableTrace.empty() || ticks >= stableTraceTick + 16)) {
+        // Render only the decision actually used this tick. An older line
+        // cannot keep looking approved after a new forecast rejects the route.
+        stableTrace.clear();
+        if (decision.hasValidatedInput)
             stableTrace = decision.selected.traces[0];
-            stableTraceTick = ticks;
-        }
         auto trace = [&](std::vector<Point> const &points, ccColor4F color, float width) {
             for (size_t i = 3; i < points.size(); i += 3)
                 draw->drawSegment({points[i - 2].x, points[i - 2].y}, {points[i].x, points[i].y},
@@ -1053,6 +1051,8 @@ class $modify(AGBBaseLayer, GJBaseGameLayer) {
         if (agb::active && static_cast<GJBaseGameLayer *>(agb::active->layer) == this &&
             !agb::sim.active)
             agb::active->tick(dt);
+        if (agb::active && !agb::sim.active)
+            agb::active->physicsOrder.begin();
         GJBaseGameLayer::processCommands(dt, half, last);
         // Native queued input has now been processed; inject the selected
         // state directly before the current physics tick advances the player.
@@ -1067,6 +1067,13 @@ class $modify(AGBBaseLayer, GJBaseGameLayer) {
             agb::active->controlling && !agb::injected && button == 1)
             return;
         GJBaseGameLayer::handleButton(down, button, p1);
+    }
+    int checkCollisions(PlayerObject *p, float dt, bool ignoreDamage) {
+        if (agb::active && !agb::sim.active && p == agb::active->layer->m_player1) {
+            agb::active->physicsOrder.collision();
+            agb::active->timing.observeNative(dt);
+        }
+        return GJBaseGameLayer::checkCollisions(p, dt, ignoreDamage);
     }
     void collisionCheckObjects(PlayerObject *p, gd::vector<GameObject *> *objects, int count,
                                float dt) {
@@ -1123,8 +1130,10 @@ class $modify(AGBObject, GameObject) {
 };
 class $modify(AGBPlayer, PlayerObject) {
     void update(float dt) {
-        if (agb::active && !agb::sim.active && this == agb::active->layer->m_player1)
+        if (agb::active && !agb::sim.active && this == agb::active->layer->m_player1) {
             agb::active->timing.observeNative(dt);
+            agb::active->physicsOrder.update();
+        }
         PlayerObject::update(dt);
     }
     void incrementJumps() {
@@ -1153,3 +1162,4 @@ class $modify(AGBRing, RingObject) {
         RingObject::spawnCircle();
     }
 };
+

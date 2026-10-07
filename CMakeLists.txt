@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(AutoGDBot VERSION 0.2.1 LANGUAGES CXX C)
+project(AutoGDBot VERSION 0.5.0 LANGUAGES CXX C)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
@@ -27,3 +27,4 @@ if(AUTOGDBOT_BUILD_MOD)
  endif()
  setup_geode_mod(${PROJECT_NAME} DONT_INSTALL)
 endif()
+

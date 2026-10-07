@@ -2,6 +2,7 @@
 #include "input_motion.hpp"
 #include "hazard_guard.hpp"
 #include "planning_hints.hpp"
+#include "flight_certificate.hpp"
 #include <iostream>
 #include <stdexcept>
 using namespace agb;
@@ -28,27 +29,22 @@ Evaluation corridor(Plan const &p, Clock::time_point deadline) {
     return e;
 }
 int main() {
-    std::array<Bounds, 1> floorSpike{{{70, 0, 94, 30}}};
-    require(shouldReflexJump({0, 0, 30, 30}, 1.3f, floorSpike),
-            "ground reflex must detect a nearby forward spike");
-    require(!shouldReflexJump({0, 0, 30, 30}, -1.3f, floorSpike),
-            "ground reflex must respect reverse travel");
-    std::array<Bounds, 1> ceilingHazard{{{70, 60, 94, 90}}};
-    require(!shouldReflexJump({0, 0, 30, 30}, 1.3f, ceilingHazard),
-            "ground reflex must ignore a high ceiling hazard");
-    std::array<Bounds, 1> farSpike{{{130, 0, 154, 30}}};
-    require(!shouldReflexJump({0, 0, 30, 30}, 1.3f, farSpike),
-            "ground reflex must wait until a distant spike enters the takeoff window");
-    std::array<Bounds, 1> saw{{{64, -4, 112, 50}}};
-    require(!shouldReflexJump({0, 0, 30, 30}, 1.3f, saw),
-            "large saws must be timed by native rollout instead of the early spike reflex");
-    std::array<Bounds, 2> doubleSpike{{{112, 0, 132, 30}, {136, 0, 156, 30}}};
-    require(shouldReflexJump({0, 0, 30, 30}, 1.3f, doubleSpike),
-            "adjacent floor spikes must open an earlier committed takeoff window");
-    require(!shouldUseReflexFallback(true, false, true, false, false, 216, 216),
-            "reflex must never override a fully validated wait/route");
-    require(shouldUseReflexFallback(true, false, false, false, false, 0, 216),
-            "reflex may rescue the planner only when no route was validated");
+    FlightCertificate flight;
+    flight.observe(true, false, true);
+    flight.observe(false, true, false);
+    require(!flight.verified(), "one-frame ground contact cannot certify a landing");
+    flight.observe(true, true, false);
+    flight.observe(true, true, false);
+    require(flight.verified(), "stable landing certifies a completed flight");
+    flight.observe(true, false, true);
+    require(!flight.verified(), "second takeoff invalidates the first landing certificate");
+    FlightCertificate airborne(false);
+    require(!airborne.verified(), "initial airborne state also requires a landing");
+    PhysicsOrder order;
+    order.begin(); order.collision(); order.update();
+    require(order.measured && order.collisionFirst, "learn collision before update");
+    order.begin(); order.update(); order.collision();
+    require(!order.collisionFirst, "learn update before collision without double stepping");
     CubePulse pulse;
     CubePulse forecast = pulse;
     bool liveHeld = false;
@@ -316,8 +312,8 @@ int main() {
     auto stable = c.decide(cfg, false, openGround);
     require(stable.hasValidatedInput && !stable.down,
             "endpoint clearance must not trigger an unnecessary jump on equally safe ground");
-    require(stable.candidates == 3,
-            "safe unchanged action stops after two short probes and one full-horizon rollout");
+    require(stable.candidates == 1,
+            "safe unchanged action needs one full-horizon rollout");
     require(stable.completeContinuation,
             "full-horizon result must be distinguished from a short probe");
     c.reset();
@@ -341,6 +337,54 @@ int main() {
         require(!expiredHold, "expired checked prefix must not perpetuate its held tail");
     }
     c.reset();
+    Config safety = cfg;
+    safety.cubePulsePlanning = true;
+    auto fatalFuture = [](Plan const &p, Clock::time_point) {
+        Evaluation e;
+        e.survived = p.at(0) ? 40 : 12;
+        e.died = true;
+        return e;
+    };
+    auto refused = c.decide(safety, false, fatalFuture);
+    require(!refused.hasValidatedInput && !refused.down,
+            "known fatal long jump must not be selected over a shorter fatal wait");
+    auto cubePartial = [](Plan const &p, Clock::time_point) {
+        Evaluation e; e.survived = p.length - 1; e.interrupted = true; return e;
+    };
+    refused = c.decide(safety, false, cubePartial);
+    require(!refused.hasValidatedInput && !refused.down,
+            "budget interruption cannot authorize an uncertified cube jump");
+    auto safeWait = [](Plan const &p, Clock::time_point) {
+        Evaluation e; e.survived = p.length;
+        e.died = p.at(0); e.clearance = p.at(0) ? 120.f : 0.f;
+        e.robustness = 1.f;
+        return e;
+    };
+    refused = c.decide(safety, false, safeWait);
+    require(refused.hasValidatedInput && !refused.down && !refused.selected.died,
+            "clearance score must never rescue a fatal jump");
+    Controller chain;
+    Config chainCfg = safety; chainCfg.horizon = 144; chainCfg.candidates = 96;
+    auto chainEval = [](Plan const &p, Clock::time_point) {
+        Evaluation e;
+        if (!p.at(0)) { e.died = true; return e; }
+        if (p.at(1)) { e.survived = 2; e.died = true; return e; }
+        if (p.at(96) && !p.at(97)) { e.survived = p.length; return e; }
+        e.survived = 110; e.died = true; e.groundedActions.push_back(96);
+        return e;
+    };
+    auto chainDecision = chain.decide(chainCfg, false, chainEval);
+    require(chainDecision.hasValidatedInput && chainDecision.plan.at(0) &&
+                chainDecision.plan.at(96) && !chainDecision.selected.died,
+            "expand a rejected prefix at native landing to discover a second safe jump");
+    Config coverage = safety; coverage.candidates = 64;
+    for (int t : {15, 35, 55, 75, 95, 115, 135}) addJumpEvent(coverage, t);
+    for (int i = 0; i < coverage.jumpEventCount; ++i) {
+        bool found = false;
+        for (auto const &p : c.propose(coverage, false)) found |= p.at(coverage.jumpEvents[i]);
+        require(found, "every geometry event must precede dense neighborhood expansion");
+    }
+    c.reset();
     HazardGuard guard;
     guard.set({{10, 0, 14, 6}});
     require(guard.hit({7, 9, 9, 11}, {9, 1, 11, 3}), "landing into a spike must be rejected");
@@ -350,6 +394,15 @@ int main() {
             "swept test must catch crossing a narrow spike between two positions");
     require(guard.hit({20, 1, 22, 3}, {0, 1, 2, 3}),
             "reverse motion must also check the swept path");
+    guard.set({{0, 8, 2, 10}});
+    require(!guard.hit({0, 0, 1, 1}, {10, 10, 11, 11}),
+            "diagonal sweep must not collide with an unrelated union-box corner");
+    guard.set({{4, 4, 6, 6}});
+    require(guard.hit({0, 0, 1, 1}, {10, 10, 11, 11}),
+            "continuous sweep catches actual diagonal crossing");
+    guard.set({{10, 0, 20, 10}});
+    require(guard.hit({9, 2, 10.1f, 3}, {9, 2, 10.1f, 3}),
+            "hazard edge cannot be silently shrunk by the guard");
     guard.set({{4, 8, 8, 15}});
     int rejected = 0;
     auto missedNativeCollision = [&](Plan const &plan, Clock::time_point deadline) {
@@ -374,6 +427,9 @@ int main() {
         }
         return e;
     };
+    Plan unsafeProbe; unsafeProbe.length = cfg.horizon; unsafeProbe.buttons.fill(true);
+    require(missedNativeCollision(unsafeProbe, Clock::time_point::max()).died,
+            "independent guard catches the native collision omission");
     auto guarded = c.decide(cfg, false, missedNativeCollision);
     require(guarded.hasValidatedInput && !guarded.down && guarded.predictedTicks == 48 &&
                 rejected > 0,
@@ -482,7 +538,7 @@ int main() {
     d = c.decide(cfg, false, busy);
     double ms = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
     require(d.candidates <= 3, "deadline must stop candidate expansion");
-    std::cout << "PASS: grounded hazard reflex, joined/reverse ledge events, delayed takeoff "
+    std::cout << "PASS: strict fatal/partial cube rejection, flight certificates, physics order, joined/reverse ledge events, delayed takeoff "
                  "priority, landing "
                  "verification gate, "
                  "unique CPU/GPU proposals, safe continuation early exit, cube pulse/live forecast "
@@ -497,3 +553,4 @@ int main() {
                  "GPU validation gate, interrupted rollout, deterministic reset, deadline ("
               << ms << " ms)\n";
 }
+

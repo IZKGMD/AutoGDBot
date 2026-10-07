@@ -11,8 +11,9 @@ inline Bounds sweptBounds(Bounds a, Bounds b) {
     return {std::min(a.minX, b.minX), std::min(a.minY, b.minY), std::max(a.maxX, b.maxX),
             std::max(a.maxY, b.maxY)};
 }
-// Conservative bounding-box rejection supplements native clone collisions.
-// It never declares a path safe and may reject a feasible path near a corner.
+// Continuous translated-AABB test supplements native clone collisions.
+// Intersect the time intervals of all four separating-axis inequalities;
+// unlike a union box this does not reject unrelated diagonal corners.
 class HazardGuard {
     std::vector<Bounds> hazards_;
     float maxWidth_ = 0;
@@ -25,16 +26,6 @@ class HazardGuard {
             if (!std::isfinite(b.minX) || !std::isfinite(b.minY) || !std::isfinite(b.maxX) ||
                 !std::isfinite(b.maxY) || b.maxX <= b.minX || b.maxY <= b.minY)
                 continue;
-            const float w = b.maxX - b.minX;
-            const float h = b.maxY - b.minY;
-            const float insetX = std::min(2.0f, w * .08f);
-            const float insetY = std::min(2.0f, h * .08f);
-            b.minX += insetX;
-            b.maxX -= insetX;
-            b.minY += insetY;
-            b.maxY -= insetY;
-            if (b.maxX <= b.minX || b.maxY <= b.minY)
-                continue;
             maxWidth_ = std::max(maxWidth_, b.maxX - b.minX);
             hazards_.push_back(b);
         }
@@ -46,9 +37,25 @@ class HazardGuard {
         auto first = std::lower_bound(hazards_.begin(), hazards_.end(), b.minX - maxWidth_,
                                       [](Bounds a, float x) { return a.minX < x; });
         for (auto it = first; it != hazards_.end() && it->minX <= b.maxX; ++it)
-            if (it->maxX >= b.minX && it->maxY >= b.minY && it->minY <= b.maxY)
-                return true;
+            if (it->maxX >= b.minX && it->maxY >= b.minY && it->minY <= b.maxY) {
+                double enter = 0, leave = 1;
+                auto nonnegative = [&](double start, double end) {
+                    const double delta = end - start;
+                    if (std::abs(delta) < 1e-12)
+                        return start >= 0;
+                    const double crossing = -start / delta;
+                    if (delta > 0) enter = std::max(enter, crossing);
+                    else leave = std::min(leave, crossing);
+                    return enter <= leave;
+                };
+                if (nonnegative(before.maxX - it->minX, after.maxX - it->minX) &&
+                    nonnegative(it->maxX - before.minX, it->maxX - after.minX) &&
+                    nonnegative(before.maxY - it->minY, after.maxY - it->minY) &&
+                    nonnegative(it->maxY - before.minY, it->maxY - after.minY))
+                    return true;
+            }
         return false;
     }
 };
 } // namespace agb
+

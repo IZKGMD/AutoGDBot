@@ -15,18 +15,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Apply staircase/reset v0.3.2 patch
-        run: python tools/apply_stability_v032.py .
-      - name: Apply realtime semantic MPC v0.4 patch
-        run: python tools/apply_accuracy_v040.py .
-      - name: Apply robust-route hotfix
-        run: python tools/apply_accuracy_v040_hotfix.py .
-      - name: Apply robustness score gate
-        run: python tools/apply_accuracy_v040_scorefix.py .
-      - name: Apply adaptive early-stop
-        run: python tools/apply_accuracy_v040_earlystop.py .
-      - name: Update dense-sweep regression
-        run: python tools/apply_accuracy_v040_testfix.py .
       - name: Configure controller tests
         run: cmake -S . -B build-tests -DAUTOGDBOT_BUILD_MOD=OFF -DAUTOGDBOT_BUILD_TESTS=ON
       - name: Build controller tests
@@ -38,16 +26,6 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Apply staircase/reset v0.3.2 patch
-        run: python tools/apply_stability_v032.py .
-      - name: Apply realtime semantic MPC v0.4 patch
-        run: python tools/apply_accuracy_v040.py .
-      - name: Apply robust-route hotfix
-        run: python tools/apply_accuracy_v040_hotfix.py .
-      - name: Apply robustness score gate
-        run: python tools/apply_accuracy_v040_scorefix.py .
-      - name: Apply adaptive early-stop
-        run: python tools/apply_accuracy_v040_earlystop.py .
       - name: Build Windows x64 Geode mod
         id: build
         uses: geode-sdk/build-geode-mod@main
@@ -66,16 +44,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Apply staircase/reset v0.3.2 patch
-        run: python tools/apply_stability_v032.py .
-      - name: Apply realtime semantic MPC v0.4 patch
-        run: python tools/apply_accuracy_v040.py .
-      - name: Apply robust-route hotfix
-        run: python tools/apply_accuracy_v040_hotfix.py .
-      - name: Apply robustness score gate
-        run: python tools/apply_accuracy_v040_scorefix.py .
-      - name: Apply adaptive early-stop
-        run: python tools/apply_accuracy_v040_earlystop.py .
       - name: Build Android64 Geode mod
         id: build
         uses: geode-sdk/build-geode-mod@main
@@ -90,31 +58,13 @@ jobs:
           name: AutoGDBot-Realtime-Android64
           path: ${{ steps.build.outputs.build-output }}
 
-  materialize-route-source:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/dev/')
-    needs: [tests, build-windows, build-android64]
+  source:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
+      - name: Archive exact source
+        run: git archive --format=zip --output=AutoGDBot-Realtime-v0.5.0-source.zip HEAD
+      - uses: actions/upload-artifact@v4
         with:
-          fetch-depth: 0
-      - name: Materialize validated realtime semantic MPC v0.4 source
-        shell: bash
-        run: |
-          python tools/apply_stability_v032.py .
-          python tools/apply_accuracy_v040.py .
-          python tools/apply_accuracy_v040_hotfix.py .
-          python tools/apply_accuracy_v040_scorefix.py .
-          python tools/apply_accuracy_v040_earlystop.py .
-          python tools/apply_accuracy_v040_testfix.py .
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/controller.hpp src/planning_hints.hpp src/hazard_guard.hpp src/semantic_map.hpp src/main.cpp tests/controller_tests.cpp mod.json
-          if git diff --cached --quiet; then
-            echo "v0.4 source already materialized"
-            exit 0
-          fi
-          git commit -m "source: materialize realtime semantic MPC v0.4"
-          git push origin HEAD:${GITHUB_REF_NAME}
+          name: AutoGDBot-Realtime-source
+          path: AutoGDBot-Realtime-v0.5.0-source.zip
