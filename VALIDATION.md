@@ -1,6 +1,8 @@
-# Current version: v0.20.0
+# Current version: v0.21.0
 
-Six standalone regression suites pass (controller, staircase, mode, interaction, survival and accuracy). Android64 and Windows x64 Release packages build locally with Clang 21, Geode 5.10.1 and pinned bindings. Android uses NDK r29; Windows uses the MSVC 143 runtime and Windows SDK 10.0.26100 via xwin. Package CRC/manifest, AArch64 binary identity, SONAME and locally defined libc++ hash compatibility symbol checks pass. Windows PE x86-64, binary identity, Release runtime imports and geodeImplicitEntry export checks also pass. See ACCURACY_v0.20.0.md for new regressions and limits. Native rollout fidelity, in-game installation, completion, FPS and success rates remain unverified. The notes below document historical versions rather than current gameplay validation.
+Seven standalone regression suites pass (controller, staircase, mode, interaction, survival, accuracy and portal). Android64 and Windows x64 Release packages build locally with Clang 21, Geode 5.10.1 and pinned bindings. Android uses NDK r29; Windows uses the MSVC 143 runtime and Windows SDK 10.0.26100 via xwin. Package CRC/manifest and binary identity checks pass; Android is AArch64 with the expected SONAME and locally defined libc++ hash helper. Windows is PE x86-64 with Release CRT imports and geodeImplicitEntry export. Both packages include the gdsolver MIT notice.
+
+The portal suite checks deterministic evaluator contracts, including gap-to-portal branching, transitions in the extended landing tail, a following orb, per-step mode/mini/gravity/speed proofs and aligned suffixes. See GDSOLVER_REVIEW.md for attribution and limits. Native rollout fidelity, installation, mode-band animation/isolation, Stereo Madness completion, FPS/latency and success rates remain unverified. The following notes concern historical versions.
 
 # Validation status
 

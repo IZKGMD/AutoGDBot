@@ -20,10 +20,12 @@ struct Point {
 struct MotionSample {
     double velocity = 0;
     bool canJump = false, grounded = false, buffered = false, ringUnused = false;
+    uint64_t usedInteractions = 0;
     bool matches(MotionSample const &other) const {
         return std::isfinite(velocity) && std::isfinite(other.velocity) &&
             std::abs(velocity - other.velocity) <= .04 && canJump == other.canJump &&
-            grounded == other.grounded && buffered == other.buffered && ringUnused == other.ringUnused;
+            grounded == other.grounded && buffered == other.buffered && ringUnused == other.ringUnused &&
+            usedInteractions == other.usedInteractions;
     }
 };
 struct OrbWindow { int begin = 0, end = 0; };
@@ -54,8 +56,13 @@ struct Evaluation {
     bool boundary = false;
     bool decisionPoint = false; // native state where the live controller can safely replan
     bool requiresLanding = false, landingVerified = false;
+    bool portalVerified = false;
+    int postPortalTicks = 0;
+    uint64_t routeId = 0;
     std::array<std::vector<Point>, 2> traces;
     std::array<std::vector<MotionSample>, 2> motions;
+    std::array<std::vector<ModeState>, 2> modeTraces;
+    std::array<std::vector<int>, 2> discontinuities;
     Plan realized;
     bool hasRealized = false;
     int firstLandingTick = -1, landingCount = 0;
@@ -63,8 +70,36 @@ struct Evaluation {
     std::vector<int> orbActions;      // native-confirmed ring contact ticks
     std::vector<int> dashActions;     // contacts requiring a hold after the rising edge
     std::vector<ControlOpportunity> controlActions;
+    std::vector<ControlOpportunity> transitions; // first input step in native new mode
 
 };
+inline uint64_t routeFingerprint(Plan const &p) {
+    uint64_t h = 1469598103934665603ull;
+    for (int i=0;i<std::clamp(p.length,0,MaxHorizon);++i) {h^=p.buttons[i];h*=1099511628211ull;}
+    h ^= uint64_t(p.length);h*=1099511628211ull;
+    h ^= uint64_t(p.landingDelay + 1);return h;
+}
+inline void advanceEvaluation(Evaluation &e, int ticks=1) {
+    ticks=std::clamp(ticks,0,e.survived);
+    auto shift=[&](auto &v){v.erase(v.begin(),v.begin()+std::min(size_t(ticks),v.size()));};
+    for(auto &v:e.traces)shift(v);
+    for(auto &v:e.motions)shift(v);
+    for(auto &v:e.modeTraces)shift(v);
+    for(auto &v:e.discontinuities){for(auto &t:v)t-=ticks;std::erase_if(v,[](int t){return t<=0;});}
+    for(auto *v:{&e.orbActions,&e.dashActions,&e.groundedActions}){
+        for(auto &t:*v)t-=ticks;std::erase_if(*v,[](int t){return t<0;});
+    }
+    for(auto *v:{&e.controlActions,&e.transitions}){
+        for(auto &o:*v)o.tick-=ticks;std::erase_if(*v,[](auto o){return o.tick<0;});
+    }
+    e.survived-=ticks;e.groundedPrefixTicks=std::max(0,e.groundedPrefixTicks-ticks);
+    e.firstLandingTick=e.firstLandingTick>=ticks?e.firstLandingTick-ticks:-1;
+    const int length=std::max(0,e.realized.length-ticks);
+    for(int i=0;i<length;++i)e.realized.buttons[i]=e.realized.buttons[i+ticks];
+    e.realized.length=length;
+    std::fill(e.realized.buttons.begin()+length,e.realized.buttons.end(),false);
+    e.routeId=routeFingerprint(e.realized);
+}
 struct Config {
     int horizon = 144, candidates = 48;
     double budgetMs = 1.0;
@@ -716,7 +751,9 @@ class Controller {
                 !(e.hasRealized ? e.realized.at(0) : plan.at(0)) &&
                 e.groundedPrefixTicks >= minCertificateTicks &&
                 e.groundedPrefixTicks <= e.survived;
-            const bool certified = complete || eventCertified || prefixCertified || groundedWaitCertified;
+            const bool portalSafe = e.transitions.empty() || e.portalVerified;
+            const bool certified = portalSafe &&
+                (complete || eventCertified || prefixCertified || groundedWaitCertified);
 
             if (e.survived <= 0 || !e.firstActionVerified || !certified) {
                 ++result.rejectedUnsafe;
@@ -846,8 +883,12 @@ class Controller {
         // repairs of one failed cached coast used to starve the opposite
         // first action on Android (only 2-4 forecasts fit in one substep).
         const size_t basisEnd = std::min(size_t(4), order.size());
-        auto enqueueRepairs = [&](size_t cursor, std::vector<int> const &children) {
+        auto enqueueRepairs = [&](size_t cursor, std::vector<int> const &children, bool transition = false) {
             const bool compared = immediateOrbEvaluated[0] && immediateOrbEvaluated[1];
+            if (transition && (compared || cfg.forceRelease)) {
+                order.insert(order.begin() + cursor + 1, children.begin(), children.end());
+                return;
+            }
             if (!compared || cursor + 1 < basisEnd)
                 order.insert(order.end(), children.begin(), children.end());
             else
@@ -866,12 +907,47 @@ class Controller {
                 candidateDeadline = now + (deadline - now) / 2;
             }
             auto e = evaluate(plans[i], candidateDeadline);
+            e.routeId = routeFingerprint(e.hasRealized ? e.realized : plans[i]);
             ++result.candidates;
             ++result.firstActionCandidates[plans[i].at(0) ? 1 : 0];
             immediateOrbEvaluated[plans[i].at(0) ? 1 : 0] = true;
             auto &alternative = result.alternatives[plans[i].at(0)];
             if (e.survived > alternative.survived || alternative.traces[0].empty())
                 alternative = e;
+
+            // Like gdsolver's state frontier, branch from the actual transition
+            // reached by this lineage, retaining its exact native input prefix.
+            // Never apply the old cube pulse policy to a new ship/wave section.
+            if (!e.transitions.empty() && (e.died || e.interrupted || !e.firstActionVerified || !e.portalVerified) &&
+                int(plans.size()) < cfg.candidates) {
+                std::vector<int> children;
+                for(auto o:e.transitions) {
+                    const int at=o.tick;
+                    if(at<1 || at>=MaxHorizon) continue;
+                    const auto kind=modePolicy(o.mode).input;
+                    const bool edge=kind==InputKind::GroundPulse || kind==InputKind::GroundEdge || kind==InputKind::AirEdge;
+                    for(int variant=0;variant<(edge?4:2);++variant) {
+                        if(int(plans.size())>=cfg.candidates || children.size()>=8)break;
+                        Plan child=plans[i];
+                        child.length=std::min(MaxHorizon, std::max(cfg.horizon,
+                            at + std::max(4, int(std::ceil(.18/safeTickSeconds))) + 1));
+                        child.landingDelay=-1;
+                        if(e.hasRealized)std::copy_n(e.realized.buttons.begin(),at,child.buttons.begin());
+                        std::fill(child.buttons.begin()+at,child.buttons.end(),!edge && variant==1);
+                        if(edge && variant>0) {
+                            const int press=at+(variant==1?0:variant==2?4:12);
+                            if(press>=child.length)continue;
+                            if(press>0)child.buttons[press-1]=false;
+                            child.buttons[press]=true;
+                        }
+                        bool duplicate=false;for(auto const &old:plans)
+                            duplicate|=old.buttons==child.buttons && old.landingDelay==child.landingDelay;
+                        if(duplicate)continue;
+                        children.push_back(int(plans.size()));plans.push_back(child);
+                    }
+                }
+                enqueueRepairs(cursor,children,true);
+            }
 
             // Event-driven expansion: if native clone physics actually touches
             // an orb on a rejected route, branch exactly at that contact tick.

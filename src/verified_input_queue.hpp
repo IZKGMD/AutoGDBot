@@ -13,6 +13,7 @@ class VerifiedInputQueue {
     double dt_ = 0;
     bool dual_ = false;
     bool motionProof_ = false;
+    bool modeProof_ = false;
   public:
     void reset() { cursor_ = checked_ = 0; }
     bool seed(Decision const &d, std::array<ModeState, 2> states, bool dual, double dt) {
@@ -24,8 +25,12 @@ class VerifiedInputQueue {
             checked_ = std::min(checked_, int(d.selected.traces[i].size()) - 1);
         if (checked_ <= 0) { reset(); return false; }
         motionProof_ = !d.selected.motions[0].empty();
+        modeProof_ = !d.selected.modeTraces[0].empty();
         if (motionProof_) for (int i = 0; i < (dual ? 2 : 1); ++i)
             if (int(d.selected.motions[i].size()) <= checked_) { reset(); return false; }
+        if (modeProof_) for (int i = 0; i < (dual ? 2 : 1); ++i)
+            if (int(d.selected.modeTraces[i].size()) <= checked_) { reset(); return false; }
+        if (!modeProof_ && !d.selected.transitions.empty()) { reset(); return false; }
         plan_ = d.plan;
         evaluation_ = d.selected;
         states_ = states; dual_ = dual; dt_ = dt;
@@ -36,7 +41,8 @@ class VerifiedInputQueue {
         if (cursor_ >= checked_ || dual != dual_ || !std::isfinite(dt) ||
             dt <= 0 || std::abs(dt / dt_ - 1) > .05) return false;
         for (int i = 0; i < (dual ? 2 : 1); ++i) {
-            if (states[i] != states_[i]) return false;
+            if (states[i] != (modeProof_ ? evaluation_.modeTraces[i][cursor_] : states_[i]))
+                return false;
             auto expected = evaluation_.traces[i][cursor_];
             if (!std::isfinite(real[i].x) || !std::isfinite(real[i].y) ||
                 std::hypot(real[i].x - expected.x, real[i].y - expected.y) > .75f) return false;
@@ -60,19 +66,19 @@ class VerifiedInputQueue {
         d.plan.length = remaining();
         for (int t = 0; t < remaining(); ++t) d.plan.buttons[t] = plan_.at(cursor_ + t);
         d.selected = evaluation_;
+        advanceEvaluation(d.selected, cursor_);
         d.selected.survived = remaining();
         d.selected.groundedPrefixTicks = std::clamp(evaluation_.groundedPrefixTicks - cursor_, 0, remaining());
         d.selected.hasRealized = true; d.selected.realized = d.plan;
         for (auto &trace : d.selected.traces) {
-            if (trace.size() <= size_t(cursor_)) { trace.clear(); continue; }
-            trace.erase(trace.begin(), trace.begin() + cursor_);
             if (trace.size() > size_t(remaining() + 1)) trace.resize(remaining() + 1);
         }
         for (auto &motion : d.selected.motions) {
-            if (motion.size() <= size_t(cursor_)) { motion.clear(); continue; }
-            motion.erase(motion.begin(), motion.begin() + cursor_);
             if (motion.size() > size_t(remaining() + 1)) motion.resize(remaining() + 1);
         }
+        for (auto &m : d.selected.modeTraces)
+            if (m.size() > size_t(remaining() + 1)) m.resize(remaining() + 1);
+        d.selected.routeId = routeFingerprint(d.plan);
         // Contact/repair indices belong to the old timeline, not this suffix.
         d.selected.orbActions.clear(); d.selected.dashActions.clear();
         d.selected.groundedActions.clear(); d.selected.controlActions.clear();

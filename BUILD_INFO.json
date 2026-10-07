@@ -1,6 +1,6 @@
 {
   "mod_id": "autogdbot.realtime",
-  "version": "v0.20.0",
+  "version": "v0.21.0",
   "targets": [
     "Android64",
     "Windows x64"
@@ -15,7 +15,8 @@
     "mode_tests",
     "interaction_tests",
     "survival_tests",
-    "accuracy_tests"
+    "accuracy_tests",
+    "portal_tests"
   ],
   "gameplay_verified": false,
   "fingerdash_verified": false,
@@ -35,13 +36,18 @@
     "interrupted safe grounded wait discarded",
     "one slow candidate starves opposite input",
     "queued releases and airborne rising edges delayed",
-    "search tiers accumulate independent tick budgets"
+    "search tiers accumulate independent tick budgets",
+    "forecast ends at a simple portal without checking new-mode survival",
+    "queued input rejects an expected mode transition",
+    "light-tick trace arrays lose timeline alignment",
+    "consumed interaction state not included in queue matching",
+    "mandatory artificial portal gate rejects unrelated routes"
   ],
   "native_packages_built": [
     "Android64",
     "Windows x64"
   ],
-  "standalone_suites_passed": 6,
+  "standalone_suites_passed": 7,
   "android_ndk": "r29",
   "compiler": "Clang 21.0.0",
   "package_checks": [
@@ -50,6 +56,22 @@
     "Android AArch64 ELF and correct SONAME",
     "Android private libc++ hash helper locally defined",
     "Windows PE x86-64 and geodeImplicitEntry export",
-    "Windows Release runtime imports"
+    "Windows Release runtime imports",
+    "gdsolver MIT notice preserved inside each package"
+  ],
+  "gdsolver_reference": "gdsolver/gdsolver@8e8d69ada86a315c71d05cc8b8fe4d369d883aa2",
+  "packages": [
+    {
+      "file": "AutoGDBot-v0.21.0-Android64.geode",
+      "bytes": 448513,
+      "sha256": "f7675b487784308560ff8e80d2d75fed5afced416712b17893cd4f0867d1106e",
+      "architecture": "Android64"
+    },
+    {
+      "file": "AutoGDBot-v0.21.0-Windows-x64.geode",
+      "bytes": 254890,
+      "sha256": "d22bb5da0f921f6b534a8053d4bd6fc753eac1ba4df8e66dccb25e24fa837c7d",
+      "architecture": "Windows-x64"
+    }
   ]
 }
