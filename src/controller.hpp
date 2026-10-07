@@ -363,9 +363,10 @@ class Controller {
                 // without ever relying on a long held state.
                 constant(false);
                 edgePulse(0, false);
-                for (int t : {1, 2, 3, 4, 6, 8, 12, 18, 24, 32, 40, 48, 64, 80, 96, 120, 144})
-                    edgePulse(t, false);
-                for (int period : {6, 8, 10, 12, 16, 20, 24, 32, 40, 48}) {
+                for (int base : {1, 2, 3, 4, 6, 8, 12, 18, 24, 32, 40, 48, 64, 80, 96, 120, 144})
+                    edgePulse(T(base), false);
+                for (int basePeriod : {6, 8, 10, 12, 16, 20, 24, 32, 40, 48}) {
+                    const int period = std::max(2, T(basePeriod));
                     pulseTrain(period, 0);
                     pulseTrain(period, period / 2);
                 }
@@ -378,11 +379,11 @@ class Controller {
                 // windows for landing and obstacle timing.
                 constant(false);
                 constant(true);
-                for (int duration : {1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64})
-                    window(0, duration);
-                for (int startTick : {2, 4, 6, 8, 12, 18, 24, 32, 48})
-                    for (int duration : {2, 4, 8, 16, 24})
-                        window(startTick, duration);
+                for (int baseDuration : {1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64})
+                    window(0, T(baseDuration));
+                for (int baseStart : {2, 4, 6, 8, 12, 18, 24, 32, 48})
+                    for (int baseDuration : {2, 4, 8, 16, 24})
+                        window(T(baseStart), T(baseDuration));
                 break;
             }
 
