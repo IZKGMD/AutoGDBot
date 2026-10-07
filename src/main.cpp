@@ -474,8 +474,10 @@ class Runtime {
             bool canPress = cubeCanPress(clones[0]) || (dual && cubeCanPress(clones[1]));
             if (pulseMode && clones[0]->m_isOnGround && !pulse.mustRelease())
                 out.groundedActions.push_back(t);
-            if (pulseMode && orbContact && !pulse.mustRelease())
+            if (pulseMode && orbContact && !pulse.mustRelease()) {
                 addOrbAction(t);
+                out.decisionPoint = true;
+            }
             const bool requested = schedule.request(t < plan.length && plan.at(t),
                 clones[0]->m_isOnGround, pulse.mustRelease(), pulseMode && t < plan.length);
             bool down =
@@ -520,6 +522,7 @@ class Runtime {
                 if (!down && touchingUsableOrb(p) && !pulse.mustRelease()) {
                     addOrbAction(t - 1);
                     addOrbAction(t);
+                    out.decisionPoint = true;
                 }
                 if (sim.dead[i] || p->m_isDead) {
                     out.died = true;
@@ -570,6 +573,7 @@ class Runtime {
                     flights[i].observe(groundedBefore[i], p->m_isOnGround, down);
                     if (!wasVerified && flights[i].verified()) {
                         if (i == 0) {
+                            out.decisionPoint = true;
                             auto pr = p->getObjectRect();
                             const float px = p->getPositionX();
                             std::vector<std::pair<float, float>> spans;
@@ -616,6 +620,8 @@ class Runtime {
             bool settled = true;
             for (int i = 0; i < players; ++i)
                 if (mode(clones[i]) == 0) settled &= flights[i].verified();
+            if (cubeRollout && out.decisionPoint)
+                break;
             if (out.survived >= plan.length && (!cubeRollout || settled))
                 break;
             // Do not invent a future after a mode/speed/dual portal. The actual
@@ -633,7 +639,8 @@ class Runtime {
             }
         }
         out.landingVerified = out.requiresLanding && allLanded;
-        out.firstActionVerified = !out.requiresLanding || allLanded || out.boundary;
+        out.firstActionVerified =
+            !out.requiresLanding || allLanded || out.boundary || out.decisionPoint;
         // Robustness is intentionally cheap: map the worst geometric margin to [0,1].
         // Native collisions remain authoritative; this only ranks surviving candidates.
         out.robustness = std::clamp(out.clearance / 28.f, 0.f, 1.f);
