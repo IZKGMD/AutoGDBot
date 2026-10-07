@@ -142,13 +142,16 @@ inline BoundaryHandoffHint seedBoundaryHandoff(
 
     const float direction = dx > 0 ? 1.f : -1.f;
     const float speed = std::abs(dx);
-    const float x = (player.minX + player.maxX) * .5f;
+    // Portals collide with the leading edge, not the player center. Using the
+    // center overestimates remaining reaction time by roughly half a cube
+    // width and can place a virtual gate through the current player.
+    const float leadingX = dx > 0 ? player.maxX : player.minX;
 
     float boundaryDistance = std::numeric_limits<float>::infinity();
     float boundaryFace = 0;
     for (auto b : boundaries) {
         const float face = dx > 0 ? b.minX : b.maxX;
-        const float distance = (face - x) * direction;
+        const float distance = (face - leadingX) * direction;
         if (distance > 2.f && distance < boundaryDistance) {
             boundaryDistance = distance;
             boundaryFace = face;
@@ -187,7 +190,7 @@ inline BoundaryHandoffHint seedBoundaryHandoff(
     out.obstacleTopY = obstacleTop;
     out.boundaryTick = int(std::floor(boundaryDistance / speed));
     out.obstacleTick =
-        int(std::floor(((obstacleFace - x) * direction) / speed));
+        int(std::floor(((obstacleFace - leadingX) * direction) / speed));
 
     // These candidates all begin early enough that the portal handoff can
     // already have vertical clearance. The virtual gate below rejects the
