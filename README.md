@@ -1,66 +1,19 @@
-# AutoGDBot Realtime 0.2.1
+# AutoGDBot Realtime v0.20.0
 
-Экспериментальный онлайн-контроллер для **Windows x64, Geometry Dash 2.2081, Geode 5.10.1**.
-Один `.geode`, без Python и внешнего процесса во время игры.
+Geode mod for Geometry Dash 2.2081, Geode SDK 5.10.1 and bindings f050fd74ad531b0827377c97510cb807903ff1b3.
 
-## Результат и границы проверки
+## Install
 
-На предоставленном видео версия **0.1.4** доходит до **14% Stereo Madness** и погибает после раннего прыжка с платформы. Это результат старой версии, не подтверждение 0.2.0. Запись разобрана в `VIDEO_ANALYSIS.md`.
+On Android, import the Android64 .geode in Geometry Dash's Geode local-package picker and restart the game. If the file picker hides .geode, extract the accompanying ZIP first. Windows uses its separate Windows x64 package.
 
-**На новом кадре 0.2.0 дошла до 22% Stereo Madness и погибла об одиночный шип на короткой платформе. 0.2.1 собрана и проверена отдельными тестами; в GD ещё не проверена.** Прохождение Stereo Madness, Deadlocked и Bloodbath новой версией не подтверждено. Успешная компиляция, зелёный трейс и внутреннее значение ошибки не доказывают прохождение.
+## Changes
 
-## Что изменено в 0.2.1
+New cube launches and orb activations require verified landings; known-fatal or interrupted trajectories cannot win merely by surviving longer. Safe native-confirmed grounded UP prefixes can certify waiting. Near obstacles, short coast predictions defer to longer landing checks. Both immediate input choices receive reserved search time, and all tiers share one absolute deadline. Queued releases and airborne clicks execute at their verified step, while native motion, position, mode and timestep must still match. Optional rings retain continuous hold candidates. Recovery is disabled by default for new installs.
 
-- Добавлен аварийный прыжок для стоящего на земле куба: если ближайший шип уже вошёл в окно взлёта, реальная геометрия может запустить один импульс даже при исчерпанном бюджете поиска. Высокие, дальние и находящиеся сзади препятствия отфильтровываются; следующий tick обязательно отпускает кнопку.
-- Кандидаты для куба включают короткий прыжок у края текущей платформы, перед ближайшим шипом и поднятой поверхностью. Смежные блоки одинаковой высоты объединяются при поиске края. Это приоритет проверки, а не решение по одной геометрии: каждый вариант проходит родной rollout GD.
-- Удалены одинаковые планы. После базовых вариантов и предыдущего плана сначала проверяются геометрические события, затем распределённые по горизонту моменты прыжка. Бюджет больше не расходуется сначала на множество почти одинаковых вариаций в 1/2/3 ticks.
-- Новое нажатие куба с земли допускается только после наблюдаемого в прогнозе взлёта и приземления, либо достижения портала, где прогноз заканчивается. Если бюджет закончился раньше приземления, такой прыжок не запускается. Это может привести к отказу от необходимого прыжка при слишком малом бюджете или неполном моделировании.
-- Путь, прошедший весь горизонт без смерти, имеет приоритет над обрезанным или смертельным прогнозом. Когда такой путь сохраняет текущую кнопку, поиск заканчивается раньше.
-- Предыдущий план переносит только проверенный префикс. Непроверенный хвост не превращается в сохранённый зажим.
-- GPU получает тот же список вариантов, который проверял CPU; список не генерируется второй раз со случайными изменениями.
-- Зелёный выбранный трейс означает проверку до конца текущего горизонта; красный — будущую смерть, оранжевый — короткий или прерванный прогноз, голубой — границу портала. Это статусы модели, не гарантия настоящей игры.
-- CSV теперь записывает выбранную и фактическую кнопку после применения ввода, результаты проверки приземления, смерть/прерывание прогноза, шаг времени и ошибку следующего физического шага. Файл называется `timing-v0.2.1.csv`.
+See ACCURACY_v0.20.0.md for the concrete regressions and limits.
 
-## Установка
+## Validation
 
-1. Заменить прежний `autogdbot.realtime.geode` в `Geometry Dash/geode/mods/` и перезапустить игру.
-2. Проверить надпись **AutoGDBot 0.2.1** в игре.
-3. В Geode открыть настройки AutoGDBot Realtime и включить **Autopilot (experimental)**. По умолчанию он выключен.
-4. Начальные значения: бюджет **1 ms**, горизонт **144 ticks**, максимум **48 кандидатов**, GPU включён, трейсы **30 Hz**.
-5. Для диагностики включить **Save timing CSV**; файл находится в папке сохранений мода. CSV может добавлять задержки при записи и по умолчанию выключен.
-6. Для ручного управления выключить Autopilot. Пока бот управляет, ручной Jump блокируется.
+Six standalone suites exercise controllers, staircases, modes, interaction restoration, orb chains, native-motion queues and accuracy regressions. Native PlayerObject physics and collision remain authoritative; there is no fixed level macro. Future trigger motion beyond the current local scene is not fully simulated, and portals stop prediction for live replanning.
 
-Обычный куб нажимает на один физический шаг и отпускает на следующем. В полёте без орба новые нажатия подавлены. Для активного dash, корабля, волны, робота и других непрерывных режимов удержание сохраняется. Во время обычного полёта куба тяжёлый поиск идёт раз в четыре ticks; наблюдение игры и отпускание идут каждый tick. На земле и при доступном орбе поиск выполняется каждый tick.
-
-В HUD: `search` — время самого поиска; `total` — время подготовки, поиска и GPU-submit до применения ввода. `total` не включает всю физику игры, трейсы и запись CSV. `forecast` показывает статус модели, `landing` — результат необходимой проверки приземления, `error` — расхождение первого прогнозного шага с фактическим следующим состоянием. При обычных 240 TPS ожидается `dt=0.00417->0.250*`; звёздочка означает измеренный масштаб native update.
-
-## Ограничения
-
-- Мир в прогнозе заморожен. Будущие move/rotate/toggle-триггеры и движение опасностей не воспроизводятся. Геометрические подсказки также основаны на текущих координатах и индексах исходных объектов.
-- Возле mode/speed/size/dual/teleport-порталов прогноз обрывается; переход выполняет настоящая игра, после него план строится заново. Безопасность по ту сторону портала заранее не проверена.
-- Native rollout не воспроизводит весь цикл GJBaseGameLayer. Орбы, pads, склоны, dash, side-effects и dual требуют проверки внутри GD.
-- Дополнительный консервативный AABB guard для куба может отвергать допустимые пути у углов шипов. Геометрические события для наклонных/движущихся платформ могут быть неточными.
-- Platformer и два независимых управления не поддерживаются. Dual с общей кнопкой поддерживается экспериментально.
-- Если все варианты плохие, текущая кнопка или её проверенный короткий префикс могут сохраняться; модель сообщает об отсутствии безопасного продолжения. Обязательное отпускание куба выполняется даже при провале поиска. Noclip не используется.
-- Бюджет мягкий: отдельную функцию GD прервать нельзя. Снимки, восстановление, геометрия, GPU, трассы и CSV добавляют затраты. FPS и p95/p99 времени кадра для 0.2.1 не измерены.
-- GPU использует приблизительную физику и только ранжирует варианты; CPU проверяет траектории. Равная загрузка CPU/GPU 50/50 не обеспечивается.
-- Мод не меняет сохранение статистики настоящей попытки. Для экспериментов используйте practice mode.
-
-## Сборка
-
-Geode CLI 3.9.0, SDK **5.10.1**, CMake 3.25+, Ninja, MSVC 19.44+ или Clang 19+ с Microsoft SDK/STL. В Developer PowerShell с установленным `GEODE_SDK`:
-
-```powershell
-./tools/build.ps1
-```
-
-Bindings закреплены commit из `BUILD_INFO.json`. SDK может скачивать зависимости при конфигурации.
-Тесты без игры и Geode:
-
-```sh
-cmake -S . -B build-tests -DAUTOGDBOT_BUILD_MOD=OFF -DAUTOGDBOT_BUILD_TESTS=ON
-cmake --build build-tests --config Release
-ctest --test-dir build-tests -C Release --output-on-failure
-```
-
-Подробности: `BUILD_INFO.json`, `VALIDATION.md`, `VIDEO_ANALYSIS.md`, `SOURCES.md`. Тесты используют синтетические задачи и не эмулируют уровни GD.
+Standalone tests and native compilation do not establish in-game accuracy. Installation, device FPS, Stereo Madness completion and success rates remain unmeasured. Enable Save timing CSV for diagnosis; the HUD shows prediction error, certificates, tested UP/DOWN candidates and search time.

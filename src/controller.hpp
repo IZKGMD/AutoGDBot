@@ -39,6 +39,7 @@ struct Plan {
 };
 struct Evaluation {
     int survived = 0;
+    int groundedPrefixTicks = 0; // contiguous native-confirmed UP + ground for both players
     bool died = false;
     bool guardDeath = false;
     bool nativeDeath = false;
@@ -67,6 +68,7 @@ struct Evaluation {
 struct Config {
     int horizon = 144, candidates = 48;
     double budgetMs = 1.0;
+    Clock::time_point sharedDeadline = Clock::time_point::max();
     double tickSeconds = 1.0 / 240.0;
     bool forceRelease = false;
     bool cubePulsePlanning = false;
@@ -455,6 +457,10 @@ class Controller {
             constant(false);
             if (!discretePulseMode) constant(true);
             else edgePulse(0, false);
+            if (cfg.immediateOrb && held && !cfg.forceRelease) {
+                edgePulse(1, discretePulseMode ? false : held);
+                if (!discretePulseMode) edgePulse(1, false);
+            }
             for (int i = 0; i < orbCount && i < 3; ++i) {
                 edgePulse(cfg.orbEvents[i], false);
                 edgePulse(cfg.orbEvents[i], held);
@@ -608,10 +614,17 @@ class Controller {
         cfg.landingEventCount =
             std::clamp(cfg.landingEventCount, 0, int(cfg.landingEvents.size()));
         const auto start = Clock::now();
-        const auto deadline =
+        const auto localDeadline =
             start +
             std::chrono::duration_cast<Clock::duration>(
                 std::chrono::duration<double, std::milli>(std::clamp(cfg.budgetMs, 0.2, 8.0)));
+        const auto deadline = std::min(localDeadline, cfg.sharedDeadline);
+        if (start >= deadline) {
+            Decision expired;
+            expired.down = cfg.forceRelease || cfg.cubePulsePlanning ? false : held;
+            expired.exhausted = true;
+            return expired;
+        }
         Config proposalConfig = cfg;
         const int expansionReserve = std::min(32, cfg.candidates / 3);
         proposalConfig.candidates -= expansionReserve;
@@ -664,6 +677,11 @@ class Controller {
                 (modePolicy(cfg.plannerMode).mustLand ||
                  (cfg.dual && modePolicy(cfg.secondaryMode).mustLand)) &&
                 e.requiresLanding && !e.firstActionVerified && e.hasRealized &&
+                // Cube input commits a ballistic route. Neither a distant
+                // known death nor an interrupted landing check permits a new
+                // launch. Recovery can retain UP while an existing flight ends.
+                !((cfg.plannerMode == PlannerMode::Cube ||
+                   (cfg.dual && cfg.secondaryMode == PlannerMode::Cube)) && e.realized.at(0)) &&
                 e.survived >= minRecoveryTicks && e.realized.length >= e.survived && finiteTrace(0) &&
                 int(e.traces[0].size()) > e.survived &&
                 (!cfg.dual || (int(e.traces[1].size()) > e.survived && finiteTrace(1)))) {
@@ -693,7 +711,12 @@ class Controller {
             const bool prefixCertified =
                 !cfg.cubePulsePlanning && e.firstActionVerified &&
                 e.survived >= minCertificateTicks;
-            const bool certified = complete || eventCertified || prefixCertified;
+            const bool groundedWaitCertified = cfg.cubePulsePlanning && !e.died &&
+                e.firstActionVerified && !e.requiresLanding &&
+                !(e.hasRealized ? e.realized.at(0) : plan.at(0)) &&
+                e.groundedPrefixTicks >= minCertificateTicks &&
+                e.groundedPrefixTicks <= e.survived;
+            const bool certified = complete || eventCertified || prefixCertified || groundedWaitCertified;
 
             if (e.survived <= 0 || !e.firstActionVerified || !certified) {
                 ++result.rejectedUnsafe;
@@ -811,6 +834,12 @@ class Controller {
         if (priority.size() == plans.size() && plans.size() > protectedCount)
             std::stable_sort(order.begin() + protectedCount, order.end(),
                              [&](int a, int b) { return priority[a] > priority[b]; });
+        if ((cfg.compareFirstActions || cfg.immediateOrb) && !cfg.forceRelease && !order.empty()) {
+            auto opposite = std::find_if(order.begin() + 1, order.end(), [&](int i) {
+                return plans[i].at(0) != plans[order.front()].at(0);
+            });
+            if (opposite != order.end()) std::rotate(order.begin() + 1, opposite, opposite + 1);
+        }
         int furthestFailure = -1;
         std::array<int, 2> furthestControlFailure{-1, -1};
         // Keep the initial action basis ahead of adaptive repairs. Repeated
@@ -830,7 +859,13 @@ class Controller {
                 result.exhausted = true;
                 break;
             }
-            auto e = evaluate(plans[i], deadline);
+            auto candidateDeadline = deadline;
+            if ((cfg.compareFirstActions || cfg.immediateOrb) && !cfg.forceRelease &&
+                !immediateOrbEvaluated[!plans[i].at(0)]) {
+                const auto now = Clock::now();
+                candidateDeadline = now + (deadline - now) / 2;
+            }
+            auto e = evaluate(plans[i], candidateDeadline);
             ++result.candidates;
             ++result.firstActionCandidates[plans[i].at(0) ? 1 : 0];
             immediateOrbEvaluated[plans[i].at(0) ? 1 : 0] = true;

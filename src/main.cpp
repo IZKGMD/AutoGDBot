@@ -466,7 +466,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.17.0.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.20.0.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -698,6 +698,10 @@ class Runtime {
             }
             if (out.died)
                 break;
+            bool stayedGrounded = !down;
+            for (int i = 0; i < players; ++i)
+                stayedGrounded &= groundedBefore[i] && clones[i]->m_isOnGround;
+            if (stayedGrounded && out.groundedPrefixTicks == t) ++out.groundedPrefixTicks;
             ++out.survived;
             out.realized.length = out.survived;
             bool settled = true;
@@ -863,15 +867,14 @@ class Runtime {
         if (!queueReady) inputQueue.reset();
         // Commit a previously verified critical click before another search
         // can consume the narrow orb/takeoff window. No geometry-only reflex.
-        const bool criticalClick = queueReady && inputQueue.down() &&
-            (touchingOrb || imminentOrb || (pulseMode && p->m_isOnGround)) &&
-            (!pulseMode || !cubePulse.mustRelease());
+        const bool criticalClick = queueReady && inputQueue.transitionDue(botHeld) &&
+            (!inputQueue.down() || !pulseMode || !cubePulse.mustRelease());
         if (criticalClick) {
             decision = inputQueue.continuation();
             usingQueuedInput = true;
             inputPending = true;
-            message = "BOT | verified timed click";
-            plannerStage = "QUEUED-CLICK";
+            message = "BOT | verified input transition";
+            plannerStage = "QUEUED-INPUT";
             finishTick(start, error);
             return;
         }
@@ -1000,8 +1003,7 @@ class Runtime {
         const int liveMode = mode(p);
         const bool orbOpportunity = touchingOrb || imminentOrb || cubePulse.orbArmed();
         searchConfig.forceRelease =
-            (pulseMode && (cubePulse.mustRelease() || (!canPress && !orbOpportunity))) ||
-            (!pulseMode && touchingOrb && botHeld && !p->m_isDashing);
+            pulseMode && (cubePulse.mustRelease() || (!canPress && !orbOpportunity));
         searchConfig.cubePulsePlanning = pulseMode;
         searchConfig.allowFlightRecovery = settings.recovery && !searchConfig.forceRelease;
         searchConfig.plannerMode = liveModes[0].controlMode();
@@ -1183,8 +1185,11 @@ class Runtime {
         // starve the game thread and create the stutter visible in the video.
         const double tickMs = std::clamp(double(dt) * 1000.0, 2.0, 20.0);
         const bool overloaded = totalMs > tickMs * .70;
-        const double loadScale = overloaded ? .68 : 1.0;
-        const double hardPlannerCap = tickMs * (overloaded ? .42 : .62);
+        const double loadScale = overloaded && !nearAction ? .68 : 1.0;
+        const double hardPlannerCap = tickMs * (nearAction ? .85 : overloaded ? .42 : .62);
+        searchConfig.sharedDeadline = Clock::now() +
+            std::chrono::duration_cast<Clock::duration>(
+                std::chrono::duration<double, std::milli>(hardPlannerCap));
 
         // Tier 1: cheap receding MPC. Most frames should finish here.
         Config fastConfig = searchConfig;
@@ -1213,7 +1218,7 @@ class Runtime {
             fast.hasValidatedInput && !fast.selected.died && fastMarginGood &&
             // A short coast before a mapped ring is not proof of the required
             // continuation. Use the longer event search in that local window.
-            !(pulseMode && orbSoon) &&
+            !(pulseMode && nearAction && !fast.selected.landingVerified) &&
             (fast.completeContinuation || fast.selected.decisionPoint ||
              fast.recedingCertificate);
 
@@ -1284,7 +1289,7 @@ class Runtime {
             decision = std::move(fast);
             plannerStage = "FAST-KEPT";
         }
-        if (!decision.hasValidatedInput && !decision.recoveryInput && queueReady) {
+        if (!decision.hasValidatedInput && queueReady) {
             auto queued = inputQueue.continuation();
             retainSearchDiagnostics(queued, decision);
             decision = std::move(queued);
@@ -1469,7 +1474,7 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.17.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
+                "AutoGDBot 0.20.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={} | tested={}/{}\n"

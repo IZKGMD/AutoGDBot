@@ -62,9 +62,9 @@ int main() {
     cfg.allowFlightRecovery = true;
     auto evaluate = [&](Plan const &p, auto) { return unfinished(p, p.at(0) ? 249 : 126); };
     Controller planner; auto recovered = planner.decide(cfg, false, evaluate);
-    check(recovered.recoveryInput && recovered.down && !recovered.hasValidatedInput &&
+    check(recovered.recoveryInput && !recovered.down && !recovered.hasValidatedInput &&
           recovered.certificateTicks == 0 && !recovered.selected.firstActionVerified,
-          "249-step checked jump outranks forced release without claiming its unknown landing is safe");
+          "fatal cube launch is rejected even when it lives longer than release");
     check(recovered.recoveryTicks <= recovered.selected.survived &&
           recovered.plan.length == recovered.recoveryTicks, "recovery exposes only a bounded checked prefix");
     VerifiedInputQueue queue; std::array<ModeState,2> modes{};

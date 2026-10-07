@@ -6,7 +6,7 @@
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v0.17.0",
+  "version": "v0.20.0",
   "developers": [
     "AutoGDBot"
   ],
@@ -67,8 +67,8 @@
     "flight-recovery": {
       "type": "bool",
       "name": "Survival recovery",
-      "description": "Try a collision-checked action when its distant landing is still unproved. The HUD marks these actions as recovery.",
-      "default": true
+      "description": "Optional unproved-flight continuation. New cube launches still require a verified landing.",
+      "default": false
     }
   }
 }
