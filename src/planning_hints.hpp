@@ -56,6 +56,43 @@ inline void addLandingEvent(Config &cfg, int tick) {
     cfg.landingEvents[cfg.landingEventCount++] = tick;
 }
 
+// Seed the whole horizontal contact window of nearby orbs. Native clone
+// collision still decides whether the player is vertically inside the ring;
+// these ticks only make sure the controller has a pulse available whenever
+// that contact actually occurs.
+inline void seedOrbContactEvents(Config &cfg, Bounds player, float dx,
+                                 std::span<Bounds const> orbs) {
+    if (!std::isfinite(dx) || std::abs(dx) < .0001f)
+        return;
+    const float x = (player.minX + player.maxX) * .5f;
+    const float halfWidth = std::max(4.f, (player.maxX - player.minX) * .5f);
+    const float direction = dx > 0 ? 1.f : -1.f;
+    const float speed = std::abs(dx);
+
+    for (auto b : orbs) {
+        const float nearFace = dx > 0 ? b.minX - halfWidth : b.maxX + halfWidth;
+        const float farFace = dx > 0 ? b.maxX + halfWidth : b.minX - halfWidth;
+        float nearDist = (nearFace - x) * direction;
+        float farDist = (farFace - x) * direction;
+        if (farDist <= -speed * 2.f)
+            continue;
+        int begin = int(std::floor(nearDist / speed)) - 2;
+        int end = int(std::ceil(farDist / speed)) + 2;
+        if (end < 0 || begin >= cfg.horizon)
+            continue;
+        begin = std::max(0, begin);
+        end = std::min(cfg.horizon - 1, end);
+
+        // Preserve both edges and the center first; then fill the remaining
+        // contact interval. This works with the bounded orb-event array.
+        addOrbEvent(cfg, begin);
+        addOrbEvent(cfg, (begin + end) / 2);
+        addOrbEvent(cfg, end);
+        for (int t = begin + 1; t < end; ++t)
+            addOrbEvent(cfg, t);
+    }
+}
+
 inline WallHint seedForwardWallEvents(Config &cfg, float x, float footY, float dx,
                                        std::span<Bounds const> solids) {
     WallHint out;
@@ -392,8 +429,11 @@ inline GapHint seedCubeEvents(Config &cfg, float x, float footY, float dx,
     for (int lead : {20, 32, 44, 56, 72})
         addJumpEvent(cfg, int(nearestLanding) - lead);
 
-    // Orb routing: schedule both a takeoff window and a second pulse around the
-    // horizontal contact time. Two-pulse candidates are built in Controller.
+    // Orb routing: use the full contact interval rather than a guessed center
+    // tick. The clone later records the exact native-touch tick and may branch
+    // from it if the pre-seeded timing was still wrong.
+    Bounds standingPlayer{x - 15.f, footY, x + 15.f, footY + 30.f};
+    seedOrbContactEvents(cfg, standingPlayer, dx, orbs);
     for (auto b : orbs) {
         const float centerX = (b.minX + b.maxX) * .5f;
         const float centerY = (b.minY + b.maxY) * .5f;
@@ -403,9 +443,8 @@ inline GapHint seedCubeEvents(Config &cfg, float x, float footY, float dx,
         if (centerY < footY - 80.f || centerY > footY + 180.f)
             continue;
         const int orbTick = int(std::lround(t));
-        for (int offset : {-3, -2, -1, 0, 1, 2, 3})
-            addOrbEvent(cfg, orbTick + offset);
-        const int heightLead = std::clamp(int(std::max(0.f, centerY - footY) * .16f), 0, 24);
+        const int heightLead =
+            std::clamp(int(std::max(0.f, centerY - footY) * .16f), 0, 24);
         for (int lead : {24, 32, 40, 48, 56, 64, 80})
             addJumpEvent(cfg, orbTick - lead - heightLead);
     }
