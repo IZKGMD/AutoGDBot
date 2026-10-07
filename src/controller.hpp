@@ -79,11 +79,33 @@ struct Decision {
     int bestRejectedTicks = 0, landingRejects = 0, deaths = 0;
     int guardDeaths = 0, nativeDeaths = 0, interruptions = 0;
     double elapsedMs = 0;
+    std::array<int, 2> firstActionCandidates{};
     Plan plan;
     Evaluation selected;
     std::array<Evaluation, 2> alternatives;
     std::vector<Plan> proposals;
 };
+// Search tiers may improve a verified route, but failure in a later tier
+// must not discard the earlier safe action in favor of an old coast queue.
+inline bool preferVerifiedFallback(Decision const &current, Decision const &fallback) {
+    return fallback.hasValidatedInput && fallback.selected.firstActionVerified &&
+           !fallback.selected.died &&
+           (!current.hasValidatedInput || current.selected.died);
+}
+inline void retainSearchDiagnostics(Decision &queued, Decision const &search) {
+    queued.candidates = search.candidates;
+    queued.firstActionCandidates = search.firstActionCandidates;
+    queued.elapsedMs = search.elapsedMs;
+    queued.rejectedUnsafe = search.rejectedUnsafe;
+    queued.bestRejectedTicks = search.bestRejectedTicks;
+    queued.landingRejects = search.landingRejects;
+    queued.deaths = search.deaths;
+    queued.guardDeaths = search.guardDeaths;
+    queued.nativeDeaths = search.nativeDeaths;
+    queued.interruptions = search.interruptions;
+    queued.exhausted = search.exhausted;
+    queued.alternatives = search.alternatives;
+}
 // The evaluator must check the deadline between physics steps and restore its
 // state even when interrupted. Ranking cannot turn an untested plan into input.
 class Controller {
@@ -660,7 +682,7 @@ class Controller {
                 result.down = e.hasRealized ? e.realized.at(0) : plan.at(0);
                 result.predictedTicks = e.survived;
                 result.certificateTicks =
-                    complete ? cfg.horizon
+                    complete ? std::min(cfg.horizon, e.survived)
                              : (eventCertified ? e.survived : minCertificateTicks);
                 result.hasValidatedInput = true;
                 result.completeContinuation = complete;
@@ -707,6 +729,17 @@ class Controller {
                              [&](int a, int b) { return priority[a] > priority[b]; });
         int furthestFailure = -1;
         std::array<int, 2> furthestControlFailure{-1, -1};
+        // Keep the initial action basis ahead of adaptive repairs. Repeated
+        // repairs of one failed cached coast used to starve the opposite
+        // first action on Android (only 2-4 forecasts fit in one substep).
+        const size_t basisEnd = std::min(size_t(4), order.size());
+        auto enqueueRepairs = [&](size_t cursor, std::vector<int> const &children) {
+            const bool compared = immediateOrbEvaluated[0] && immediateOrbEvaluated[1];
+            if (!compared || cursor + 1 < basisEnd)
+                order.insert(order.end(), children.begin(), children.end());
+            else
+                order.insert(order.begin() + cursor + 1, children.begin(), children.end());
+        };
         for (size_t cursor = 0; cursor < order.size(); ++cursor) {
             const int i = order[cursor];
             if (Clock::now() >= deadline) {
@@ -715,6 +748,7 @@ class Controller {
             }
             auto e = evaluate(plans[i], deadline);
             ++result.candidates;
+            ++result.firstActionCandidates[plans[i].at(0) ? 1 : 0];
             immediateOrbEvaluated[plans[i].at(0) ? 1 : 0] = true;
             auto &alternative = result.alternatives[plans[i].at(0)];
             if (e.survived > alternative.survived || alternative.traces[0].empty())
@@ -764,7 +798,7 @@ class Controller {
                         ++emitted;
                     }
                 }
-                order.insert(order.begin() + cursor + 1, children.begin(), children.end());
+                enqueueRepairs(cursor, children);
             }
 
             // Repair failed native trajectories at mode-valid control times.
@@ -815,7 +849,7 @@ class Controller {
                         }
                     }
                 }
-                order.insert(order.begin() + cursor + 1, children.begin(), children.end());
+                enqueueRepairs(cursor, children);
             }
 
             // The same mechanism remains for native-confirmed touchdowns.
@@ -844,7 +878,7 @@ class Controller {
                     if (int(plans.size()) >= cfg.candidates)
                         break;
                 }
-                order.insert(order.begin() + cursor + 1, children.begin(), children.end());
+                enqueueRepairs(cursor, children);
             }
             if (consider(plans[i], std::move(e)))
                 break;
