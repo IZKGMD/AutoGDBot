@@ -80,6 +80,19 @@ int main() {
     check(chain.hasValidatedInput && chain.down && chain.plan.at(8) && chain.plan.at(22) && !chain.plan.at(21),
           "ship continuation can release and activate the next native-discovered orb");
     solver.reset();
+    auto lateOrb=solver.decide(c,false,[&](Plan const&p,auto){
+        auto e=gapPortal(p,PlannerMode::Ship,false,90,180);
+        if(!p.at(0)||!p.at(90)||!p.at(91))return e;
+        if(!(p.at(126)&&!p.at(125))) {
+            e.survived=140;e.died=e.nativeDeath=true;e.firstActionVerified=e.portalVerified=false;
+            e.orbActions={126};e.controlActions={{126,PlannerMode::Ship}};
+            e.realized.length=140;
+        }
+        return e;
+    });
+    check(lateOrb.hasValidatedInput&&lateOrb.down&&lateOrb.plan.at(90)&&lateOrb.plan.at(126)&&!lateOrb.plan.at(125),
+          "an orb in the extended post-portal tail must retain its actual contact tick");
+    solver.reset();
     auto shortProof=solver.decide(c,false,[&](Plan const&p,auto){
         auto e=gapPortal(p,PlannerMode::Ship);
         if (!p.at(0)) return e;

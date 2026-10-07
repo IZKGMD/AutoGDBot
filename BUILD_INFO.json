@@ -1,6 +1,6 @@
 {
   "mod_id": "autogdbot.realtime",
-  "version": "v0.21.0",
+  "version": "v0.21.1",
   "targets": [
     "Android64",
     "Windows x64"
@@ -16,7 +16,8 @@
     "interaction_tests",
     "survival_tests",
     "accuracy_tests",
-    "portal_tests"
+    "portal_tests",
+    "block_regression_tests"
   ],
   "gameplay_verified": false,
   "fingerdash_verified": false,
@@ -24,7 +25,7 @@
   "success_rate_measured": false,
   "gpu_runtime_verified": false,
   "fps_measured": false,
-  "regression_video": "594.mp4",
+  "regression_video": "2026-10-07 21-28-25.mp4",
   "regressions": [
     "future orb actions truncated by first landing",
     "long orb chains outside active horizon",
@@ -41,13 +42,18 @@
     "queued input rejects an expected mode transition",
     "light-tick trace arrays lose timeline alignment",
     "consumed interaction state not included in queue matching",
-    "mandatory artificial portal gate rejects unrelated routes"
+    "mandatory artificial portal gate rejects unrelated routes",
+    "unnecessary jumps rewarded for their landing",
+    "airborne forced-release repairs deferred behind baseline plans",
+    "unused proposals exhaust compound-jump storage",
+    "extended portal steering writes a reversed input range",
+    "extended portal orb actions discarded outside the initial horizon"
   ],
   "native_packages_built": [
     "Android64",
     "Windows x64"
   ],
-  "standalone_suites_passed": 7,
+  "standalone_suites_passed": 8,
   "android_ndk": "r29",
   "compiler": "Clang 21.0.0",
   "package_checks": [
@@ -62,16 +68,23 @@
   "gdsolver_reference": "gdsolver/gdsolver@8e8d69ada86a315c71d05cc8b8fe4d369d883aa2",
   "packages": [
     {
-      "file": "AutoGDBot-v0.21.0-Android64.geode",
-      "bytes": 448513,
-      "sha256": "f7675b487784308560ff8e80d2d75fed5afced416712b17893cd4f0867d1106e",
+      "file": "AutoGDBot-v0.21.1-Android64.geode",
+      "bytes": 449649,
+      "sha256": "f04dce034cfbfce211cddfaec85f36ed7db0bab48ae961576f2c9af15f21c1cf",
       "architecture": "Android64"
     },
     {
-      "file": "AutoGDBot-v0.21.0-Windows-x64.geode",
-      "bytes": 254890,
-      "sha256": "d22bb5da0f921f6b534a8053d4bd6fc753eac1ba4df8e66dccb25e24fa837c7d",
+      "file": "AutoGDBot-v0.21.1-Windows-x64.geode",
+      "bytes": 256092,
+      "sha256": "967954b082c76a66baa15d36b80033b2ebf3eed3680240f3f1ea1a42e21672fc",
       "architecture": "Windows-x64"
     }
-  ]
+  ],
+  "observed_previous_version": "v0.21.0",
+  "sanitizers": {
+    "block_regression_tests": "ASan/UBSan PASS",
+    "portal_tests": "ASan/UBSan PASS",
+    "leak_detection": false
+  },
+  "baseline_regressions_reproduced": 3
 }
