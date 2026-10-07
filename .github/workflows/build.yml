@@ -75,7 +75,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Archive exact source
-        run: git archive --format=zip --output=AutoGDBot-Realtime-v0.7.0-source.zip HEAD
+        run: git archive --format=zip --output=AutoGDBot-Realtime-v0.8.0-source.zip HEAD
       - uses: actions/upload-artifact@v4
         with:
           name: AutoGDBot-Realtime-source
