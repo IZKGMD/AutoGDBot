@@ -242,6 +242,35 @@ int main() {
     require(liveOrbDecision.hasValidatedInput && liveOrbDecision.down,
             "when already touching an orb, PRESS NOW must be compared and win an equal safe tie");
 
+    Controller orbChain;
+    Config orbChainCfg;
+    orbChainCfg.horizon = 120;
+    orbChainCfg.candidates = 96;
+    orbChainCfg.budgetMs = 8;
+    orbChainCfg.cubePulsePlanning = true;
+    auto orbChainEval = [](Plan const &p, Clock::time_point) {
+        Evaluation e;
+        e.firstActionVerified = true;
+        if (!p.at(37)) {
+            e.survived = 58;
+            e.died = true;
+            e.orbActions.push_back(37);
+            return e;
+        }
+        if (!p.at(83)) {
+            e.survived = 104;
+            e.died = true;
+            e.orbActions.push_back(83);
+            return e;
+        }
+        e.survived = p.length;
+        return e;
+    };
+    auto orbChainDecision = orbChain.decide(orbChainCfg, false, orbChainEval);
+    require(orbChainDecision.hasValidatedInput && orbChainDecision.plan.at(37) &&
+                orbChainDecision.plan.at(83) && !orbChainDecision.selected.died,
+            "native event expansion must discover a two-orb chain without precomputed orb ticks");
+
     Config stairCfg = ledgeCfg;
     stairCfg.horizon = 216;
     stairCfg.candidates = 64;
