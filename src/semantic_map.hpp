@@ -33,6 +33,7 @@ class SemanticMap {
     std::vector<std::pair<float, GameObject *>> orbs_;
     std::vector<std::pair<float, GameObject *>> control_;
     SemanticStats stats_{};
+    std::vector<std::pair<GameObject *, cocos2d::CCPoint>> positions_;
 
   public:
     static SemanticKind classify(GameObject *o) {
@@ -66,6 +67,7 @@ class SemanticMap {
         solids_.clear();
         orbs_.clear();
         control_.clear();
+        positions_.clear();
         stats_ = {};
         if (!layer || !layer->m_objects)
             return;
@@ -78,6 +80,7 @@ class SemanticMap {
             if (!o)
                 continue;
             auto kind = classify(o);
+            if (kind != SemanticKind::Other) positions_.emplace_back(o, o->getPosition());
             ++stats_.total;
             ++stats_.counts[static_cast<size_t>(kind)];
             const float x = o->getPositionX();
@@ -116,6 +119,27 @@ class SemanticMap {
     }
 
     auto const &hazards() const { return hazards_; }
+    bool refreshPositions() {
+        bool changed = false;
+        for (auto &[o, old] : positions_) {
+            auto now = o->getPosition();
+            if (now.x != old.x || now.y != old.y) { old = now; changed = true; }
+        }
+        auto refresh = [&](auto &objects) {
+            bool moved = false;
+            for (auto &[x, o] : objects) {
+                if (!o) continue;
+                const float now = o->getPositionX();
+                if (now != x) { x = now; moved = true; }
+            }
+            if (moved) std::sort(objects.begin(), objects.end(), [](auto const &a, auto const &b) {
+                return a.first < b.first;
+            });
+            changed |= moved;
+        };
+        refresh(hazards_); refresh(solids_); refresh(orbs_); refresh(control_);
+        return changed;
+    }
     auto const &solids() const { return solids_; }
     auto const &orbs() const { return orbs_; }
     auto const &controlObjects() const { return control_; }

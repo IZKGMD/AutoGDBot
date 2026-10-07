@@ -6,11 +6,11 @@
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v0.15.0",
+  "version": "v0.19.0",
   "developers": [
     "AutoGDBot"
   ],
-  "description": "Realtime native-physics control with per-player orb eligibility, orb chains across modes, dash hold/release and swing edge planning.",
+  "description": "Realtime reachability MPC with native-physics verification, live re-anchoring, orb/pad semantics and multi-mode control.",
   "tags": [
     "gameplay",
     "utility",
@@ -42,7 +42,7 @@
       "name": "Lookahead in physics ticks",
       "default": 180,
       "min": 24,
-      "max": 240
+      "max": 384
     },
     "candidates": {
       "type": "int",
@@ -62,6 +62,12 @@
       "type": "bool",
       "name": "Save timing CSV",
       "description": "Writes telemetry in the mod save directory every 256 physics ticks.",
+      "default": false
+    },
+    "flight-recovery": {
+      "type": "bool",
+      "name": "Survival recovery",
+      "description": "Optional unproved-flight continuation. New cube launches still require a verified landing.",
       "default": false
     }
   }
