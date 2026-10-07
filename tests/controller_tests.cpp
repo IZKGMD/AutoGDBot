@@ -739,8 +739,10 @@ int main() {
     require(guard.hit({0, 0, 1, 1}, {10, 10, 11, 11}),
             "continuous sweep catches actual diagonal crossing");
     guard.set({{10, 0, 20, 10}});
-    require(guard.hit({9, 2, 10.1f, 3}, {9, 2, 10.1f, 3}),
-            "hazard edge cannot be silently shrunk by the guard");
+    require(!guard.hit({9, 2, 10.1f, 3}, {9.4f, 2, 10.5f, 3}),
+            "a real state already inside the coarse hazard AABB must not be killed at tick zero");
+    require(guard.hit({8, 2, 9, 3}, {9.4f, 2, 10.5f, 3}),
+            "the same guard must still reject actually entering the hazard AABB");
     guard.set({{4, 8, 8, 15}});
     int rejected = 0;
     auto missedNativeCollision = [&](Plan const &plan, Clock::time_point deadline) {
