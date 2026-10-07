@@ -46,6 +46,7 @@ class VerifiedInputQueue {
         return true;
     }
     bool down() const { return cursor_ < checked_ && plan_.at(cursor_); }
+    bool transitionDue(bool held) const { return remaining() > 0 && down() != held; }
     int remaining() const { return std::max(0, checked_ - cursor_); }
     void consume(bool actual) {
         if (cursor_ >= checked_ || actual != down()) reset();
@@ -60,6 +61,7 @@ class VerifiedInputQueue {
         for (int t = 0; t < remaining(); ++t) d.plan.buttons[t] = plan_.at(cursor_ + t);
         d.selected = evaluation_;
         d.selected.survived = remaining();
+        d.selected.groundedPrefixTicks = std::clamp(evaluation_.groundedPrefixTicks - cursor_, 0, remaining());
         d.selected.hasRealized = true; d.selected.realized = d.plan;
         for (auto &trace : d.selected.traces) {
             if (trace.size() <= size_t(cursor_)) { trace.clear(); continue; }

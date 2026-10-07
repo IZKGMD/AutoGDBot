@@ -1,6 +1,6 @@
 {
   "mod_id": "autogdbot.realtime",
-  "version": "v0.17.0",
+  "version": "v0.20.0",
   "targets": [
     "Android64",
     "Windows x64"
@@ -14,7 +14,8 @@
     "staircase_tests",
     "mode_tests",
     "interaction_tests",
-    "survival_tests"
+    "survival_tests",
+    "accuracy_tests"
   ],
   "gameplay_verified": false,
   "fingerdash_verified": false,
@@ -29,6 +30,11 @@
     "failed landing search silently chooses release",
     "repeated native geometry queries during ranking",
     "queued state matches position but not native motion",
-    "Android collision state missing from clone snapshots"
+    "Android collision state missing from clone snapshots",
+    "known-fatal cube launch selected for longer survival",
+    "interrupted safe grounded wait discarded",
+    "one slow candidate starves opposite input",
+    "queued releases and airborne rising edges delayed",
+    "search tiers accumulate independent tick budgets"
   ]
 }

@@ -136,3 +136,4 @@ inline bool isClonePhysicsObject(GameObject const *o) {
 }
 
 } // namespace agb
+

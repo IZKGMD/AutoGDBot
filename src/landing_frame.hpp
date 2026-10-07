@@ -32,3 +32,4 @@ inline float supportRunway(Bounds foot, float dx, std::span<Bounds const> solids
     return best;
 }
 }
+

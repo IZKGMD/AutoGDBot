@@ -59,3 +59,4 @@ User reports v0.1.3 holds after the first jump and looks jerky. Its equal-surviv
 5. Report actual completion/death and frame-time percentiles. A compiled package alone is insufficient.
 
 Version 0.2.1 retains the 0.2.0 planner and adds a bounded grounded-cube hazard reflex. Version 0.2.0 prioritizes geometry events, removes duplicate plans, validates a new grounded cube jump through forecast landing (or portal boundary), distinguishes fatal/partial traces, expires only the checked warm prefix, and stops search early on a fully checked unchanged action. Standalone tests validate these behaviors on synthetic scenarios; the test ledge is not the real Stereo Madness level. New native physics, landing fidelity, FPS and completion remain unverified.
+

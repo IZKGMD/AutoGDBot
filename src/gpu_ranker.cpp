@@ -205,3 +205,4 @@ bool GpuRanker::submit(GpuState state, std::vector<Plan> const &plans,
     return true;
 }
 } // namespace agb
+

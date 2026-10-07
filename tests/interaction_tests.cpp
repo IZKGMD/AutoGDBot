@@ -115,3 +115,4 @@ int main(){
     check(supportRunway(invFoot,1.3f,ceiling)==35,"ceiling runway after gravity flip");
     std::cout<<"Interaction tests passed: 2048 rollback states, live pad/dual ownership, rapid orb input, cache invalidation and ledge runway.\n";
 }
+

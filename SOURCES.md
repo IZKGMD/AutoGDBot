@@ -11,3 +11,4 @@
 - User reference: https://www.youtube.com/watch?v=Jq9iYzG-GHU and supplied screenshot. Only the screenshot was visually inspected; the full video/algorithm was unavailable.
 
 The controller, D3D11 ranker and integration code were written for this task. `player_scalars.inc` lists only scalar declaration names from the pinned Geode bindings. No commercial game executable, game data, trained model or prerecorded level solution is included.
+
