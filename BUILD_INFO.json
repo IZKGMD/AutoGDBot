@@ -1,6 +1,6 @@
 {
   "mod_id": "autogdbot.realtime",
-  "version": "v0.20.0",
+  "version": "v0.19.0",
   "targets": [
     "Android64",
     "Windows x64"
@@ -25,6 +25,10 @@
   "fps_measured": false,
   "regression_video": "594.mp4",
   "regressions": [
+    "trace/action split: executor can create an uncertified press",
+    "safe UP and DOWN futures mixed in one scalar score",
+    "model drift keeps a stale warm plan too long",
+    "open-ground cube may not compare both first actions",
     "future orb actions truncated by first landing",
     "long orb chains outside active horizon",
     "failed landing search silently chooses release",
@@ -37,19 +41,10 @@
     "queued releases and airborne rising edges delayed",
     "search tiers accumulate independent tick budgets"
   ],
-  "native_packages_built": [
-    "Android64",
-    "Windows x64"
-  ],
-  "standalone_suites_passed": 6,
+  "native_packages_built": [],
+  "standalone_suites_passed": 0,
   "android_ndk": "r29",
   "compiler": "Clang 21.0.0",
-  "package_checks": [
-    "ZIP CRC and manifest version/id",
-    "binary identity inside package",
-    "Android AArch64 ELF and correct SONAME",
-    "Android private libc++ hash helper locally defined",
-    "Windows PE x86-64 and geodeImplicitEntry export",
-    "Windows Release runtime imports"
-  ]
+  "package_checks": [],
+  "validation_status": "pending branch CI for v0.19.0"
 }
