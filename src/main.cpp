@@ -347,13 +347,13 @@ class Runtime {
             auto *p = layer ? layer->m_player1 : nullptr;
             lastAttempt = fmt::format(
                 "last attempt: step={} x={:.1f} want={} held={} native={} U={}/{} C={} mismatch={} | "
-                "route={} rejected={} best={} deaths={} landing={} timeout={}",
+                "route={} rejected={} best={} deaths={} guard={} native={} landing={} timeout={}",
                 ticks, p ? p->getPositionX() : 0.f, decision.down ? "DOWN" : "UP",
                 botHeld ? "DOWN" : "UP", nativeSawDown ? "DOWN" : "UP",
                 nativeUpdates, nativeUpdatesInside, nativeCollisions, inputPhaseMismatches,
                 decision.hasValidatedInput ? "OK" : "NONE", decision.rejectedUnsafe,
-                decision.bestRejectedTicks, decision.deaths, decision.landingRejects,
-                decision.interruptions);
+                decision.bestRejectedTicks, decision.deaths, decision.guardDeaths,
+                decision.nativeDeaths, decision.landingRejects, decision.interruptions);
         }
         flush();
         releaseLiveInput();
@@ -399,7 +399,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.11.0.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.11.1.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -518,6 +518,7 @@ class Runtime {
                     layer->checkCollisions(p, physicsDt, false);
                 if (sim.dead[i] || p->m_isDead) {
                     out.died = true;
+                    out.nativeDeath = true;
                     break;
                 }
                 p->update(physicsDt);
@@ -540,6 +541,7 @@ class Runtime {
                 }
                 if (sim.dead[i] || p->m_isDead) {
                     out.died = true;
+                    out.nativeDeath = true;
                     out.traces[i].push_back({p->getPositionX(), p->getPositionY()});
                     break;
                 }
@@ -551,6 +553,7 @@ class Runtime {
                     if (hazardGuard.hit(bounds(rectBefore), bounds(rectAfter))) {
                         ++geometryRejects;
                         out.died = true;
+                        out.guardDeath = true;
                         out.traces[i].push_back({p->getPositionX(), p->getPositionY()});
                         break;
                     }
@@ -1047,7 +1050,6 @@ class Runtime {
                         travelSteps[i].x, solids, guardBounds, boundaries,
                         real->m_isUpsideDown);
                     if (routeHandoff.found) {
-                        guardBounds.push_back(routeHandoff.gate);
                         searchConfig.candidates = std::max(searchConfig.candidates, 96);
                         searchConfig.budgetMs = std::max(searchConfig.budgetMs, 3.5);
                     }
@@ -1057,6 +1059,8 @@ class Runtime {
             routeOrbEvents = searchConfig.orbEventCount;
         }
         hazardGuard.set(guardBounds);
+        if (routeHandoff.found)
+            hazardGuard.addExact(routeHandoff.gate);
         auto priorities = settings.gpu ? gpu.poll() : std::vector<float>{};
 
         // Keep the controller inside a fraction of the actual physics-step
@@ -1183,6 +1187,34 @@ class Runtime {
                 hazardGuard.set(guardBounds);
             }
         }
+
+        // Video 553 regression: if EVERY route dies at tick zero only because
+        // of the independent coarse hazard guard, the real state itself proves
+        // that guard is too conservative at this instant. Re-run once with
+        // native collision as authority rather than choosing "no input" and
+        // guaranteeing impact. Native deaths never trigger this bypass.
+        const bool zeroTickGuardCollapse =
+            !decision.hasValidatedInput && decision.candidates > 0 &&
+            decision.deaths == decision.candidates && decision.bestRejectedTicks == 0 &&
+            decision.guardDeaths == decision.deaths && decision.nativeDeaths == 0;
+        if (zeroTickGuardCollapse) {
+            hazardGuard.set({});
+            controller.reset();
+            fastController.reset();
+            auto nativeRetry = controller.decide(
+                rescueConfig, botHeld,
+                [&](Plan const &plan, auto deadline) {
+                    return evaluate(plan, deadline, dt, rescueTailCap);
+                },
+                priorities);
+            if (nativeRetry.hasValidatedInput) {
+                decision = std::move(nativeRetry);
+                plannerStage = "GUARD-BYPASS";
+                routeHandoffBypassed |= routeHandoff.found;
+            } else {
+                hazardGuard.set(guardBounds);
+            }
+        }
         if (decision.hasValidatedInput || searchConfig.forceRelease) {
             inputPending = true;
             message = !decision.hasValidatedInput       ? "BOT | forced release"
@@ -1292,13 +1324,13 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.11.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
+                "AutoGDBot 0.11.1 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
                 "error={:.2f} | guard={} | light={} | reflex={} | forecast={} | landing={}\n"
                 "route: mode={} jumps={} orbs={} touch={} gap={} handoff={} | rejected={} | order={}{}\n"
-                "failure: best={} deaths={} landing={} timeout={} | landings={}\n"
+                "failure: best={} deaths={} guard={} native={} landing={} timeout={} | landings={}\n"
                 "native: U={}/{} C={} saw={} mismatch={}\n{}",
                 message, plannerStage, decision.elapsedMs, totalMs, decision.candidates,
                 decision.predictedTicks, decision.certificateTicks,
@@ -1328,7 +1360,8 @@ class Runtime {
                 decision.rejectedUnsafe,
                 physicsOrder.collisionFirst ? "C-U" : "U-C",
                 physicsOrder.measured ? "*" : "?", decision.bestRejectedTicks,
-                decision.deaths, decision.landingRejects, decision.interruptions,
+                decision.deaths, decision.guardDeaths, decision.nativeDeaths,
+                decision.landingRejects, decision.interruptions,
                 decision.selected.landingCount, nativeUpdates, nativeUpdatesInside, nativeCollisions,
                 nativeSawDown ? "DOWN" : "UP", inputPhaseMismatches, lastAttempt)
                 .c_str());
