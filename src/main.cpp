@@ -208,6 +208,7 @@ class Runtime {
     std::array<Ref<PlayerObject>, 2> clones;
     std::array<PlayerSeed, 2> seeds;
     Controller controller;
+    Controller fastController;
     PhysicsTiming timing;
     PhysicsOrder physicsOrder;
     CubePulse cubePulse;
@@ -249,6 +250,7 @@ class Runtime {
     bool telemetryPending = false;
     Clock::time_point redraw = Clock::now();
     std::string message = "Autopilot off";
+    std::string plannerStage = "IDLE";
     std::vector<std::string> csv;
     void init(PlayLayer *pl) {
         layer = pl;
@@ -356,6 +358,7 @@ class Runtime {
         flush();
         releaseLiveInput();
         controller.reset();
+        fastController.reset();
         timing.reset();
         physicsOrder = {};
         cubePulse.reset();
@@ -383,6 +386,7 @@ class Runtime {
         routeHandoffBypassed = false;
         routeJumpEvents = 0;
         routeOrbEvents = 0;
+        plannerStage = "IDLE";
         stableTrace.clear();
         stableTraceTick = 0;
         hazardGuard.set({});
@@ -395,7 +399,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.10.0.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.11.0.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -409,7 +413,8 @@ class Runtime {
         }
         csv.clear();
     }
-    Evaluation evaluate(Plan const &plan, Clock::time_point deadline, float dt) {
+    Evaluation evaluate(Plan const &plan, Clock::time_point deadline, float dt,
+                        int cubeTailCap = MaxHorizon) {
         Evaluation out;
         CubePulse pulse = cubePulse;
         bool previousButton = botHeld;
@@ -449,10 +454,15 @@ class Runtime {
         LandingSchedule schedule(plan.landingDelay, clones[0]->m_isOnGround);
         out.hasRealized = true;
         const bool cubeRollout = cubePulseMode(clones[0], clones[1], dual);
-        const int limit = cubeRollout ? MaxHorizon : plan.length;
+        const int limit =
+            cubeRollout ? std::clamp(std::max(plan.length, cubeTailCap), plan.length, MaxHorizon)
+                        : plan.length;
         out.clearance = 120;
+        out.nearClearance = 120;
         out.landingMargin = 0;
         out.robustness = 1.f;
+        const int nearClearanceTicks =
+            std::clamp(int(std::ceil(.15 / std::max(0.001f, dt))), 8, 64);
         auto addOrbAction = [&](int tick) {
             if (tick < 0 || tick >= plan.length)
                 return;
@@ -564,7 +574,10 @@ class Runtime {
                         auto r = o->getObjectRect();
                         float dxr = std::max({r.getMinX() - pr.getMaxX(), pr.getMinX() - r.getMaxX(), 0.f});
                         float dyr = std::max({r.getMinY() - pr.getMaxY(), pr.getMinY() - r.getMaxY(), 0.f});
-                        out.clearance = std::min(out.clearance, std::sqrt(dxr * dxr + dyr * dyr));
+                        const float margin = std::sqrt(dxr * dxr + dyr * dyr);
+                        out.clearance = std::min(out.clearance, margin);
+                        if (t < nearClearanceTicks)
+                            out.nearClearance = std::min(out.nearClearance, margin);
                         ++seen;
                     }
                 }
@@ -665,6 +678,7 @@ class Runtime {
                 layer->handleButton(false, 1, true);
                 injected = false;
                 controller.reset();
+                fastController.reset();
                 cubePulse.reset();
                 botHeld = false;
             }
@@ -690,6 +704,7 @@ class Runtime {
         if (!wasEnabled) {
             botHeld = p->m_holdingButtons[1];
             controller.reset();
+            fastController.reset();
             cubePulse.reset();
             wasEnabled = true;
         }
@@ -727,8 +742,10 @@ class Runtime {
             error = std::hypot(p->getPositionX() - predicted.x, p->getPositionY() - predicted.y);
         }
         if (lastMode != mode(p) ||
-            (positionValid && std::abs(p->getPositionX() - lastPosition.x) > 40) || error > 2.0f)
+            (positionValid && std::abs(p->getPositionX() - lastPosition.x) > 40) || error > 2.0f) {
             controller.reset();
+            fastController.reset();
+        }
         lastMode = mode(p);
         lastPosition = p->getPosition();
         positionValid = true;
@@ -854,6 +871,7 @@ class Runtime {
             decision.exhausted = false;
             inputPending = true;
             message = "BOT | cube flight / release";
+            plannerStage = "LIGHT";
             ++lightTicks;
             finishTick(start, error);
             return;
@@ -1040,27 +1058,127 @@ class Runtime {
         }
         hazardGuard.set(guardBounds);
         auto priorities = settings.gpu ? gpu.poll() : std::vector<float>{};
-        decision = controller.decide(
-            searchConfig, botHeld,
-            [&](Plan const &plan, auto deadline) { return evaluate(plan, deadline, dt); },
-            priorities);
+
+        // Keep the controller inside a fraction of the actual physics-step
+        // budget. At 240 TPS one tick is ~4.17 ms; sustained 3-5 ms searches
+        // starve the game thread and create the stutter visible in the video.
+        const double tickMs = std::clamp(double(dt) * 1000.0, 2.0, 20.0);
+        const bool overloaded = totalMs > tickMs * .70;
+        const double loadScale = overloaded ? .68 : 1.0;
+        const double hardPlannerCap = tickMs * (overloaded ? .42 : .62);
+
+        // Tier 1: cheap receding MPC. Most frames should finish here.
+        Config fastConfig = searchConfig;
+        fastConfig.horizon =
+            std::min(searchConfig.horizon, pulseMode ? (nearAction ? 120 : 84)
+                                                    : (nearAction ? 96 : 72));
+        fastConfig.candidates =
+            std::min(searchConfig.candidates, nearAction ? 16 : 10);
+        fastConfig.budgetMs = std::min(
+            {searchConfig.budgetMs, (nearAction ? .90 : .55) * loadScale,
+             hardPlannerCap * .36});
+        const int fastTailCap = pulseMode ? (nearAction ? 180 : 120) : fastConfig.horizon;
+
+        auto fast = fastController.decide(
+            fastConfig, botHeld,
+            [&](Plan const &plan, auto deadline) {
+                return evaluate(plan, deadline, dt, fastTailCap);
+            });
+
+        const float fastNear = fast.selected.nearClearance;
+        const bool fastMarginGood =
+            fastNear >= (nearAction ? 10.f : 5.f) || fast.selected.clearance >= 20.f;
+        const bool fastStrong =
+            fast.hasValidatedInput && !fast.selected.died && fastMarginGood &&
+            (fast.completeContinuation || fast.selected.decisionPoint ||
+             fast.recedingCertificate);
+
+        Config rescueConfig = searchConfig;
+        rescueConfig.horizon =
+            std::min(searchConfig.horizon, pulseMode ? (nearAction ? 180 : 144)
+                                                    : (nearAction ? 156 : 120));
+        rescueConfig.candidates =
+            std::min(searchConfig.candidates, nearAction ? 40 : 28);
+        rescueConfig.budgetMs = std::min(
+            {searchConfig.budgetMs, (nearAction ? 1.90 : 1.20) * loadScale,
+             hardPlannerCap * .72});
+        const int rescueTailCap =
+            pulseMode ? (nearAction ? 320 : 240) : rescueConfig.horizon;
+
+        if (fastStrong) {
+            decision = std::move(fast);
+            plannerStage = "FAST";
+        } else {
+            decision = controller.decide(
+                rescueConfig, botHeld,
+                [&](Plan const &plan, auto deadline) {
+                    return evaluate(plan, deadline, dt, rescueTailCap);
+                },
+                priorities);
+            plannerStage = "RESCUE";
+
+            // If rescue found only a narrow known-later-death route right next
+            // to geometry, spend one bounded emergency burst. This is rare and
+            // keeps the normal phone path far below the old 5ms/96-candidate load.
+            const bool poorRescue =
+                !decision.hasValidatedInput ||
+                (decision.selected.died && decision.selected.nearClearance < 12.f) ||
+                (nearAction && decision.selected.nearClearance < 7.f);
+            if (poorRescue && nearAction) {
+                Config emergencyConfig = searchConfig;
+                emergencyConfig.horizon = std::min(searchConfig.horizon, 216);
+                emergencyConfig.candidates = std::min(searchConfig.candidates, 64);
+                emergencyConfig.budgetMs =
+                    std::min({searchConfig.budgetMs, 3.0 * loadScale, hardPlannerCap});
+                Controller emergencyController;
+                auto emergency = emergencyController.decide(
+                    emergencyConfig, botHeld,
+                    [&](Plan const &plan, auto deadline) {
+                        return evaluate(plan, deadline, dt, MaxHorizon);
+                    },
+                    priorities);
+                const bool emergencyBetter =
+                    emergency.hasValidatedInput &&
+                    (!decision.hasValidatedInput ||
+                     (!emergency.selected.died && decision.selected.died) ||
+                     emergency.selected.nearClearance >
+                         decision.selected.nearClearance + 3.f ||
+                     (std::abs(emergency.selected.nearClearance -
+                               decision.selected.nearClearance) <= 3.f &&
+                      emergency.predictedTicks > decision.predictedTicks));
+                if (emergencyBetter) {
+                    decision = std::move(emergency);
+                    plannerStage = "EMERGENCY";
+                }
+            }
+        }
+
+        // Share only the proven prefix, never an unchecked tail. This lets the
+        // cheap tier revalidate yesterday's rescue route first on the next tick.
+        if (decision.hasValidatedInput && decision.certificateTicks > 0) {
+            fastController.seedVerifiedPrefix(decision.plan, decision.certificateTicks);
+            controller.seedVerifiedPrefix(decision.plan, decision.certificateTicks);
+        }
 
         // A virtual portal gate is advisory safety, never an authority allowed
         // to erase the whole action space. If every candidate dies before even
         // one simulated tick, retry once with only physical hazards/native
-        // collisions. This specifically catches malformed/late handoff gates
-        // without weakening normal spike protection.
+        // collisions.
         if (routeHandoff.found && !decision.hasValidatedInput && decision.candidates > 0 &&
             decision.deaths == decision.candidates && decision.bestRejectedTicks == 0) {
             hazardGuard.set(physicalGuardBounds);
             controller.reset();
+            fastController.reset();
             auto retry = controller.decide(
-                searchConfig, botHeld,
-                [&](Plan const &plan, auto deadline) { return evaluate(plan, deadline, dt); },
+                rescueConfig, botHeld,
+                [&](Plan const &plan, auto deadline) {
+                    return evaluate(plan, deadline, dt, rescueTailCap);
+                },
                 priorities);
             if (retry.hasValidatedInput) {
                 decision = std::move(retry);
                 routeHandoffBypassed = true;
+                plannerStage = "BYPASS";
             } else {
                 hazardGuard.set(guardBounds);
             }
@@ -1113,6 +1231,7 @@ class Runtime {
     }
     void finishTick(Clock::time_point start, float error) {
         controller.advance();
+        fastController.advance();
         ++ticks;
         totalMs = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
         telemetryPending = settings.telemetry;
@@ -1173,7 +1292,7 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.10.0 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
+                "AutoGDBot 0.11.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
@@ -1181,8 +1300,9 @@ class Runtime {
                 "route: mode={} jumps={} orbs={} touch={} gap={} handoff={} | rejected={} | order={}{}\n"
                 "failure: best={} deaths={} landing={} timeout={} | landings={}\n"
                 "native: U={}/{} C={} saw={} mismatch={}\n{}",
-                message, decision.elapsedMs, totalMs, decision.candidates, decision.predictedTicks,
-                decision.certificateTicks, settings.gpu ? gpu.status() : "CPU",
+                message, plannerStage, decision.elapsedMs, totalMs, decision.candidates,
+                decision.predictedTicks, decision.certificateTicks,
+                settings.gpu ? gpu.status() : "CPU",
                 ticks, decision.down ? "DOWN" : "UP",
                 botHeld ? "DOWN" : "UP", inputTransitions, travelSteps[0].x, previousDt,
                 timing.nativeStep(previousDt), timing.measured() ? "*" : "",
@@ -1223,9 +1343,13 @@ class Runtime {
         if (decision.hasValidatedInput)
             stableTrace = decision.selected.traces[0];
         auto trace = [&](std::vector<Point> const &points, ccColor4F color, float width) {
-            for (size_t i = 3; i < points.size(); i += 3)
-                draw->drawSegment({points[i - 2].x, points[i - 2].y}, {points[i].x, points[i].y},
-                                  width, color);
+            // Keep the visual trajectory cheap on mobile. The old fixed stride
+            // could emit ~170 draw calls for a 512-tick cube tail.
+            const size_t stride =
+                std::max<size_t>(3, points.size() > 48 ? points.size() / 48 : 3);
+            for (size_t i = stride; i < points.size(); i += stride)
+                draw->drawSegment({points[i - stride].x, points[i - stride].y},
+                                  {points[i].x, points[i].y}, width, color);
             if (!points.empty()) {
                 auto q = points.back();
                 std::array<CCPoint, 4> v = {CCPoint{q.x - 7, q.y - 7}, CCPoint{q.x - 7, q.y + 7},
