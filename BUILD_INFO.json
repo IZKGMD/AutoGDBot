@@ -36,5 +36,20 @@
     "one slow candidate starves opposite input",
     "queued releases and airborne rising edges delayed",
     "search tiers accumulate independent tick budgets"
+  ],
+  "native_packages_built": [
+    "Android64",
+    "Windows x64"
+  ],
+  "standalone_suites_passed": 6,
+  "android_ndk": "r29",
+  "compiler": "Clang 21.0.0",
+  "package_checks": [
+    "ZIP CRC and manifest version/id",
+    "binary identity inside package",
+    "Android AArch64 ELF and correct SONAME",
+    "Android private libc++ hash helper locally defined",
+    "Windows PE x86-64 and geodeImplicitEntry export",
+    "Windows Release runtime imports"
   ]
 }

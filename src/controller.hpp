@@ -680,7 +680,8 @@ class Controller {
                 // Cube input commits a ballistic route. Neither a distant
                 // known death nor an interrupted landing check permits a new
                 // launch. Recovery can retain UP while an existing flight ends.
-                !(cfg.cubePulsePlanning && e.realized.at(0)) &&
+                !((cfg.plannerMode == PlannerMode::Cube ||
+                   (cfg.dual && cfg.secondaryMode == PlannerMode::Cube)) && e.realized.at(0)) &&
                 e.survived >= minRecoveryTicks && e.realized.length >= e.survived && finiteTrace(0) &&
                 int(e.traces[0].size()) > e.survived &&
                 (!cfg.dual || (int(e.traces[1].size()) > e.survived && finiteTrace(1)))) {

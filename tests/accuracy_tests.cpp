@@ -22,6 +22,16 @@ int main() {
         auto d=bot.decide(c,false,[&](Plan const &p,auto){return flight(p,fatal);});
         check(!d.down && !d.hasValidatedInput,"unproved or known-fatal takeoff cannot win on survival time");
     }
+    for (bool cubeFirst : {false,true}) {
+        Config dual=c;dual.dual=true;dual.cubePulsePlanning=false;
+        dual.plannerMode=cubeFirst?PlannerMode::Cube:PlannerMode::Ship;
+        dual.secondaryMode=cubeFirst?PlannerMode::Ship:PlannerMode::Cube;
+        Controller mixed;
+        auto d=mixed.decide(dual,false,[&](Plan const&p,auto){
+            auto e=flight(p,true);e.traces[1]=e.traces[0];return e;
+        });
+        check(!d.down && !d.hasValidatedInput,"either cube in mixed dual requires a safe landing");
+    }
     Controller bot;
     auto wait=bot.decide(c,false,[&](Plan const &p,auto){
         if(p.at(0)) return flight(p,true);
