@@ -82,6 +82,8 @@ inline void seedOrbContactEvents(Config &cfg, Bounds player, float dx,
             continue;
         begin = std::max(0, begin);
         end = std::min(cfg.horizon - 1, end);
+        if (cfg.orbWindowCount < int(cfg.orbWindows.size()))
+            cfg.orbWindows[cfg.orbWindowCount++] = {begin, end};
 
         // Preserve both edges and the center first; then fill the remaining
         // contact interval. This works with the bounded orb-event array.

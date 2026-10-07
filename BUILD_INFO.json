@@ -1,6 +1,6 @@
 {
   "mod_id": "autogdbot.realtime",
-  "version": "v0.15.0",
+  "version": "v0.17.0",
   "targets": [
     "Android64",
     "Windows x64"
@@ -13,7 +13,8 @@
     "controller_tests",
     "staircase_tests",
     "mode_tests",
-    "interaction_tests"
+    "interaction_tests",
+    "survival_tests"
   ],
   "gameplay_verified": false,
   "fingerdash_verified": false,
@@ -21,11 +22,13 @@
   "success_rate_measured": false,
   "gpu_runtime_verified": false,
   "fps_measured": false,
-  "regression_video": "573.mp4",
+  "regression_video": "594.mp4",
   "regressions": [
-    "shared pad/orb activation leakage",
-    "same-substep press snapshots",
-    "verified input scheduling",
-    "full collider ledge runway"
+    "future orb actions truncated by first landing",
+    "long orb chains outside active horizon",
+    "failed landing search silently chooses release",
+    "repeated native geometry queries during ranking",
+    "queued state matches position but not native motion",
+    "Android collision state missing from clone snapshots"
   ]
 }

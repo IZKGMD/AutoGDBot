@@ -159,6 +159,11 @@ static ModeState modeState(PlayerObject *p) {
     return s;
 }
 static int mode(PlayerObject *p) { return int(modeState(p).mode); }
+static MotionSample motionSample(PlayerObject *p) {
+    if (!p) return {};
+    return {p->m_yVelocity, p->m_isOnGround, p->m_isOnGround2,
+            p->m_jumpBuffered, p->m_stateRingJump};
+}
 static bool landingMode(PlayerObject *p) {
     return p && modePolicy(modeState(p).controlMode()).mustLand;
 }
@@ -183,7 +188,7 @@ static bool cubeCanPress(PlayerObject *p) {
     return p && (p->m_isOnGround || touchingUsableOrb(p));
 }
 struct Settings {
-    bool enabled = false, gpu = true, telemetry = false;
+    bool enabled = false, gpu = true, telemetry = false, recovery = true;
     int traceHz = 30;
     Config config;
     void read() {
@@ -191,6 +196,7 @@ struct Settings {
         enabled = m->getSettingValue<bool>("enabled");
         gpu = m->getSettingValue<bool>("gpu");
         telemetry = m->getSettingValue<bool>("telemetry");
+        recovery = m->getSettingValue<bool>("flight-recovery");
         traceHz = int(m->getSettingValue<int64_t>("trace-hz"));
         config.horizon = int(m->getSettingValue<int64_t>("horizon"));
         config.candidates = int(m->getSettingValue<int64_t>("candidates"));
@@ -460,7 +466,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.15.0.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.17.0.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -479,6 +485,7 @@ class Runtime {
         Evaluation out;
         CubePulse pulse = cubePulse;
         bool previousButton = botHeld;
+        const int lastRequest = lastRequestedTick(plan);
         std::array<FlightCertificate, 2> flights;
         std::array<bool, 2> groundedBefore{};
         out.buttonChanges = 0;
@@ -512,8 +519,10 @@ class Runtime {
             if (i < players) {
                 seeds[i].restore(clones[i]);
                 flights[i] = FlightCertificate(clones[i]->m_isOnGround);
-                out.traces[i].reserve(plan.length + 1);
+                out.traces[i].reserve(MaxHorizon + 1);
+                out.motions[i].reserve(MaxHorizon + 1);
                 out.traces[i].push_back({clones[i]->getPositionX(), clones[i]->getPositionY()});
+                out.motions[i].push_back(motionSample(clones[i]));
             }
         }
         // Native ring/spider/dual routines resolve players through the layer.
@@ -659,26 +668,13 @@ class Runtime {
                     break;
                 }
                 out.traces[i].push_back({p->getPositionX(), p->getPositionY()});
+                out.motions[i].push_back(motionSample(p));
                 {
-                    auto pos = p->getPosition();
                     auto pr = p->getObjectRect(.35f, .35f);
-                    auto beginHaz = std::lower_bound(
-                        hintObjects.begin(), hintObjects.end(), pos.x - 100.f,
-                        [](auto const &a, float x) { return a.first < x; });
-                    int seen = 0;
-                    for (auto it = beginHaz; it != hintObjects.end() && it->first <= pos.x + 100.f && seen < 48; ++it) {
-                        auto *o = it->second;
-                        if (!o || o->m_isDisabled || o->m_isDisabled2)
-                            continue;
-                        auto r = o->getObjectRect();
-                        float dxr = std::max({r.getMinX() - pr.getMaxX(), pr.getMinX() - r.getMaxX(), 0.f});
-                        float dyr = std::max({r.getMinY() - pr.getMaxY(), pr.getMinY() - r.getMaxY(), 0.f});
-                        const float margin = std::sqrt(dxr * dxr + dyr * dyr);
-                        out.clearance = std::min(out.clearance, margin);
-                        if (t < nearClearanceTicks)
-                            out.nearClearance = std::min(out.nearClearance, margin);
-                        ++seen;
-                    }
+                    const float margin = hazardGuard.clearance(
+                        {pr.getMinX(), pr.getMinY(), pr.getMaxX(), pr.getMaxY()});
+                    out.clearance = std::min(out.clearance, margin);
+                    if (t < nearClearanceTicks) out.nearClearance = std::min(out.nearClearance, margin);
                 }
                 if (landingMode(p)) {
                     if (!groundedBefore[i] && p->m_isOnGround && i == 0) {
@@ -715,7 +711,7 @@ class Runtime {
                 safeHandoff &= flights[i].verified() && (!flights[i].required || safeLanding[i]);
             }
             out.decisionPoint = anyFlight && safeHandoff;
-            if (landingRollout && out.decisionPoint) break;
+            if (landingRollout && flightRouteFinished(out.decisionPoint, t, lastRequest)) break;
             if (out.survived >= plan.length && (!landingRollout || settled))
                 break;
             // Do not invent a future after a mode/speed/dual portal. The actual
@@ -785,6 +781,11 @@ class Runtime {
         controlling = true;
         if (!semanticReady || ticks == 0)
             refreshSemantic();
+        else if ((ticks & 3) == 0 && semantic.refreshPositions()) {
+            hintObjects = semantic.hazards(); hintSolids = semantic.solids();
+            hintOrbs = semantic.orbs(); hintControls = semantic.controlObjects();
+            inputQueue.reset(); controller.reset(); fastController.reset();
+        }
         if (!wasEnabled) {
             botHeld = p->m_holdingButtons[1];
             controller.reset();
@@ -857,7 +858,8 @@ class Runtime {
         std::array<Point, 2> livePositions{Point{p->getPositionX(), p->getPositionY()}, {}};
         if (liveDual && layer->m_player2)
             livePositions[1] = {layer->m_player2->getPositionX(), layer->m_player2->getPositionY()};
-        const bool queueReady = inputQueue.matches(livePositions, liveModes, liveDual, dt);
+        std::array<MotionSample, 2> liveMotion{motionSample(p), motionSample(layer->m_player2)};
+        const bool queueReady = inputQueue.matches(livePositions, liveModes, liveDual, dt, &liveMotion);
         if (!queueReady) inputQueue.reset();
         // Commit a previously verified critical click before another search
         // can consume the narrow orb/takeoff window. No geometry-only reflex.
@@ -1001,10 +1003,12 @@ class Runtime {
             (pulseMode && (cubePulse.mustRelease() || (!canPress && !orbOpportunity))) ||
             (!pulseMode && touchingOrb && botHeld && !p->m_isDashing);
         searchConfig.cubePulsePlanning = pulseMode;
+        searchConfig.allowFlightRecovery = settings.recovery && !searchConfig.forceRelease;
         searchConfig.plannerMode = liveModes[0].controlMode();
         searchConfig.dual = liveDual;
         searchConfig.secondaryMode = liveDual ? liveModes[1].controlMode() : PlannerMode::Generic;
-        searchConfig.compareFirstActions = !pulseMode;
+        searchConfig.compareFirstActions = !pulseMode ||
+            (nearAction && canPress && !searchConfig.forceRelease);
         searchConfig.immediateOrb =
             orbOpportunity && (!pulseMode || !cubePulse.mustRelease());
         if (liveMode == 0) {
@@ -1016,7 +1020,7 @@ class Runtime {
             if (nearAction)
                 searchConfig.candidates = std::max(searchConfig.candidates, 96);
             if (orbSoon) {
-                searchConfig.horizon = std::max(searchConfig.horizon, 240);
+                searchConfig.horizon = std::max(searchConfig.horizon, MaxPlanningHorizon);
                 searchConfig.candidates = 96;
                 searchConfig.budgetMs = std::max(searchConfig.budgetMs, 4.0);
             }
@@ -1215,7 +1219,7 @@ class Runtime {
 
         Config rescueConfig = searchConfig;
         rescueConfig.horizon =
-            std::min(searchConfig.horizon, pulseMode ? (nearAction ? 180 : 144)
+            std::min(searchConfig.horizon, pulseMode ? (orbSoon ? MaxPlanningHorizon : nearAction ? 240 : 180)
                                                     : (nearAction ? 156 : 120));
         rescueConfig.candidates =
             std::min(searchConfig.candidates, nearAction ? 40 : 28);
@@ -1246,7 +1250,8 @@ class Runtime {
                 (nearAction && decision.selected.nearClearance < 7.f);
             if (poorRescue && nearAction) {
                 Config emergencyConfig = searchConfig;
-                emergencyConfig.horizon = std::min(searchConfig.horizon, 216);
+                emergencyConfig.horizon = std::min(searchConfig.horizon,
+                    pulseMode && orbSoon ? MaxPlanningHorizon : 240);
                 emergencyConfig.candidates = std::min(searchConfig.candidates, 64);
                 emergencyConfig.budgetMs =
                     std::min({searchConfig.budgetMs, 3.0 * loadScale, hardPlannerCap});
@@ -1266,15 +1271,23 @@ class Runtime {
                      (std::abs(emergency.selected.nearClearance -
                                decision.selected.nearClearance) <= 3.f &&
                       emergency.predictedTicks > decision.predictedTicks));
-                if (emergencyBetter) {
+                const bool recoveryBetter = !decision.hasValidatedInput && emergency.recoveryInput &&
+                    (!decision.recoveryInput || emergency.predictedTicks > decision.predictedTicks);
+                if (emergencyBetter || recoveryBetter) {
                     decision = std::move(emergency);
                     plannerStage = "EMERGENCY";
                 }
             }
         }
 
-        if (!decision.hasValidatedInput && queueReady) {
-            decision = inputQueue.continuation();
+        if (preferVerifiedFallback(decision, fast)) {
+            decision = std::move(fast);
+            plannerStage = "FAST-KEPT";
+        }
+        if (!decision.hasValidatedInput && !decision.recoveryInput && queueReady) {
+            auto queued = inputQueue.continuation();
+            retainSearchDiagnostics(queued, decision);
+            decision = std::move(queued);
             usingQueuedInput = true;
             plannerStage = "QUEUED";
         }
@@ -1336,18 +1349,19 @@ class Runtime {
                 hazardGuard.set(guardBounds);
             }
         }
-        if (decision.hasValidatedInput || searchConfig.forceRelease) {
+        if (decision.hasValidatedInput || decision.recoveryInput || searchConfig.forceRelease) {
             inputPending = true;
-            message = !decision.hasValidatedInput       ? "BOT | forced release"
+            message = decision.recoveryInput            ? "BOT | recovery: landing unproved"
+                      : !decision.hasValidatedInput     ? "BOT | forced release"
                       : decision.completeContinuation   ? "BOT | online"
                       : decision.recedingCertificate   ? "BOT | receding certificate"
                       : decision.selected.interrupted  ? "BOT | partial forecast"
                                                         : "BOT | short forecast";
         } else
             message = "BOT | no surviving candidate";
-        // No unverified reflex override: when no complete cube route exists,
-        // release deterministically and expose the failure in the HUD.
-        if (!decision.hasValidatedInput && pulseMode) {
+        // If neither a verified route nor a checked recovery prefix exists,
+        // release and expose the failure in the HUD.
+        if (!decision.hasValidatedInput && !decision.recoveryInput && pulseMode) {
             decision.down = false;
             inputPending = true;
             message = "BOT | NO VERIFIED ROUTE";
@@ -1455,10 +1469,10 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.15.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
+                "AutoGDBot 0.17.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
-                "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
+                "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={} | tested={}/{}\n"
                 "error={:.2f} | guard={} | light={} | reflex={} | forecast={} | landing={} runway={}\n"
                 "route: mode={} jumps={} orbs={} map-orbs={} touch={} gap={} handoff={} | rejected={} | order={}{}\n"
                 "failure: best={} deaths={} guard={} native={} landing={} timeout={} | landings={}\n"
@@ -1470,10 +1484,12 @@ class Runtime {
                 botHeld ? "DOWN" : "UP", inputTransitions, travelSteps[0].x, previousDt,
                 timing.nativeStep(previousDt), timing.measured() ? "*" : "",
                 decision.alternatives[0].survived, decision.alternatives[1].survived,
+                decision.firstActionCandidates[0], decision.firstActionCandidates[1],
                 predictionError, geometryRejects, lightTicks, reflexJumps,
                 decision.completeContinuation  ? "HORIZON"
                 : decision.selected.boundary   ? "PORTAL"
                 : decision.selected.decisionPoint ? "EVENT"
+                : decision.recoveryInput       ? "RECOVERY"
                 : decision.recedingCertificate ? (decision.selected.died ? "RECEDING-DEATH"
                                                                            : "RECEDING")
                 : decision.selected.interrupted ? "PARTIAL"
@@ -1510,8 +1526,10 @@ class Runtime {
         // Render only the decision actually used this tick. An older line
         // cannot keep looking approved after a new forecast rejects the route.
         stableTrace.clear();
-        if (decision.hasValidatedInput)
+        if (decision.hasValidatedInput || decision.recoveryInput)
             stableTrace = decision.selected.traces[0];
+        if (decision.recoveryInput && stableTrace.size() > size_t(decision.recoveryTicks + 1))
+            stableTrace.resize(decision.recoveryTicks + 1);
         auto trace = [&](std::vector<Point> const &points, ccColor4F color, float width) {
             // Keep the visual trajectory cheap on mobile. The old fixed stride
             // could emit ~170 draw calls for a 512-tick cube tail.
