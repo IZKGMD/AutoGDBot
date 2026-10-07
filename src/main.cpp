@@ -158,6 +158,18 @@ static bool physicsObject(GameObjectType t) {
         return false;
     }
 }
+static bool padObject(GameObjectType t) {
+    switch (t) {
+    case GameObjectType::YellowJumpPad:
+    case GameObjectType::PinkJumpPad:
+    case GameObjectType::GravityPad:
+    case GameObjectType::RedJumpPad:
+    case GameObjectType::SpiderPad:
+        return true;
+    default:
+        return false;
+    }
+}
 static bool orbObject(GameObjectType t) {
     switch (t) {
     case GameObjectType::YellowJumpRing:
@@ -346,6 +358,41 @@ class Runtime {
             pl->addChild(label, 10000);
         }
     }
+
+    // Predict only the tiny pre-contact window needed to buffer a ring press.
+    // This is deliberately local (<= 2 physics ticks): the normal planner
+    // still decides whether using the orb is safe.
+    bool orbImminent(PlayerObject *p, Point travel, int lookaheadTicks = 2) const {
+        if (!p || p->m_isOnGround || hintOrbs.empty())
+            return false;
+
+        auto pr = p->getObjectRect(.35f, .35f);
+        const float dx = travel.x * float(lookaheadTicks);
+        const float dy = travel.y * float(lookaheadTicks);
+        const float minX = std::min(pr.getMinX(), pr.getMinX() + dx) - 7.f;
+        const float maxX = std::max(pr.getMaxX(), pr.getMaxX() + dx) + 7.f;
+        // Vertical native movement is not represented in travelSteps for the
+        // normal horizontal cube. A small envelope safely covers two 240-TPS
+        // substeps without arming distant rings.
+        const float minY = std::min(pr.getMinY(), pr.getMinY() + dy) - 18.f;
+        const float maxY = std::max(pr.getMaxY(), pr.getMaxY() + dy) + 18.f;
+
+        const float px = p->getPositionX();
+        auto first = std::lower_bound(
+            hintOrbs.begin(), hintOrbs.end(), px - 90.f,
+            [](auto const &a, float x) { return a.first < x; });
+        for (auto it = first; it != hintOrbs.end() && it->first <= px + 90.f; ++it) {
+            auto *o = it->second;
+            if (!o || o->m_isDisabled || o->m_isDisabled2 || o->m_isActivated ||
+                !orbObject(o->m_objectType))
+                continue;
+            auto r = o->getObjectRect();
+            if (maxX >= r.getMinX() - 8.f && minX <= r.getMaxX() + 8.f &&
+                maxY >= r.getMinY() - 8.f && minY <= r.getMaxY() + 8.f)
+                return true;
+        }
+        return false;
+    }
     void releaseLiveInput() {
         if (!layer)
             return;
@@ -414,7 +461,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.7.0.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.8.0.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -472,6 +519,13 @@ class Runtime {
         out.clearance = 120;
         out.landingMargin = 0;
         out.robustness = 1.f;
+        auto addOrbAction = [&](int tick) {
+            if (tick < 0 || tick >= plan.length)
+                return;
+            if (std::find(out.orbActions.begin(), out.orbActions.end(), tick) ==
+                out.orbActions.end())
+                out.orbActions.push_back(tick);
+        };
         for (int t = 0; t < limit; ++t) {
             if (Clock::now() >= deadline) {
                 out.interrupted = true;
@@ -480,14 +534,18 @@ class Runtime {
             bool pulseMode = cubePulseMode(clones[0], clones[1], dual);
             const bool orbContact =
                 touchingUsableOrb(clones[0]) || (dual && touchingUsableOrb(clones[1]));
+            bool imminentOrb = false;
+            for (int i = 0; i < players; ++i)
+                imminentOrb |= orbImminent(clones[i], travelSteps[i]);
             bool canPress = cubeCanPress(clones[0]) || (dual && cubeCanPress(clones[1]));
             if (pulseMode && clones[0]->m_isOnGround && !pulse.mustRelease())
                 out.groundedActions.push_back(t);
             if (pulseMode && orbContact && !pulse.mustRelease())
-                out.orbActions.push_back(t);
+                addOrbAction(t);
             const bool requested = schedule.request(t < plan.length && plan.at(t),
                 clones[0]->m_isOnGround, pulse.mustRelease(), pulseMode && t < plan.length);
-            bool down = pulse.command(requested, pulseMode, canPress);
+            bool down =
+                pulse.command(requested, pulseMode, canPress, imminentOrb, orbContact);
             schedule.sent(down, clones[0]->m_isOnGround);
             out.realized.buttons[t] = down;
             for (int i = 0; i < players; ++i)
@@ -521,6 +579,14 @@ class Runtime {
                 // Never run the native collision cycle twice for one step.
                 if (!physicsOrder.collisionFirst)
                     layer->checkCollisions(p, physicsDt, false);
+                // Input is injected before collision processing. If a no-press
+                // clone first becomes eligible for a ring in this collision
+                // pass, expose both the exact tick and one pre-arm tick to the
+                // event-driven brancher.
+                if (!down && touchingUsableOrb(p) && !pulse.mustRelease()) {
+                    addOrbAction(t - 1);
+                    addOrbAction(t);
+                }
                 if (sim.dead[i] || p->m_isDead) {
                     out.died = true;
                     out.traces[i].push_back({p->getPositionX(), p->getPositionY()});
@@ -726,6 +792,9 @@ class Runtime {
         const bool touchingOrb =
             touchingUsableOrb(p) ||
             (layer->m_gameState.m_isDualMode && touchingUsableOrb(layer->m_player2));
+        bool imminentOrb = orbImminent(p, travelSteps[0]);
+        if (layer->m_gameState.m_isDualMode && layer->m_player2)
+            imminentOrb |= orbImminent(layer->m_player2, travelSteps[1]);
         bool canPress =
             cubeCanPress(p) || (layer->m_gameState.m_isDualMode && cubeCanPress(layer->m_player2));
         // Observe game state and release input every tick. Heavy prediction is
@@ -781,7 +850,7 @@ class Runtime {
                      ++it) {
                     auto *obj = it->second;
                     if (obj && !obj->m_isDisabled && !obj->m_isDisabled2 &&
-                        boundaryObject(obj)) {
+                        (boundaryObject(obj) || padObject(obj->m_objectType))) {
                         nearAction = true;
                         break;
                     }
@@ -854,9 +923,12 @@ class Runtime {
             seeds[1].capture(layer->m_player2);
         predictionError = error;
         Config searchConfig = settings.config;
-        searchConfig.forceRelease = pulseMode && (cubePulse.mustRelease() || !canPress);
+        const bool orbOpportunity = touchingOrb || imminentOrb || cubePulse.orbArmed();
+        searchConfig.forceRelease =
+            pulseMode && (cubePulse.mustRelease() || (!canPress && !orbOpportunity));
         searchConfig.cubePulsePlanning = pulseMode;
-        searchConfig.immediateOrb = pulseMode && touchingOrb && !cubePulse.mustRelease();
+        searchConfig.immediateOrb =
+            pulseMode && orbOpportunity && !cubePulse.mustRelease();
         if (mode(p) == 0) {
             // Keep planning while the cube is still on safe ground. The longer
             // rolling horizon sees the edge/gap/orb before the takeoff is urgent.
@@ -1046,8 +1118,15 @@ class Runtime {
         inputPending = false;
         bool dual = layer->m_gameState.m_isDualMode;
         bool pulseMode = cubePulseMode(layer->m_player1, layer->m_player2, dual);
+        const bool orbContact =
+            touchingUsableOrb(layer->m_player1) ||
+            (dual && touchingUsableOrb(layer->m_player2));
+        bool imminentOrb = orbImminent(layer->m_player1, travelSteps[0]);
+        if (dual && layer->m_player2)
+            imminentOrb |= orbImminent(layer->m_player2, travelSteps[1]);
         bool canPress = cubeCanPress(layer->m_player1) || (dual && cubeCanPress(layer->m_player2));
-        bool down = cubePulse.command(decision.down, pulseMode, canPress);
+        bool down =
+            cubePulse.command(decision.down, pulseMode, canPress, imminentOrb, orbContact);
         decision.down = down;
         const int players = layer->m_gameState.m_isDualMode ? 2 : 1;
         for (int i = 0; i < players; ++i) {
@@ -1071,7 +1150,7 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.7.0 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
+                "AutoGDBot 0.8.0 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
@@ -1093,7 +1172,10 @@ class Runtime {
                 decision.selected.requiresLanding
                     ? (decision.selected.landingVerified ? "OK" : "NO")
                     : "n/a",
-                routeJumpEvents, routeOrbEvents, touchingUsableOrb(layer->m_player1) ? "ORB" : "no",
+                routeJumpEvents, routeOrbEvents,
+                touchingUsableOrb(layer->m_player1)
+                    ? "ORB"
+                    : (cubePulse.orbArmed() ? "ARM" : "no"),
                 routeGap.found ? "YES" : "no", routeHandoff.found ? "GUARD" : "no",
                 decision.rejectedUnsafe,
                 physicsOrder.collisionFirst ? "C-U" : "U-C",
