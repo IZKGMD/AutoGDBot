@@ -10,13 +10,23 @@
 #include "mode_policy.hpp"
 
 namespace agb {
-constexpr int MaxPlanningHorizon = 240;
+constexpr int MaxPlanningHorizon = 384;
 constexpr int MaxHorizon = 512; // bounded tail for completing a flight beyond lookahead
 constexpr int MaxCandidates = 96;
 using Clock = std::chrono::steady_clock;
 struct Point {
     float x{}, y{};
 };
+struct MotionSample {
+    double velocity = 0;
+    bool canJump = false, grounded = false, buffered = false, ringUnused = false;
+    bool matches(MotionSample const &other) const {
+        return std::isfinite(velocity) && std::isfinite(other.velocity) &&
+            std::abs(velocity - other.velocity) <= .04 && canJump == other.canJump &&
+            grounded == other.grounded && buffered == other.buffered && ringUnused == other.ringUnused;
+    }
+};
+struct OrbWindow { int begin = 0, end = 0; };
 
 struct ControlOpportunity { int tick = 0; PlannerMode mode = PlannerMode::Generic; };
 struct Plan {
@@ -29,6 +39,7 @@ struct Plan {
 };
 struct Evaluation {
     int survived = 0;
+    int groundedPrefixTicks = 0; // contiguous native-confirmed UP + ground for both players
     bool died = false;
     bool guardDeath = false;
     bool nativeDeath = false;
@@ -44,6 +55,7 @@ struct Evaluation {
     bool decisionPoint = false; // native state where the live controller can safely replan
     bool requiresLanding = false, landingVerified = false;
     std::array<std::vector<Point>, 2> traces;
+    std::array<std::vector<MotionSample>, 2> motions;
     Plan realized;
     bool hasRealized = false;
     int firstLandingTick = -1, landingCount = 0;
@@ -56,6 +68,7 @@ struct Evaluation {
 struct Config {
     int horizon = 144, candidates = 48;
     double budgetMs = 1.0;
+    Clock::time_point sharedDeadline = Clock::time_point::max();
     double tickSeconds = 1.0 / 240.0;
     bool forceRelease = false;
     bool cubePulsePlanning = false;
@@ -64,10 +77,13 @@ struct Config {
     PlannerMode secondaryMode = PlannerMode::Generic;
     bool dual = false;
     bool compareFirstActions = false;
+    bool allowFlightRecovery = false;
     std::array<int, 32> jumpEvents{};
     int jumpEventCount = 0;
     std::array<int, 32> orbEvents{};
     int orbEventCount = 0;
+    std::array<OrbWindow, 16> orbWindows{};
+    int orbWindowCount = 0;
     std::array<int, 16> landingEvents{};
     int landingEventCount = 0;
 };
@@ -75,41 +91,95 @@ struct Decision {
     bool down = false, hasValidatedInput = false, exhausted = false;
     bool completeContinuation = false;
     bool recedingCertificate = false;
+    bool recoveryInput = false; // collision-checked prefix; landing is unproved
+    int recoveryTicks = 0;
     int candidates = 0, predictedTicks = 0, certificateTicks = 0, rejectedUnsafe = 0;
     int bestRejectedTicks = 0, landingRejects = 0, deaths = 0;
     int guardDeaths = 0, nativeDeaths = 0, interruptions = 0;
     double elapsedMs = 0;
+    std::array<int, 2> firstActionCandidates{};
+    // Realtime reachability witnesses. A button is executable only after at
+    // least one native rollout proves a safe continuation for that exact
+    // realized first input. Class 3 = horizon/event, 2 = safe receding prefix.
+    std::array<bool, 2> firstActionCertified{};
+    std::array<uint8_t, 2> firstActionClass{};
+    std::array<float, 2> firstActionNearClearance{};
+    std::array<float, 2> firstActionRobustness{};
     Plan plan;
     Evaluation selected;
     std::array<Evaluation, 2> alternatives;
     std::vector<Plan> proposals;
 };
+// A landing cannot hide a later requested orb/jump. Touchdown policies must
+// run through their full active interval before ending at a safe landing.
+inline int lastRequestedTick(Plan const &p) {
+    if (p.landingDelay >= 0) return p.length - 1;
+    for (int t = p.length - 1; t >= 0; --t) if (p.at(t)) return t;
+    return -1;
+}
+inline bool flightRouteFinished(bool safeLanding, int completedTick, int lastRequest) {
+    return safeLanding && completedTick >= lastRequest;
+}
+// Search tiers may improve a verified route, but failure in a later tier
+// must not discard the earlier safe action in favor of an old coast queue.
+inline bool preferVerifiedFallback(Decision const &current, Decision const &fallback) {
+    return fallback.hasValidatedInput && fallback.selected.firstActionVerified &&
+           !fallback.selected.died &&
+           (!current.hasValidatedInput || current.selected.died);
+}
+inline void retainSearchDiagnostics(Decision &queued, Decision const &search) {
+    queued.candidates = search.candidates;
+    queued.firstActionCandidates = search.firstActionCandidates;
+    queued.elapsedMs = search.elapsedMs;
+    queued.rejectedUnsafe = search.rejectedUnsafe;
+    queued.bestRejectedTicks = search.bestRejectedTicks;
+    queued.landingRejects = search.landingRejects;
+    queued.deaths = search.deaths;
+    queued.guardDeaths = search.guardDeaths;
+    queued.nativeDeaths = search.nativeDeaths;
+    queued.interruptions = search.interruptions;
+    queued.exhausted = search.exhausted;
+    queued.alternatives = search.alternatives;
+}
 // The evaluator must check the deadline between physics steps and restore its
 // state even when interrupted. Ranking cannot turn an untested plan into input.
 class Controller {
     Plan warm_;
+    // Tiny cross-tick reachability frontier. Keep one proven prefix for each
+    // first input instead of collapsing every tick to a single warm route.
+    // These are proposals only: every prefix is re-run through native physics
+    // before it can execute from the next live snapshot.
+    std::array<Plan, 2> frontier_{};
 
   public:
     void reset() {
         warm_ = {};
+        frontier_ = {};
     }
     void advance(int ticks = 1) {
-        if (warm_.length <= 0)
-            return;
-        ticks = std::clamp(ticks, 0, warm_.length);
-        for (int i = 0; i < warm_.length - ticks; ++i)
-            warm_.buttons[i] = warm_.buttons[i + ticks];
-        warm_.length -= ticks;
-        std::fill(warm_.buttons.begin() + warm_.length, warm_.buttons.end(), false);
+        auto shift = [&](Plan &p) {
+            if (p.length <= 0) return;
+            const int n = std::clamp(ticks, 0, p.length);
+            for (int i = 0; i < p.length - n; ++i)
+                p.buttons[i] = p.buttons[i + n];
+            p.length -= n;
+            std::fill(p.buttons.begin() + p.length, p.buttons.end(), false);
+        };
+        shift(warm_);
+        for (auto &p : frontier_) shift(p);
     }
     void seedVerifiedPrefix(Plan const &plan, int verifiedTicks) {
         warm_ = plan;
         warm_.length = std::clamp(verifiedTicks, 0, std::min(plan.length, MaxHorizon));
+        warm_.landingDelay = -1;
         std::fill(warm_.buttons.begin() + warm_.length, warm_.buttons.end(), false);
+        if (warm_.length > 0)
+            frontier_[warm_.at(0) ? 1 : 0] = warm_;
     }
     std::vector<Plan> propose(Config cfg, bool held) {
         cfg.horizon = std::clamp(cfg.horizon, 24, MaxPlanningHorizon);
         cfg.candidates = std::clamp(cfg.candidates, 4, MaxCandidates);
+        cfg.orbWindowCount = std::clamp(cfg.orbWindowCount, 0, int(cfg.orbWindows.size()));
         if (cfg.dual && cfg.secondaryMode != PlannerMode::Generic &&
             cfg.secondaryMode != cfg.plannerMode) {
             Config primary = cfg;
@@ -155,21 +225,33 @@ class Controller {
             plans.push_back(p);
         };
 
-        // Revalidate the previous collision-checked route first on normal
-        // ticks. During an actual orb contact, PRESS/SKIP must be evaluated
-        // before any cached route because the input window is only a few ticks.
-        if (warm_.length > 0 && !cfg.immediateOrb) {
-            Plan w = warm_;
-            std::fill(w.buttons.begin() + warm_.length, w.buttons.end(), false);
-            add(w);
-        }
-
-        Plan warm = warm_;
-        int known = std::min(warm_.length, cfg.horizon);
         const bool discretePulseMode =
             cfg.cubePulsePlanning || cfg.plannerMode == PlannerMode::Ball ||
             cfg.plannerMode == PlannerMode::Ufo || cfg.plannerMode == PlannerMode::Spider ||
             cfg.plannerMode == PlannerMode::Swing;
+
+        // Revalidate the previous collision-checked frontier first on normal
+        // ticks. Unlike gdsolver's large offline census this frontier is kept
+        // deliberately tiny (UP/DOWN) so it remains suitable for a 240 Hz
+        // rolling controller. No cached prefix is trusted without re-simulation.
+        auto addCached = [&](Plan const &source) {
+            if (source.length <= 0) return;
+            Plan p = source;
+            const int known = std::min(source.length, cfg.horizon);
+            p.landingDelay = -1;
+            std::fill(p.buttons.begin() + known, p.buttons.end(),
+                      discretePulseMode ? false : held);
+            p.length = cfg.horizon;
+            add(p);
+        };
+        if (!cfg.immediateOrb) {
+            addCached(warm_);
+            addCached(frontier_[0]);
+            addCached(frontier_[1]);
+        }
+
+        Plan warm = warm_;
+        int known = std::min(warm_.length, cfg.horizon);
         std::fill(warm.buttons.begin() + known, warm.buttons.end(),
                   discretePulseMode ? false : held);
         warm.length = cfg.horizon;
@@ -206,6 +288,29 @@ class Controller {
 
             const int jumpCount = std::clamp(cfg.jumpEventCount, 0, int(cfg.jumpEvents.size()));
             const int orbCount = std::clamp(cfg.orbEventCount, 0, int(cfg.orbEvents.size()));
+
+            // Cover a whole observed/mapped orb chain before refining single
+            // edges. These are proposals only; native physics may skip/reject
+            // vertically unreachable or optional rings.
+            if (cfg.orbWindowCount > 0) {
+                std::vector<OrbWindow> windows(cfg.orbWindows.begin(),
+                    cfg.orbWindows.begin() + cfg.orbWindowCount);
+                std::sort(windows.begin(), windows.end(), [](auto a, auto b) { return a.begin < b.begin; });
+                for (int timing : {1, 0, 2}) {
+                    for (int takeoff : {-1, 0, jumpCount ? cfg.jumpEvents[0] : -1}) {
+                        Plan p;
+                        if (takeoff >= 0 && takeoff < cfg.horizon) p.buttons[takeoff] = true;
+                        int previous = takeoff;
+                        for (auto w : windows) {
+                            int at = timing == 0 ? w.begin : timing == 2 ? w.end : (w.begin + w.end) / 2;
+                            at = std::max(at, previous + 2);
+                            if (at < 0 || at >= cfg.horizon || at > w.end) continue;
+                            p.buttons[at] = true; previous = at;
+                        }
+                        add(p);
+                    }
+                }
+            }
 
             auto addOrbPairs = [&](int targetPairs) {
                 int paired = 0;
@@ -383,6 +488,10 @@ class Controller {
             constant(false);
             if (!discretePulseMode) constant(true);
             else edgePulse(0, false);
+            if (cfg.immediateOrb && held && !cfg.forceRelease) {
+                edgePulse(1, discretePulseMode ? false : held);
+                if (!discretePulseMode) edgePulse(1, false);
+            }
             for (int i = 0; i < orbCount && i < 3; ++i) {
                 edgePulse(cfg.orbEvents[i], false);
                 edgePulse(cfg.orbEvents[i], held);
@@ -532,13 +641,21 @@ class Controller {
         cfg.candidates = std::clamp(cfg.candidates, 4, MaxCandidates);
         cfg.jumpEventCount = std::clamp(cfg.jumpEventCount, 0, int(cfg.jumpEvents.size()));
         cfg.orbEventCount = std::clamp(cfg.orbEventCount, 0, int(cfg.orbEvents.size()));
+        cfg.orbWindowCount = std::clamp(cfg.orbWindowCount, 0, int(cfg.orbWindows.size()));
         cfg.landingEventCount =
             std::clamp(cfg.landingEventCount, 0, int(cfg.landingEvents.size()));
         const auto start = Clock::now();
-        const auto deadline =
+        const auto localDeadline =
             start +
             std::chrono::duration_cast<Clock::duration>(
                 std::chrono::duration<double, std::milli>(std::clamp(cfg.budgetMs, 0.2, 8.0)));
+        const auto deadline = std::min(localDeadline, cfg.sharedDeadline);
+        if (start >= deadline) {
+            Decision expired;
+            expired.down = cfg.forceRelease || cfg.cubePulsePlanning ? false : held;
+            expired.exhausted = true;
+            return expired;
+        }
         Config proposalConfig = cfg;
         const int expansionReserve = std::min(32, cfg.candidates / 3);
         proposalConfig.candidates -= expansionReserve;
@@ -546,7 +663,38 @@ class Controller {
         Decision result;
         result.down = cfg.forceRelease ? false : held;
         float bestScore = -std::numeric_limits<float>::infinity();
+        Decision recovery;
+        float recoveryScore = -std::numeric_limits<float>::infinity();
         std::array<bool, 2> immediateOrbEvaluated{};
+        struct ReachabilityBest {
+            bool valid = false;
+            uint8_t safetyClass = 0;
+            float nearClearance = 0, clearance = 0, robustness = 0, landingMargin = 0;
+            int survived = 0, certificateTicks = 0;
+            float score = -std::numeric_limits<float>::infinity();
+            bool complete = false;
+            Plan plan;
+            Evaluation evaluation;
+        };
+        std::array<ReachabilityBest, 2> reachable{};
+        auto betterReachability = [&](ReachabilityBest const &a, ReachabilityBest const &b) {
+            if (!a.valid) return false;
+            if (!b.valid) return true;
+            if (a.safetyClass != b.safetyClass) return a.safetyClass > b.safetyClass;
+            // Bucket tiny native-float noise. A materially wider route wins
+            // before progress/continuity bonuses can persuade the controller
+            // to jump into a tighter corridor.
+            if (std::abs(a.nearClearance - b.nearClearance) > 1.5f)
+                return a.nearClearance > b.nearClearance;
+            if (std::abs(a.robustness - b.robustness) > .05f)
+                return a.robustness > b.robustness;
+            if (std::abs(a.clearance - b.clearance) > 2.f)
+                return a.clearance > b.clearance;
+            if (std::abs(a.landingMargin - b.landingMargin) > 2.f)
+                return a.landingMargin > b.landingMargin;
+            if (a.survived != b.survived) return a.survived > b.survived;
+            return a.score > b.score;
+        };
         const double safeTickSeconds =
             std::clamp(cfg.tickSeconds, 1.0 / 1000.0, 1.0 / 30.0);
         auto secondsToTicks = [&](double seconds) {
@@ -572,8 +720,44 @@ class Controller {
             break;
         }
         const int minCertificateTicks = secondsToTicks(certificateSeconds);
+        const int minRecoveryTicks = std::max(4, int(std::ceil(.18 / safeTickSeconds)));
 
         auto consider = [&](Plan const &plan, Evaluation e) {
+            // Releasing is also an action. If every complete flight is
+            // rejected, retain the longest actually simulated native prefix
+            // instead of silently replacing it with an untested release.
+            // This deliberately does NOT claim a landing certificate.
+            auto finiteTrace = [&](int player) {
+                return !e.traces[player].empty() &&
+                    std::all_of(e.traces[player].begin(), e.traces[player].end(), [](Point p) {
+                        return std::isfinite(p.x) && std::isfinite(p.y);
+                    });
+            };
+            if (cfg.allowFlightRecovery &&
+                (modePolicy(cfg.plannerMode).mustLand ||
+                 (cfg.dual && modePolicy(cfg.secondaryMode).mustLand)) &&
+                e.requiresLanding && !e.firstActionVerified && e.hasRealized &&
+                // Cube input commits a ballistic route. Neither a distant
+                // known death nor an interrupted landing check permits a new
+                // launch. Recovery can retain UP while an existing flight ends.
+                !((cfg.plannerMode == PlannerMode::Cube ||
+                   (cfg.dual && cfg.secondaryMode == PlannerMode::Cube)) && e.realized.at(0)) &&
+                e.survived >= minRecoveryTicks && e.realized.length >= e.survived && finiteTrace(0) &&
+                int(e.traces[0].size()) > e.survived &&
+                (!cfg.dual || (int(e.traces[1].size()) > e.survived && finiteTrace(1)))) {
+                const float score = float(e.survived) * 1000.f +
+                    std::clamp(e.nearClearance, 0.f, 120.f) * 20.f;
+                if (score > recoveryScore) {
+                    recoveryScore = score;
+                    recovery.recoveryInput = true;
+                    recovery.down = e.realized.at(0);
+                    recovery.recoveryTicks = std::min(minRecoveryTicks, e.survived);
+                    recovery.predictedTicks = e.survived;
+                    recovery.plan = e.realized;
+                    recovery.plan.length = recovery.recoveryTicks;
+                    recovery.selected = e;
+                }
+            }
             const bool complete = !e.died && !e.interrupted &&
                 (e.boundary || e.survived >= cfg.horizon);
             const bool eventCertified =
@@ -587,7 +771,12 @@ class Controller {
             const bool prefixCertified =
                 !cfg.cubePulsePlanning && e.firstActionVerified &&
                 e.survived >= minCertificateTicks;
-            const bool certified = complete || eventCertified || prefixCertified;
+            const bool groundedWaitCertified = cfg.cubePulsePlanning && !e.died &&
+                e.firstActionVerified && !e.requiresLanding &&
+                !(e.hasRealized ? e.realized.at(0) : plan.at(0)) &&
+                e.groundedPrefixTicks >= minCertificateTicks &&
+                e.groundedPrefixTicks <= e.survived;
+            const bool certified = complete || eventCertified || prefixCertified || groundedWaitCertified;
 
             if (e.survived <= 0 || !e.firstActionVerified || !certified) {
                 ++result.rejectedUnsafe;
@@ -655,12 +844,37 @@ class Controller {
                     score += 4000.f;
             }
 
+            // gdsolver-style realtime reachability partition: keep the best
+            // certified future for UP and DOWN separately, from the exact
+            // native-realized input rather than from the requested plan bit.
+            // This prevents a good trace from one action being used to justify
+            // execution of the other action after ring/pulse semantics.
+            const bool realizedDown = e.hasRealized ? e.realized.at(0) : plan.at(0);
+            const int action = realizedDown ? 1 : 0;
+            ReachabilityBest witness;
+            witness.valid = true;
+            witness.safetyClass = uint8_t((complete || eventCertified) ? 3 : 2);
+            witness.nearClearance = nearClearance;
+            witness.clearance = safeClearance;
+            witness.robustness = robust;
+            witness.landingMargin = safeLanding;
+            witness.survived = e.survived;
+            witness.certificateTicks =
+                complete ? std::min(cfg.horizon, e.survived)
+                         : (eventCertified ? e.survived : minCertificateTicks);
+            witness.score = score;
+            witness.complete = complete;
+            witness.plan = e.hasRealized ? e.realized : plan;
+            witness.evaluation = e;
+            if (betterReachability(witness, reachable[action]))
+                reachable[action] = std::move(witness);
+
             if (score > bestScore) {
                 bestScore = score;
                 result.down = e.hasRealized ? e.realized.at(0) : plan.at(0);
                 result.predictedTicks = e.survived;
                 result.certificateTicks =
-                    complete ? cfg.horizon
+                    complete ? std::min(cfg.horizon, e.survived)
                              : (eventCertified ? e.survived : minCertificateTicks);
                 result.hasValidatedInput = true;
                 result.completeContinuation = complete;
@@ -705,16 +919,40 @@ class Controller {
         if (priority.size() == plans.size() && plans.size() > protectedCount)
             std::stable_sort(order.begin() + protectedCount, order.end(),
                              [&](int a, int b) { return priority[a] > priority[b]; });
+        if ((cfg.compareFirstActions || cfg.immediateOrb) && !cfg.forceRelease && !order.empty()) {
+            auto opposite = std::find_if(order.begin() + 1, order.end(), [&](int i) {
+                return plans[i].at(0) != plans[order.front()].at(0);
+            });
+            if (opposite != order.end()) std::rotate(order.begin() + 1, opposite, opposite + 1);
+        }
         int furthestFailure = -1;
         std::array<int, 2> furthestControlFailure{-1, -1};
+        // Keep the initial action basis ahead of adaptive repairs. Repeated
+        // repairs of one failed cached coast used to starve the opposite
+        // first action on Android (only 2-4 forecasts fit in one substep).
+        const size_t basisEnd = std::min(size_t(4), order.size());
+        auto enqueueRepairs = [&](size_t cursor, std::vector<int> const &children) {
+            const bool compared = immediateOrbEvaluated[0] && immediateOrbEvaluated[1];
+            if (!compared || cursor + 1 < basisEnd)
+                order.insert(order.end(), children.begin(), children.end());
+            else
+                order.insert(order.begin() + cursor + 1, children.begin(), children.end());
+        };
         for (size_t cursor = 0; cursor < order.size(); ++cursor) {
             const int i = order[cursor];
             if (Clock::now() >= deadline) {
                 result.exhausted = true;
                 break;
             }
-            auto e = evaluate(plans[i], deadline);
+            auto candidateDeadline = deadline;
+            if ((cfg.compareFirstActions || cfg.immediateOrb) && !cfg.forceRelease &&
+                !immediateOrbEvaluated[!plans[i].at(0)]) {
+                const auto now = Clock::now();
+                candidateDeadline = now + (deadline - now) / 2;
+            }
+            auto e = evaluate(plans[i], candidateDeadline);
             ++result.candidates;
+            ++result.firstActionCandidates[plans[i].at(0) ? 1 : 0];
             immediateOrbEvaluated[plans[i].at(0) ? 1 : 0] = true;
             auto &alternative = result.alternatives[plans[i].at(0)];
             if (e.survived > alternative.survived || alternative.traces[0].empty())
@@ -764,7 +1002,7 @@ class Controller {
                         ++emitted;
                     }
                 }
-                order.insert(order.begin() + cursor + 1, children.begin(), children.end());
+                enqueueRepairs(cursor, children);
             }
 
             // Repair failed native trajectories at mode-valid control times.
@@ -815,7 +1053,7 @@ class Controller {
                         }
                     }
                 }
-                order.insert(order.begin() + cursor + 1, children.begin(), children.end());
+                enqueueRepairs(cursor, children);
             }
 
             // The same mechanism remains for native-confirmed touchdowns.
@@ -844,19 +1082,69 @@ class Controller {
                     if (int(plans.size()) >= cfg.candidates)
                         break;
                 }
-                order.insert(order.begin() + cursor + 1, children.begin(), children.end());
+                enqueueRepairs(cursor, children);
             }
             if (consider(plans[i], std::move(e)))
                 break;
         }
+        // Choose between the two reachable first-input sets lexicographically,
+        // not by one blended score. This is the realtime counterpart of
+        // reachability-DP state partitioning: survival class and margin are
+        // authoritative, score only breaks genuinely similar safe futures.
+        for (int a = 0; a < 2; ++a) {
+            result.firstActionCertified[a] = reachable[a].valid;
+            result.firstActionClass[a] = reachable[a].safetyClass;
+            result.firstActionNearClearance[a] = reachable[a].nearClearance;
+            result.firstActionRobustness[a] = reachable[a].robustness;
+            if (reachable[a].valid) {
+                frontier_[a] = reachable[a].plan;
+                frontier_[a].length =
+                    std::clamp(reachable[a].certificateTicks, 0,
+                               std::min(frontier_[a].length, MaxHorizon));
+                frontier_[a].landingDelay = -1;
+                std::fill(frontier_[a].buttons.begin() + frontier_[a].length,
+                          frontier_[a].buttons.end(), false);
+            }
+        }
+        if ((cfg.compareFirstActions || cfg.immediateOrb) && !cfg.forceRelease &&
+            (reachable[0].valid || reachable[1].valid)) {
+            int winner = reachable[1].valid && betterReachability(reachable[1], reachable[0]) ? 1 : 0;
+            // Near an actual ring, an equally safe DOWN witness may be the
+            // only route that preserves the required interaction. It may win
+            // only inside a narrow safety tie; larger margin differences stay
+            // survival-first.
+            if (cfg.immediateOrb && reachable[1].valid && reachable[0].valid &&
+                reachable[1].safetyClass == reachable[0].safetyClass &&
+                reachable[1].nearClearance + 1.5f >= reachable[0].nearClearance &&
+                reachable[1].robustness + .05f >= reachable[0].robustness)
+                winner = 1;
+            auto const &w = reachable[winner];
+            result.down = winner != 0;
+            result.predictedTicks = w.survived;
+            result.certificateTicks = w.certificateTicks;
+            result.hasValidatedInput = true;
+            result.completeContinuation = w.complete;
+            result.recedingCertificate = !w.complete;
+            result.recoveryInput = false;
+            result.plan = w.plan;
+            result.selected = w.evaluation;
+        }
+
         if (result.hasValidatedInput && result.completeContinuation) {
             warm_ = result.plan;
             warm_.length = std::min(warm_.length, result.selected.survived);
         }
         if (!result.hasValidatedInput) {
-            warm_ = {};
-            if (cfg.cubePulsePlanning)
-                result.down = false;
+            const bool compared = immediateOrbEvaluated[0] && immediateOrbEvaluated[1];
+            if (recovery.recoveryInput && compared && !cfg.forceRelease) {
+                retainSearchDiagnostics(recovery, result);
+                result = std::move(recovery);
+                warm_ = result.plan;
+                std::fill(warm_.buttons.begin() + warm_.length, warm_.buttons.end(), false);
+            } else {
+                warm_ = {};
+                if (cfg.cubePulsePlanning) result.down = false;
+            }
         }
         result.proposals = std::move(plans);
         result.elapsedMs = std::chrono::duration<double, std::milli>(Clock::now() - start).count();

@@ -131,4 +131,15 @@ bool applyJumpState(bool desired, ReadHeld readHeld, Press press, Release releas
         release();
     return true;
 }
+
+// Native collisions read these snapshots, not only holdingButtons. A DOWN
+// injected after native snapshot preparation must be visible in this substep.
+// Retain native release-delay semantics and collision contact flags.
+template<class Player>
+void refreshPressedJumpSnapshot(Player &p) {
+    if (p.m_jumpBuffered) {
+        p.m_stateJumpBuffered = p.m_jumpBuffered;
+        p.m_stateRingJump2 = p.m_stateRingJump;
+    }
+}
 } // namespace agb

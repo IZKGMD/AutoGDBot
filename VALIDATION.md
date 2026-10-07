@@ -1,3 +1,7 @@
+# Current version: v0.19.0
+
+Six standalone regression suites pass (controller, staircase, mode, interaction, survival and accuracy). Android64 and Windows x64 Release packages build locally with Clang 21, Geode 5.10.1 and pinned bindings. Android uses NDK r29; Windows uses the MSVC 143 runtime and Windows SDK 10.0.26100 via xwin. Package CRC/manifest, AArch64 binary identity, SONAME and locally defined libc++ hash compatibility symbol checks pass. Windows PE x86-64, binary identity, Release runtime imports and geodeImplicitEntry export checks also pass. See REACHABILITY_v0.19.0.md for current regressions and limits. Native rollout fidelity, in-game installation, completion, FPS and success rates remain unverified. The notes below document historical versions rather than current gameplay validation.
+
 # Validation status
 
 Version 0.2.1 is an experimental prototype. Build/controller checks are separate from actual game verification. The supplied v0.1.4 video shows death at 14% Stereo Madness. A later screenshot shows v0.2.0 loaded and dead at 22% on a floor spike; no v0.2.1 game run is available.

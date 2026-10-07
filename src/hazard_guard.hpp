@@ -71,6 +71,21 @@ class HazardGuard {
             exact_.push_back(b);
     }
 
+    // Reuse the same frozen-world bounds as collision checking. Ranking must
+    // not call native getObjectRect for every hazard on every clone substep.
+    float clearance(Bounds player, float range = 100.f) const {
+        float best = 120.f;
+        auto first = std::lower_bound(hazards_.begin(), hazards_.end(), player.minX - range - maxWidth_,
+            [](Bounds a, float x) { return a.minX < x; });
+        for (auto it = first; it != hazards_.end() && it->minX <= player.maxX + range; ++it) {
+            if (it->maxX < player.minX - range) continue;
+            const float dx = std::max({it->minX - player.maxX, player.minX - it->maxX, 0.f});
+            const float dy = std::max({it->minY - player.maxY, player.minY - it->maxY, 0.f});
+            best = std::min(best, std::sqrt(dx * dx + dy * dy));
+        }
+        return best;
+    }
+
     bool hit(Bounds before, Bounds after) const {
         auto b = sweptBounds(before, after);
         auto first = std::lower_bound(hazards_.begin(), hazards_.end(), b.minX - maxWidth_,
