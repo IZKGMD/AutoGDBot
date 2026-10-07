@@ -204,7 +204,7 @@ inline GapHint seedCubeEvents(Config &cfg, float x, float footY, float dx,
         rawSurfaces.push_back({b.minX, b.maxX, b.maxY});
     }
     std::sort(rawSurfaces.begin(), rawSurfaces.end(), [](Surface a, Surface b) {
-        if (std::abs(a.top - b.top) > 2.5f)
+        if (a.top != b.top)
             return a.top < b.top;
         return a.lo < b.lo;
     });
