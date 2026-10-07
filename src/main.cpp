@@ -774,9 +774,12 @@ class Runtime {
                 allLanded &= flights[i].verified();
             }
         }
-        out.landingVerified = out.requiresLanding && allLanded;
-        out.firstActionVerified =
-            !out.requiresLanding || allLanded || out.boundary || out.decisionPoint;
+        out.landingVerified = out.requiresLanding && allLanded && out.decisionPoint;
+        // The horizon endpoint must obey the same runway rule as an early
+        // landing handoff. Otherwise the last touchdown just before a spike
+        // is incorrectly certified when the short horizon expires.
+        out.firstActionVerified = flightActionSafe(
+            out.requiresLanding, allLanded, out.decisionPoint, out.boundary);
         // Robustness is intentionally cheap: map the worst geometric margin to [0,1].
         // Native collisions remain authoritative; this only ranks surviving candidates.
         out.robustness = std::clamp(out.clearance / 28.f, 0.f, 1.f);

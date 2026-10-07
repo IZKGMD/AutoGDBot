@@ -16,6 +16,8 @@ coverage; it is not a claim of verified Fingerdash or Dash completion.
   policy. Swing uses discrete gravity flip sequences rather than thrust/PWM.
 - A mapped upcoming orb prevents a short FAST cube coast from suppressing
   the longer local continuation search.
+- Horizon endpoints obey the landing runway rule too: a touchdown immediately
+  before a spike cannot bypass the reaction check just because lookahead ended.
 - Spider/teleport discontinuities test destination hazards without sweeping
   the player through every obstacle between endpoints.
 - Custom orb world effects end the clone forecast at the interaction; the

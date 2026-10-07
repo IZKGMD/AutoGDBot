@@ -34,6 +34,10 @@ inline bool landingDecisionSafe(int runwayTicks, int requiredTicks,
     return !collidingLeft && !collidingRight && runwayTicks >= requiredTicks;
 }
 
+inline bool flightActionSafe(bool required, bool landed, bool safeRunway, bool boundary) {
+    return !required || boundary || (landed && safeRunway);
+}
+
 class PhysicsOrder {
     bool seenCollision_ = false, seenUpdate_ = false;
   public:

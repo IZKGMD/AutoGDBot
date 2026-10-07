@@ -45,6 +45,11 @@ int main() {
             "side collision cannot be treated as a safe landing decision");
     require(landingDecisionSafe(40, 24, false, false),
             "stable landing with reaction runway is a valid replanning point");
+    require(!flightActionSafe(true, true, false, false),
+            "horizon expiration cannot bypass the landing runway requirement");
+    require(flightActionSafe(true, true, true, false) &&
+                flightActionSafe(true, false, false, true),
+            "flight handoff requires runway or an actual native boundary");
     FlightCertificate airborne(false);
     require(!airborne.verified(), "initial airborne state also requires a landing");
     PhysicsOrder order;
@@ -986,4 +991,3 @@ int main() {
                  "GPU validation gate, interrupted rollout, deterministic reset, deadline ("
               << ms << " ms)\n";
 }
-
