@@ -208,6 +208,7 @@ class Runtime {
     std::array<Ref<PlayerObject>, 2> clones;
     std::array<PlayerSeed, 2> seeds;
     Controller controller;
+    Controller fastController;
     PhysicsTiming timing;
     PhysicsOrder physicsOrder;
     CubePulse cubePulse;
@@ -249,6 +250,7 @@ class Runtime {
     bool telemetryPending = false;
     Clock::time_point redraw = Clock::now();
     std::string message = "Autopilot off";
+    std::string plannerStage = "IDLE";
     std::vector<std::string> csv;
     void init(PlayLayer *pl) {
         layer = pl;
@@ -356,6 +358,7 @@ class Runtime {
         flush();
         releaseLiveInput();
         controller.reset();
+        fastController.reset();
         timing.reset();
         physicsOrder = {};
         cubePulse.reset();
@@ -409,7 +412,8 @@ class Runtime {
         }
         csv.clear();
     }
-    Evaluation evaluate(Plan const &plan, Clock::time_point deadline, float dt) {
+    Evaluation evaluate(Plan const &plan, Clock::time_point deadline, float dt,
+                        int cubeTailCap = MaxHorizon) {
         Evaluation out;
         CubePulse pulse = cubePulse;
         bool previousButton = botHeld;
@@ -449,7 +453,9 @@ class Runtime {
         LandingSchedule schedule(plan.landingDelay, clones[0]->m_isOnGround);
         out.hasRealized = true;
         const bool cubeRollout = cubePulseMode(clones[0], clones[1], dual);
-        const int limit = cubeRollout ? MaxHorizon : plan.length;
+        const int limit =
+            cubeRollout ? std::clamp(std::max(plan.length, cubeTailCap), plan.length, MaxHorizon)
+                        : plan.length;
         out.clearance = 120;
         out.nearClearance = 120;
         out.landingMargin = 0;
@@ -671,6 +677,7 @@ class Runtime {
                 layer->handleButton(false, 1, true);
                 injected = false;
                 controller.reset();
+                fastController.reset();
                 cubePulse.reset();
                 botHeld = false;
             }
@@ -696,6 +703,7 @@ class Runtime {
         if (!wasEnabled) {
             botHeld = p->m_holdingButtons[1];
             controller.reset();
+            fastController.reset();
             cubePulse.reset();
             wasEnabled = true;
         }
@@ -734,7 +742,7 @@ class Runtime {
         }
         if (lastMode != mode(p) ||
             (positionValid && std::abs(p->getPositionX() - lastPosition.x) > 40) || error > 2.0f)
-            controller.reset();
+            controller.reset(), fastController.reset();
         lastMode = mode(p);
         lastPosition = p->getPosition();
         positionValid = true;
@@ -1119,6 +1127,7 @@ class Runtime {
     }
     void finishTick(Clock::time_point start, float error) {
         controller.advance();
+        fastController.advance();
         ++ticks;
         totalMs = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
         telemetryPending = settings.telemetry;
