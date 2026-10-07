@@ -112,9 +112,10 @@ class Controller {
             plans.push_back(p);
         };
 
-        // Revalidate the previous collision-checked route first. This keeps a
-        // stable takeoff timing when the real state still matches the forecast.
-        if (warm_.length > 0) {
+        // Revalidate the previous collision-checked route first on normal
+        // ticks. During an actual orb contact, PRESS/SKIP must be evaluated
+        // before any cached route because the input window is only a few ticks.
+        if (warm_.length > 0 && !cfg.immediateOrb) {
             Plan w = warm_;
             std::fill(w.buttons.begin() + warm_.length, w.buttons.end(), false);
             add(w);
@@ -146,6 +147,11 @@ class Controller {
             if (cfg.immediateOrb) {
                 pulseAt(0);
                 add(coast);
+                if (warm_.length > 0) {
+                    Plan w = warm_;
+                    std::fill(w.buttons.begin() + warm_.length, w.buttons.end(), false);
+                    add(w);
+                }
             } else {
                 add(coast);
                 pulseAt(0);
