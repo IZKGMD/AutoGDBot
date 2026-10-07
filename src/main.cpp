@@ -221,6 +221,7 @@ class Runtime {
     TraceNode *draw = nullptr;
     CCLabelBMFont *label = nullptr;
     SemanticMap semantic;
+    bool semanticReady = false;
     std::vector<std::pair<float, GameObject *>> hintObjects;
     std::vector<std::pair<float, GameObject *>> hintSolids;
     std::vector<std::pair<float, GameObject *>> hintOrbs;
@@ -252,14 +253,18 @@ class Runtime {
     std::string message = "Autopilot off";
     std::string plannerStage = "IDLE";
     std::vector<std::string> csv;
-    void init(PlayLayer *pl) {
-        layer = pl;
-        settings.read();
-        semantic.build(pl);
+    void refreshSemantic() {
+        semantic.build(layer);
         hintObjects = semantic.hazards();
         hintSolids = semantic.solids();
         hintOrbs = semantic.orbs();
         hintControls = semantic.controlObjects();
+        semanticReady = true;
+    }
+    void init(PlayLayer *pl) {
+        layer = pl;
+        settings.read();
+        refreshSemantic();
         for (int i = 0; i < 2; ++i) {
             auto *p = PlayerObject::create(1, 1, pl, pl, true);
             if (!p)
@@ -319,7 +324,7 @@ class Runtime {
         for (auto it = first; it != hintOrbs.end() && it->first <= px + 90.f; ++it) {
             auto *o = it->second;
             if (!o || o->m_isDisabled || o->m_isDisabled2 || o->m_isActivated ||
-                !orbObject(o->m_objectType))
+                !orbObject(o))
                 continue;
             auto r = o->getObjectRect();
             if (maxX >= r.getMinX() - 8.f && minX <= r.getMaxX() + 8.f &&
@@ -704,6 +709,8 @@ class Runtime {
             return;
         }
         controlling = true;
+        if (!semanticReady || ticks == 0)
+            refreshSemantic();
         if (!wasEnabled) {
             botHeld = p->m_holdingButtons[1];
             controller.reset();
