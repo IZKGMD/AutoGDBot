@@ -41,6 +41,7 @@ struct Evaluation {
     bool died = false;
     bool interrupted = false;
     float clearance = 0;
+    float nearClearance = 0; // minimum hazard margin in the immediate control window
     float landingMargin = 0;
     float robustness = 0;
     int buttonChanges = -1;
@@ -533,13 +534,24 @@ class Controller {
                 continuity += plan.at(k) == warm_.at(k);
             const bool exactWarm = continuityTicks > 0 && continuity == continuityTicks;
             const float safeClearance = std::clamp(e.clearance, 0.f, 120.f);
+            const float nearClearance = std::clamp(e.nearClearance, 0.f, 120.f);
             const float safeLanding = std::clamp(e.landingMargin, 0.f, 80.f);
             const float robust = std::clamp(e.robustness, 0.f, 1.f);
             const float marginWeight = robust > 0.f ? 1.f : 0.f;
 
-            float score = std::min(e.survived, cfg.horizon) * 10000.f -
+            // For a known-later-death receding prefix, extra time-to-death
+            // must not dominate the immediate hazard margin. The live MPC will
+            // replan long before that later death; what matters most is keeping
+            // the next ~150 ms as wide and recoverable as possible.
+            const int scoredSurvival =
+                e.died && !complete
+                    ? std::min(e.survived, minCertificateTicks + secondsToTicks(.05))
+                    : std::min(e.survived, cfg.horizon);
+            const float nearWeight = e.died && !complete ? 5200.f : 900.f;
+            float score = scoredSurvival * (e.died && !complete ? 2200.f : 10000.f) -
                           std::max(0, e.survived - cfg.horizon) * 10.f +
-                          safeClearance * 85.f * marginWeight +
+                          nearClearance * nearWeight +
+                          safeClearance * 110.f * marginWeight +
                           safeLanding * 55.f * marginWeight + robust * 18000.f -
                           changes * 18.f + continuity * 5.f;
             if (exactWarm)
@@ -583,7 +595,8 @@ class Controller {
                 for (int k = 0; k < n && warmCompatible; ++k)
                     warmCompatible = plan.at(k) == warm_.at(k);
             }
-            const bool currentRobust = robust >= .55f || safeClearance >= 18.f;
+            const bool currentRobust =
+                robust >= .55f || nearClearance >= 16.f || safeClearance >= 18.f;
             const bool geometrySensitive = cfg.jumpEventCount > 0 || cfg.orbEventCount > 0 ||
                                            cfg.landingEventCount > 0;
             const bool comparedImmediateOrb =
