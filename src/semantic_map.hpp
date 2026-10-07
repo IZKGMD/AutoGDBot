@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <bit>
 #include <utility>
 #include <vector>
 #include "object_semantics.hpp"
@@ -119,6 +120,18 @@ class SemanticMap {
     }
 
     auto const &hazards() const { return hazards_; }
+    uint64_t signature(float x,float radius=1200.f)const{
+        uint64_t h=1469598103934665603ull;
+        auto mix=[&](uint64_t v){h^=v;h*=1099511628211ull;};
+        auto visit=[&](auto const &list){
+            auto first=std::lower_bound(list.begin(),list.end(),x-radius,[](auto const&a,float v){return a.first<v;});
+            for(auto it=first;it!=list.end()&&it->first<=x+radius;++it){auto *o=it->second;if(!o)continue;
+                mix(o->m_uniqueID);mix(std::bit_cast<uint32_t>(o->getPositionX()));mix(std::bit_cast<uint32_t>(o->getPositionY()));
+                mix(std::bit_cast<uint32_t>(o->getRotation()));mix(std::bit_cast<uint32_t>(o->getScaleX()));mix(std::bit_cast<uint32_t>(o->getScaleY()));
+                mix(o->m_isDisabled|(o->m_isDisabled2<<1)|(o->m_isRingPoweredOn<<2));
+            }
+        };visit(hazards_);visit(solids_);visit(control_);return h;
+    }
     bool refreshPositions() {
         bool changed = false;
         for (auto &[o, old] : positions_) {

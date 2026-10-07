@@ -6,11 +6,11 @@
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v0.21.1",
+  "version": "v0.22.0",
   "developers": [
     "AutoGDBot"
   ],
-  "description": "Realtime native-physics planning with portal continuation, mode-aware route branches and verified orb input timelines.",
+  "description": "Native physics route planning with checked input timelines, support-loss branches and independent cache replay.",
   "tags": [
     "gameplay",
     "utility",
@@ -24,18 +24,13 @@
       "description": "Realtime rolling-horizon control with native physics verification.",
       "default": true
     },
-    "gpu": {
-      "type": "bool",
-      "name": "GPU candidate ordering",
-      "description": "D3D11 candidate ordering on Windows; Android uses the same CPU-verified route planner without D3D11.",
-      "default": true
-    },
     "budget-ms": {
       "type": "float",
-      "name": "CPU search budget per physics tick (ms)",
+      "name": "Search time budget (ms)",
       "default": 1.0,
       "min": 0.2,
-      "max": 8.0
+      "max": 8.0,
+      "description": "Adaptive native search budget, limited by the current physics step. Individual game calls can exceed it."
     },
     "horizon": {
       "type": "int",
@@ -62,12 +57,6 @@
       "type": "bool",
       "name": "Save timing CSV",
       "description": "Writes telemetry in the mod save directory every 256 physics ticks.",
-      "default": false
-    },
-    "flight-recovery": {
-      "type": "bool",
-      "name": "Survival recovery",
-      "description": "Optional unproved-flight continuation. New cube launches still require a verified landing.",
       "default": false
     },
     "debug-traces": {
