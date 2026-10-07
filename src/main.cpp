@@ -72,6 +72,8 @@ struct PlayerSeed {
         p->m_potentialSlopeMap = slopes;
         p->m_rotateObjectsRelated = rotated;
         p->m_holdingButtons = buttons;
+        // Native interaction bookkeeping is keyed by player unique ID.
+        p->m_uniqueID = source->m_uniqueID;
         p->m_currentSlope = source->m_currentSlope;
         p->m_currentSlope2 = source->m_currentSlope2;
         p->m_currentPotentialSlope = source->m_currentPotentialSlope;
@@ -165,8 +167,10 @@ static bool touchingUsableOrb(PlayerObject *p) {
         return false;
     for (unsigned i = 0; i < p->m_touchingRings->count(); ++i) {
         auto *o = static_cast<GameObject *>(p->m_touchingRings->objectAtIndex(i));
+        // m_isActivated is scene activation, not a per-player consumed orb
+        // flag. Native touching/usage sets decide ring eligibility.
         if (o && orbObject(o) && !o->m_isDisabled && !o->m_isDisabled2 &&
-            !o->m_isActivated)
+            p->m_ringRelatedSet.find(o->m_uniqueID) == p->m_ringRelatedSet.end())
             return true;
     }
     return false;
@@ -245,6 +249,7 @@ class Runtime {
     uint64_t inputPhaseMismatches = 0;
     std::string lastAttempt;
     uint64_t inputTransitions = 0;
+    uint64_t orbAttempts = 0, orbHits = 0;
     uint64_t reflexJumps = 0;
     uint64_t lightTicks = 0;
     double totalMs = 0;
@@ -323,7 +328,8 @@ class Runtime {
             [](auto const &a, float x) { return a.first < x; });
         for (auto it = first; it != hintOrbs.end() && it->first <= px + 90.f; ++it) {
             auto *o = it->second;
-            if (!o || o->m_isDisabled || o->m_isDisabled2 || o->m_isActivated ||
+            if (!o || o->m_isDisabled || o->m_isDisabled2 ||
+                p->m_ringRelatedSet.find(o->m_uniqueID) != p->m_ringRelatedSet.end() ||
                 !orbObject(o))
                 continue;
             auto r = o->getObjectRect();
@@ -449,6 +455,7 @@ class Runtime {
         inputPhaseMismatches = 0;
         previousDt = 0;
         inputTransitions = 0;
+        orbAttempts = orbHits = 0;
         reflexJumps = 0;
         lightTicks = 0;
         totalMs = 0;
@@ -473,7 +480,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.12.0.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.13.0.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -502,7 +509,9 @@ class Runtime {
         struct Scope {
             PlayLayer *l;
             GJGameState state;
-            Scope(PlayLayer *p, GJGameState const &s) : l(p), state(s) {
+            PlayerObject *p1, *p2;
+            Scope(PlayLayer *p, GJGameState const &s)
+                : l(p), state(s), p1(p->m_player1), p2(p->m_player2) {
                 sim.active = true;
                 sim.layer = p;
                 sim.dead = {};
@@ -511,6 +520,8 @@ class Runtime {
             ~Scope() {
                 sim.restoreFlags();
                 l->m_gameState = state;
+                l->m_player1 = p1;
+                l->m_player2 = p2;
                 sim.active = false;
                 sim.layer = nullptr;
                 sim.clones = {};
@@ -525,6 +536,10 @@ class Runtime {
                 out.traces[i].push_back({clones[i]->getPositionX(), clones[i]->getPositionY()});
             }
         }
+        // Native ring/spider/dual routines resolve players through the layer.
+        // Run those routines against clones and restore live pointers by RAII.
+        layer->m_player1 = clones[0];
+        layer->m_player2 = clones[1];
         LandingSchedule schedule(plan.landingDelay, clones[0]->m_isOnGround);
         out.hasRealized = true;
         const bool cubeRollout = cubePulseMode(clones[0], clones[1], dual);
@@ -545,6 +560,19 @@ class Runtime {
             if (std::find(out.orbActions.begin(), out.orbActions.end(), tick) ==
                 out.orbActions.end())
                 out.orbActions.push_back(tick);
+            for (int i = 0; i < players; ++i) {
+                auto *p = clones[i].data();
+                if (!p->m_touchingRings) continue;
+                for (unsigned j = 0; j < p->m_touchingRings->count(); ++j) {
+                    auto *o = static_cast<GameObject *>(p->m_touchingRings->objectAtIndex(j));
+                    if (o && (o->m_objectType == GameObjectType::DashRing ||
+                              o->m_objectType == GameObjectType::GravityDashRing ||
+                              o->m_objectID == 1704 || o->m_objectID == 1751)) {
+                        if (std::find(out.dashActions.begin(), out.dashActions.end(), tick) ==
+                            out.dashActions.end()) out.dashActions.push_back(tick);
+                    }
+                }
+            }
         };
         for (int t = 0; t < limit; ++t) {
             if (Clock::now() >= deadline) {
@@ -560,7 +588,7 @@ class Runtime {
             bool canPress = cubeCanPress(clones[0]) || (dual && cubeCanPress(clones[1]));
             if (pulseMode && clones[0]->m_isOnGround && !pulse.mustRelease())
                 out.groundedActions.push_back(t);
-            if (pulseMode && orbContact && !pulse.mustRelease()) {
+            if (orbContact && !pulse.mustRelease()) {
                 // Contact is an action opportunity, not a certificate. Reaching
                 // a ring does not prove that pressing/skipping it is safe.
                 addOrbAction(t);
@@ -581,6 +609,8 @@ class Runtime {
                     down, [&] { return p->m_holdingButtons[1]; },
                     [&] { p->pushButton(PlayerButton::Jump); },
                     [&] { p->releaseButton(PlayerButton::Jump); });
+                p->updateStateVariables();
+                p->updateJumpVariables();
                 // Match the layer's per-step bookkeeping, not just its reset
                 // at the beginning of the whole hypothetical timeline.
                 p->resetTouchedRings(false);
@@ -622,7 +652,11 @@ class Runtime {
                     auto bounds = [](CCRect r) {
                         return Bounds{r.getMinX(), r.getMinY(), r.getMaxX(), r.getMaxY()};
                     };
-                    if (hazardGuard.hit(bounds(rectBefore), bounds(rectAfter))) {
+                    // Spider/teleport movement is discontinuous: only the
+                    // destination is occupied. Sweeping across the intervening
+                    // wall rejects every otherwise legal spider snap.
+                    if (hazardGuard.hit(bounds(p->m_wasTeleported ? rectAfter : rectBefore),
+                                        bounds(rectAfter))) {
                         ++geometryRejects;
                         out.died = true;
                         out.guardDeath = true;
@@ -656,7 +690,7 @@ class Runtime {
                         ++seen;
                     }
                 }
-                if (mode(p) == 0) {
+                if (mode(p) == 0 && !p->m_isDashing) {
                     if (!groundedBefore[i] && p->m_isOnGround && i == 0) {
                         ++out.landingCount;
                         if (out.firstLandingTick < 0) out.firstLandingTick = t;
@@ -720,7 +754,8 @@ class Runtime {
             out.realized.length = out.survived;
             bool settled = true;
             for (int i = 0; i < players; ++i)
-                if (mode(clones[i]) == 0) settled &= flights[i].verified();
+                if (mode(clones[i]) == 0 && !clones[i]->m_isDashing)
+                    settled &= flights[i].verified();
             if (cubeRollout && out.decisionPoint)
                 break;
             if (out.survived >= plan.length && (!cubeRollout || settled))
@@ -734,7 +769,7 @@ class Runtime {
         out.boundary = sim.boundary && !out.died;
         bool allLanded = true;
         for (int i = 0; i < players; ++i) {
-            if (mode(clones[i]) == 0) {
+            if (mode(clones[i]) == 0 && !clones[i]->m_isDashing) {
                 out.requiresLanding |= flights[i].required;
                 allLanded &= flights[i].verified();
             }
@@ -970,10 +1005,11 @@ class Runtime {
         const int liveMode = mode(p);
         const bool orbOpportunity = touchingOrb || imminentOrb || cubePulse.orbArmed();
         searchConfig.forceRelease =
-            pulseMode && (cubePulse.mustRelease() || (!canPress && !orbOpportunity));
+            (pulseMode && (cubePulse.mustRelease() || (!canPress && !orbOpportunity))) ||
+            (!pulseMode && touchingOrb && botHeld && !p->m_isDashing);
         searchConfig.cubePulsePlanning = pulseMode;
         searchConfig.plannerMode =
-            liveMode >= 0 && liveMode <= 7
+            p->m_isDashing ? PlannerMode::Dash : liveMode >= 0 && liveMode <= 7
                 ? static_cast<PlannerMode>(liveMode)
                 : PlannerMode::Generic;
         searchConfig.immediateOrb =
@@ -1048,7 +1084,7 @@ class Runtime {
             for (auto it = firstOrb;
                  it != hintOrbs.end() && it->first <= originX + range; ++it) {
                 auto *obj = it->second;
-                if (!obj || obj->m_isDisabled || obj->m_isDisabled2 || obj->m_isActivated)
+                if (!obj || obj->m_isDisabled || obj->m_isDisabled2)
                     continue;
                 auto r = obj->getObjectRect();
                 modeOrbs.push_back(
@@ -1088,7 +1124,7 @@ class Runtime {
                                  [](auto const &a, float x) { return a.first < x; });
             for (auto it = firstOrb; it != hintOrbs.end() && it->first <= originX + range; ++it) {
                 auto *o = it->second;
-                if (!o || o->m_isDisabled || o->m_isDisabled2 || o->m_isActivated)
+                if (!o || o->m_isDisabled || o->m_isDisabled2)
                     continue;
                 auto r = o->getObjectRect();
                 orbs.push_back({r.getMinX(), r.getMinY(), r.getMaxX(), r.getMaxY()});
@@ -1176,6 +1212,9 @@ class Runtime {
             fastNear >= (nearAction ? 10.f : 5.f) || fast.selected.clearance >= 20.f;
         const bool fastStrong =
             fast.hasValidatedInput && !fast.selected.died && fastMarginGood &&
+            // A short coast before a mapped ring is not proof of the required
+            // continuation. Use the longer event search in that local window.
+            !(pulseMode && orbSoon) &&
             (fast.completeContinuation || fast.selected.decisionPoint ||
              fast.recedingCertificate);
 
@@ -1406,14 +1445,14 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.12.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
+                "AutoGDBot 0.13.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
                 "error={:.2f} | guard={} | light={} | reflex={} | forecast={} | landing={} runway={}\n"
                 "route: mode={} jumps={} orbs={} map-orbs={} touch={} gap={} handoff={} | rejected={} | order={}{}\n"
                 "failure: best={} deaths={} guard={} native={} landing={} timeout={} | landings={}\n"
-                "native: U={}/{} C={} saw={} mismatch={}\n{}",
+                "native: U={}/{} C={} saw={} mismatch={} orb-hit={}/{}\n{}",
                 message, plannerStage, decision.elapsedMs, totalMs, decision.candidates,
                 decision.predictedTicks, decision.certificateTicks,
                 settings.gpu ? gpu.status() : "CPU",
@@ -1447,7 +1486,8 @@ class Runtime {
                 decision.deaths, decision.guardDeaths, decision.nativeDeaths,
                 decision.landingRejects, decision.interruptions,
                 decision.selected.landingCount, nativeUpdates, nativeUpdatesInside, nativeCollisions,
-                nativeSawDown ? "DOWN" : "UP", inputPhaseMismatches, lastAttempt)
+                nativeSawDown ? "DOWN" : "UP", inputPhaseMismatches,
+                orbHits, orbAttempts, lastAttempt)
                 .c_str());
         label->setColor(decision.hasValidatedInput ? ccColor3B{120, 255, 170}
                                                    : ccColor3B{255, 180, 100});
@@ -1509,7 +1549,7 @@ class Runtime {
             for (auto it = beginOrb;
                  it != hintOrbs.end() && it->first <= x + 900 && shownOrbs < 48; ++it) {
                 auto *o = it->second;
-                if (!o || o->m_isDisabled || o->m_isActivated)
+                if (!o || o->m_isDisabled)
                     continue;
                 auto r = o->getObjectRect();
                 std::array<CCPoint, 4> v = {
@@ -1663,6 +1703,16 @@ class $modify(AGBBaseLayer, GJBaseGameLayer) {
             return;
         GJBaseGameLayer::playerTouchedTrigger(p, o);
     }
+    void activateCustomRing(RingObject *o) {
+        if (agb::sim.active) {
+            // A custom orb can toggle arbitrary world geometry. Commit only
+            // to the contact; rebuild the local prediction after the real
+            // game executes its effect, without modifying the live world.
+            agb::sim.boundary = true;
+            return;
+        }
+        GJBaseGameLayer::activateCustomRing(o);
+    }
     void gameEventTriggered(GJGameEvent event, int material, int playerID) {
         if (agb::sim.active)
             return;
@@ -1684,6 +1734,20 @@ class $modify(AGBObject, GameObject) {
     }
 };
 class $modify(AGBPlayer, PlayerObject) {
+    void ringJump(RingObject *o, bool skipCheck) {
+        const auto velocity = m_yVelocity;
+        const auto position = getPosition();
+        const bool gravity = m_isUpsideDown, dash = m_isDashing;
+        const auto used = m_ringRelatedSet.size();
+        PlayerObject::ringJump(o, skipCheck);
+        if (agb::active && !agb::sim.active && agb::active->controlling) {
+            ++agb::active->orbAttempts;
+            if (velocity != m_yVelocity || gravity != m_isUpsideDown ||
+                dash != m_isDashing || used != m_ringRelatedSet.size() ||
+                position.x != getPositionX() || position.y != getPositionY())
+                ++agb::active->orbHits;
+        }
+    }
     void update(float dt) {
         if (agb::active && !agb::sim.active && this == agb::active->layer->m_player1) {
             agb::active->timing.observeNative(dt);

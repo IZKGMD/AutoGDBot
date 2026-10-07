@@ -46,8 +46,8 @@ inline bool isLegacyOrbId(int id) {
     case 84:   // blue/gravity orb
     case 141:  // pink orb
     case 1022: // green orb
-    case 1330: // drop/black orb
-    case 1333: // red/black ring family
+    case 1330: // red orb
+    case 1333: // drop/black orb
     case 1704: // dash orb
     case 1751: // gravity dash orb
         return true;
@@ -115,6 +115,15 @@ inline bool isForecastBoundary(GameObject const *o) {
 inline bool isClonePhysicsObject(GameObject const *o) {
     if (!o)
         return false;
+    // Native player-state blocks matter even though they are not solids or
+    // visible hazards: J/S/D/H/F blocks, gravity flip and force blocks.
+    switch (o->m_objectID) {
+    case 1755: case 1813: case 1829: case 1859:
+    case 2069: case 2866: case 3845:
+        return true;
+    default:
+        break;
+    }
     switch (o->m_objectType) {
     case GameObjectType::Solid:
     case GameObjectType::Hazard:

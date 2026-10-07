@@ -398,6 +398,63 @@ int main() {
                 orbChainDecision.plan.at(83) && !orbChainDecision.selected.died,
             "native event expansion must discover a two-orb chain without precomputed orb ticks");
 
+    // A ship needs both a fresh orb edge and thrust after that edge. Event
+    // expansion must preserve the rest of the original control timeline.
+    Controller shipOrb;
+    Config shipOrbCfg = orbChainCfg;
+    shipOrbCfg.cubePulsePlanning = false;
+    shipOrbCfg.plannerMode = PlannerMode::Ship;
+    auto shipOrbDecision = shipOrb.decide(shipOrbCfg, true,
+        [](Plan const &p, Clock::time_point) {
+            Evaluation e;
+            const bool edge = !p.at(39) && p.at(40);
+            if (!edge || !p.at(80)) {
+                e.survived = 90;
+                e.died = true;
+                e.orbActions.push_back(40);
+            } else e.survived = p.length;
+            return e;
+        });
+    require(shipOrbDecision.hasValidatedInput && !shipOrbDecision.selected.died &&
+                !shipOrbDecision.plan.at(39) && shipOrbDecision.plan.at(40) &&
+                shipOrbDecision.plan.at(80),
+            "ship orb edge retains the verified thrust continuation");
+
+    Controller dashOrb;
+    Config dashOrbCfg = orbChainCfg;
+    auto dashOrbDecision = dashOrb.decide(dashOrbCfg, false,
+        [](Plan const &p, Clock::time_point) {
+            Evaluation e;
+            bool heldDash = true;
+            for (int t = 37; t < 60; ++t) heldDash &= p.at(t);
+            if (!heldDash || p.at(61)) {
+                e.survived = 70;
+                e.died = true;
+                e.orbActions.push_back(37);
+                e.dashActions.push_back(37);
+            } else e.survived = p.length;
+            return e;
+        });
+    require(dashOrbDecision.hasValidatedInput && !dashOrbDecision.selected.died &&
+                dashOrbDecision.plan.at(59) && !dashOrbDecision.plan.at(61),
+            "dash contact expands into hold and release instead of a one-tick pulse");
+
+    Config swingCfg = shipOrbCfg;
+    swingCfg.plannerMode = PlannerMode::Swing;
+    Controller swingController;
+    bool pairedSwing = false;
+    for (auto const &p : swingController.propose(swingCfg, false)) {
+        int edges = 0;
+        bool previous = false;
+        for (int t = 0; t < p.length; ++t) {
+            require(!(previous && p.at(t)), "swing candidate must release between flips");
+            edges += !previous && p.at(t);
+            previous = p.at(t);
+        }
+        pairedSwing |= edges >= 2;
+    }
+    require(pairedSwing, "swing exposes multiple discrete gravity flips");
+
     Config stairCfg = ledgeCfg;
     stairCfg.horizon = 216;
     stairCfg.candidates = 64;

@@ -6,11 +6,11 @@
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v0.12.0",
+  "version": "v0.13.0",
   "developers": [
     "AutoGDBot"
   ],
-  "description": "Realtime native-physics MPC with robust orb discovery, reaction-runway landing certificates, tiered search and multi-mode control.",
+  "description": "Realtime native-physics control with per-player orb eligibility, orb chains across modes, dash hold/release and swing edge planning.",
   "tags": [
     "gameplay",
     "utility",

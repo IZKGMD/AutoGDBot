@@ -26,6 +26,7 @@ enum class PlannerMode : uint8_t {
     Robot = 5,
     Spider = 6,
     Swing = 7,
+    Dash = 8,
     Generic = 255
 };
 struct Plan {
@@ -58,6 +59,7 @@ struct Evaluation {
     int firstLandingTick = -1, landingCount = 0;
     std::vector<int> groundedActions; // native-confirmed opportunities for a continuation
     std::vector<int> orbActions;      // native-confirmed ring contact ticks
+    std::vector<int> dashActions;     // contacts requiring a hold after the rising edge
 
 };
 struct Config {
@@ -150,7 +152,8 @@ class Controller {
         int known = std::min(warm_.length, cfg.horizon);
         const bool discretePulseMode =
             cfg.cubePulsePlanning || cfg.plannerMode == PlannerMode::Ball ||
-            cfg.plannerMode == PlannerMode::Ufo || cfg.plannerMode == PlannerMode::Spider;
+            cfg.plannerMode == PlannerMode::Ufo || cfg.plannerMode == PlannerMode::Spider ||
+            cfg.plannerMode == PlannerMode::Swing;
         std::fill(warm.buttons.begin() + known, warm.buttons.end(),
                   discretePulseMode ? false : held);
         warm.length = cfg.horizon;
@@ -383,6 +386,36 @@ class Controller {
                 break;
             }
 
+            case PlannerMode::Swing: {
+                // Swing changes gravity on a rising edge. Holding is not a
+                // thrust axis. Explore paired flips with an intervening UP.
+                constant(false);
+                edgePulse(0, false);
+                for (int base : {1, 2, 4, 8, 12, 18, 24, 32, 48, 64, 96})
+                    edgePulse(T(base), false);
+                for (int first : {0, 4, 12, 24, 48})
+                    for (int gap : {8, 16, 24, 40, 64}) {
+                        Plan p;
+                        const int a = first == 0 ? 0 : T(first);
+                        const int b = a + T(gap);
+                        p.buttons[a] = true;
+                        if (b < cfg.horizon) p.buttons[b] = true;
+                        add(p);
+                    }
+                for (int period : {12, 24, 40, 64, 96})
+                    pulseTrain(T(period));
+                break;
+            }
+
+            case PlannerMode::Dash:
+                // Retain dash until a verified release window. A cube dash
+                // must not be reduced to an ordinary one-tick jump pulse.
+                constant(true);
+                constant(false);
+                for (int base : {1, 2, 4, 8, 12, 18, 24, 32, 48, 64, 96, 144, 192})
+                    switchAt(T(base), true);
+                break;
+
             case PlannerMode::Robot: {
                 // Robot jump height is hold-duration controlled. Search a
                 // deterministic lattice of short/medium/long holds plus delayed
@@ -399,7 +432,7 @@ class Controller {
 
             case PlannerMode::Ship:
             case PlannerMode::Wave:
-            case PlannerMode::Swing: {
+            {
                 // Continuous modes need controlled switch times, short
                 // corrections and periodic duty cycles. This deterministic
                 // basis replaces the old pseudo-random mutation tail.
@@ -470,7 +503,7 @@ class Controller {
             std::chrono::duration_cast<Clock::duration>(
                 std::chrono::duration<double, std::milli>(std::clamp(cfg.budgetMs, 0.2, 8.0)));
         Config proposalConfig = cfg;
-        const int expansionReserve = cfg.cubePulsePlanning ? std::min(32, cfg.candidates / 3) : 0;
+        const int expansionReserve = std::min(32, cfg.candidates / 3);
         proposalConfig.candidates -= expansionReserve;
         auto plans = propose(proposalConfig, held);
         Decision result;
@@ -651,7 +684,7 @@ class Controller {
             // Event-driven expansion: if native clone physics actually touches
             // an orb on a rejected route, branch exactly at that contact tick.
             // This replaces fragile "orb X coordinate == press time" guessing.
-            if (cfg.cubePulsePlanning &&
+            if (
                 (e.died || e.interrupted || !e.firstActionVerified) &&
                 !e.orbActions.empty() && e.survived >= furthestOrbFailure &&
                 int(plans.size()) < cfg.candidates) {
@@ -662,22 +695,36 @@ class Controller {
                      it != e.orbActions.rend() && emitted < 6 &&
                      int(plans.size()) < cfg.candidates; ++it) {
                     const int at = *it;
-                    if (at < 1 || at >= cfg.horizon || plans[i].at(at))
+                    if (at < 0 || at >= cfg.horizon)
                         continue;
-                    Plan child = e.hasRealized ? e.realized : plans[i];
-                    child.length = cfg.horizon;
-                    child.landingDelay = -1;
-                    std::fill(child.buttons.begin() + at, child.buttons.end(), false);
-                    child.buttons[at] = true;
-                    bool duplicate = false;
-                    for (auto const &old : plans)
-                        duplicate |= old.buttons == child.buttons &&
-                                     old.landingDelay == child.landingDelay;
-                    if (duplicate)
+                    const bool dash = std::find(e.dashActions.begin(), e.dashActions.end(), at) !=
+                                      e.dashActions.end();
+                    if (!dash && plans[i].at(at) && (at == 0 || !plans[i].at(at - 1)))
                         continue;
-                    children.push_back(int(plans.size()));
-                    plans.push_back(child);
-                    ++emitted;
+                    for (int hold : {1, 8, 24, 64, 144, 240}) {
+                        if (!dash && hold != 1) break;
+                        if (int(plans.size()) >= cfg.candidates) break;
+                        Plan child = plans[i];
+                        // Keep the observed prefix and the original future
+                        // steering. Clearing the whole tail destroyed ship
+                        // thrust and the next action in an orb chain.
+                        if (e.hasRealized)
+                            std::copy_n(e.realized.buttons.begin(), at, child.buttons.begin());
+                        child.length = cfg.horizon;
+                        child.landingDelay = -1;
+                        if (at > 0) child.buttons[at - 1] = false;
+                        const int end = std::min(cfg.horizon, at + hold);
+                        std::fill(child.buttons.begin() + at, child.buttons.begin() + end, true);
+                        if (end < cfg.horizon) child.buttons[end] = false;
+                        bool duplicate = false;
+                        for (auto const &old : plans)
+                            duplicate |= old.buttons == child.buttons &&
+                                         old.landingDelay == child.landingDelay;
+                        if (duplicate) continue;
+                        children.push_back(int(plans.size()));
+                        plans.push_back(child);
+                        ++emitted;
+                    }
                 }
                 order.insert(order.begin() + cursor + 1, children.begin(), children.end());
             }
@@ -728,4 +775,3 @@ class Controller {
     }
 };
 } // namespace agb
-
