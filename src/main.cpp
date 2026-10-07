@@ -278,7 +278,9 @@ class Runtime {
     std::vector<std::pair<float, GameObject *>> hintObjects;
     std::vector<std::pair<float, GameObject *>> hintSolids;
     std::vector<std::pair<float, GameObject *>> hintOrbs;
+    std::vector<std::pair<float, GameObject *>> hintControls;
     GapHint routeGap;
+    BoundaryHandoffHint routeHandoff;
     int routeJumpEvents = 0, routeOrbEvents = 0;
     std::vector<Point> stableTrace;
     uint64_t stableTraceTick = 0;
@@ -309,6 +311,7 @@ class Runtime {
         hintObjects = semantic.hazards();
         hintSolids = semantic.solids();
         hintOrbs = semantic.orbs();
+        hintControls = semantic.controlObjects();
         for (int i = 0; i < 2; ++i) {
             auto *p = PlayerObject::create(1, 1, pl, pl, true);
             if (!p)
@@ -395,6 +398,7 @@ class Runtime {
         geometryRejects = 0;
         predictionError = 0;
         routeGap = {};
+        routeHandoff = {};
         routeJumpEvents = 0;
         routeOrbEvents = 0;
         stableTrace.clear();
@@ -409,7 +413,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.6.0.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.6.1.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -730,6 +734,51 @@ class Runtime {
                                           [](auto const &a, float x) { return a.first < x; });
                 nearAction = o != hintOrbs.end() && o->first <= px + 230.f;
             }
+            if (!nearAction) {
+                // A wall/raised block is as timing-sensitive as a spike. In
+                // v0.6.0 these solids did not raise the search budget, which
+                // could leave only a handful of candidates before timeout.
+                auto pr = p->getObjectRect();
+                auto solid = std::lower_bound(
+                    hintSolids.begin(), hintSolids.end(), px - 10.f,
+                    [](auto const &a, float x) { return a.first < x; });
+                int checked = 0;
+                for (auto it = solid;
+                     it != hintSolids.end() && it->first <= px + 260.f && checked < 48;
+                     ++it, ++checked) {
+                    auto *obj = it->second;
+                    if (!obj || obj->m_isDisabled || obj->m_isDisabled2)
+                        continue;
+                    auto sr = obj->getObjectRect();
+                    const float face = p->m_isGoingLeft ? sr.getMaxX() : sr.getMinX();
+                    const float distance =
+                        (face - px) * (p->m_isGoingLeft ? -1.f : 1.f);
+                    if (distance <= 3.f)
+                        continue;
+                    if (sr.getMaxY() > pr.getMinY() + 5.f &&
+                        sr.getMinY() < pr.getMaxY() + 10.f) {
+                        nearAction = true;
+                        break;
+                    }
+                }
+            }
+            if (!nearAction) {
+                // Portals can terminate clone forecasting. Increase search
+                // effort before the handoff so a required pre-portal action is
+                // considered while it is still physically possible.
+                auto control = std::lower_bound(
+                    hintControls.begin(), hintControls.end(), px - 10.f,
+                    [](auto const &a, float x) { return a.first < x; });
+                for (auto it = control; it != hintControls.end() && it->first <= px + 280.f;
+                     ++it) {
+                    auto *obj = it->second;
+                    if (obj && !obj->m_isDisabled && !obj->m_isDisabled2 &&
+                        boundaryObject(obj)) {
+                        nearAction = true;
+                        break;
+                    }
+                }
+            }
             // A native touchdown can immediately enable the next staircase
             // pulse. Replan at full rate while descending into a nearby
             // support surface instead of skipping the exact landing substep.
@@ -824,11 +873,13 @@ class Runtime {
             guardBounds.push_back({r.getMinX(), r.getMinY(), r.getMaxX(), r.getMaxY()});
         }
         routeGap = {};
+        routeHandoff = {};
         routeJumpEvents = 0;
         routeOrbEvents = 0;
         if (pulseMode && canPress) {
             std::vector<Bounds> solids;
             std::vector<Bounds> orbs;
+            std::vector<Bounds> boundaries;
             auto firstSolid =
                 std::lower_bound(hintSolids.begin(), hintSolids.end(), originX - range,
                                  [](auto const &a, float x) { return a.first < x; });
@@ -850,6 +901,18 @@ class Runtime {
                 auto r = o->getObjectRect();
                 orbs.push_back({r.getMinX(), r.getMinY(), r.getMaxX(), r.getMaxY()});
             }
+            auto firstControl =
+                std::lower_bound(hintControls.begin(), hintControls.end(), originX - range,
+                                 [](auto const &a, float x) { return a.first < x; });
+            for (auto it = firstControl;
+                 it != hintControls.end() && it->first <= originX + range; ++it) {
+                auto *o = it->second;
+                if (!o || o->m_isDisabled || o->m_isDisabled2 || !boundaryObject(o))
+                    continue;
+                auto r = o->getObjectRect();
+                boundaries.push_back(
+                    {r.getMinX(), r.getMinY(), r.getMaxX(), r.getMaxY()});
+            }
             int players = layer->m_gameState.m_isDualMode ? 2 : 1;
             for (int i = 0; i < players; ++i) {
                 auto *real = i == 0 ? p : layer->m_player2;
@@ -857,8 +920,20 @@ class Runtime {
                     auto gap = seedCubeEvents(searchConfig, real->getPositionX(),
                                               real->getObjectRect().getMinY(), travelSteps[i].x,
                                               solids, guardBounds, orbs);
-                    if (i == 0)
+                    if (i == 0) {
                         routeGap = gap;
+                        auto pr = real->getObjectRect();
+                        routeHandoff = seedBoundaryHandoff(
+                            searchConfig,
+                            {pr.getMinX(), pr.getMinY(), pr.getMaxX(), pr.getMaxY()},
+                            travelSteps[i].x, solids, guardBounds, boundaries,
+                            real->m_isUpsideDown);
+                        if (routeHandoff.found) {
+                            guardBounds.push_back(routeHandoff.gate);
+                            searchConfig.candidates = std::max(searchConfig.candidates, 96);
+                            searchConfig.budgetMs = std::max(searchConfig.budgetMs, 3.5);
+                        }
+                    }
                 }
             }
             routeJumpEvents = searchConfig.jumpEventCount;
@@ -971,12 +1046,12 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.6.0 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
+                "AutoGDBot 0.6.1 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
                 "error={:.2f} | guard={} | light={} | reflex={} | forecast={} | landing={}\n"
-                "route: jumps={} orbs={} gap={} | rejected={} | order={}{}\n"
+                "route: jumps={} orbs={} gap={} handoff={} | rejected={} | order={}{}\n"
                 "failure: best={} deaths={} landing={} timeout={} | landings={}\n"
                 "native: U={}/{} C={} saw={} mismatch={}\n{}",
                 message, decision.elapsedMs, totalMs, decision.candidates, decision.predictedTicks,
@@ -994,7 +1069,8 @@ class Runtime {
                     ? (decision.selected.landingVerified ? "OK" : "NO")
                     : "n/a",
                 routeJumpEvents, routeOrbEvents, routeGap.found ? "YES" : "no",
-                decision.rejectedUnsafe, physicsOrder.collisionFirst ? "C-U" : "U-C",
+                routeHandoff.found ? "GUARD" : "no", decision.rejectedUnsafe,
+                physicsOrder.collisionFirst ? "C-U" : "U-C",
                 physicsOrder.measured ? "*" : "?", decision.bestRejectedTicks,
                 decision.deaths, decision.landingRejects, decision.interruptions,
                 decision.selected.landingCount, nativeUpdates, nativeUpdatesInside, nativeCollisions,
