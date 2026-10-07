@@ -395,7 +395,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.8.1.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.9.0.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -526,7 +526,7 @@ class Runtime {
                     out.traces[i].push_back({p->getPositionX(), p->getPositionY()});
                     break;
                 }
-                if (mode(p) == 0) {
+                {
                     auto rectAfter = p->getObjectRect(.35f, .35f);
                     auto bounds = [](CCRect r) {
                         return Bounds{r.getMinX(), r.getMinY(), r.getMaxX(), r.getMaxY()};
@@ -543,7 +543,7 @@ class Runtime {
                     break;
                 }
                 out.traces[i].push_back({p->getPositionX(), p->getPositionY()});
-                if (mode(p) == 0 && i == 0) {
+                if (i == 0) {
                     auto pos = p->getPosition();
                     auto pr = p->getObjectRect(.35f, .35f);
                     auto beginHaz = std::lower_bound(
@@ -735,15 +735,28 @@ class Runtime {
         // 60 Hz during uncontrollable cube flight at 240 TPS, and every tick
         // on the ground, at an orb or in a continuous-control mode.
         bool nearAction = false;
-        bool orbSoon = false;
+        const float px = p->getPositionX();
+        auto o = std::lower_bound(hintOrbs.begin(), hintOrbs.end(), px - 12.f,
+                                  [](auto const &a, float x) { return a.first < x; });
+        bool orbSoon = o != hintOrbs.end() && o->first <= px + 260.f;
+        auto h = std::lower_bound(hintObjects.begin(), hintObjects.end(), px - 12.f,
+                                  [](auto const &a, float x) { return a.first < x; });
+        nearAction = (h != hintObjects.end() && h->first <= px + 260.f) || orbSoon;
+        auto controlNear = std::lower_bound(
+            hintControls.begin(), hintControls.end(), px - 10.f,
+            [](auto const &a, float x) { return a.first < x; });
+        for (auto it = controlNear;
+             it != hintControls.end() && it->first <= px + 300.f; ++it) {
+            auto *obj = it->second;
+            if (obj && !obj->m_isDisabled && !obj->m_isDisabled2 &&
+                (boundaryObject(obj) || padObject(obj->m_objectType) ||
+                 orbObject(obj->m_objectType))) {
+                nearAction = true;
+                break;
+            }
+        }
+
         if (pulseMode) {
-            const float px = p->getPositionX();
-            auto o = std::lower_bound(hintOrbs.begin(), hintOrbs.end(), px - 12.f,
-                                      [](auto const &a, float x) { return a.first < x; });
-            orbSoon = o != hintOrbs.end() && o->first <= px + 230.f;
-            auto h = std::lower_bound(hintObjects.begin(), hintObjects.end(), px - 12.f,
-                                      [](auto const &a, float x) { return a.first < x; });
-            nearAction = (h != hintObjects.end() && h->first <= px + 230.f) || orbSoon;
             if (!nearAction) {
                 // A wall/raised block is as timing-sensitive as a spike. In
                 // v0.6.0 these solids did not raise the search budget, which
@@ -767,23 +780,6 @@ class Runtime {
                         continue;
                     if (sr.getMaxY() > pr.getMinY() + 5.f &&
                         sr.getMinY() < pr.getMaxY() + 10.f) {
-                        nearAction = true;
-                        break;
-                    }
-                }
-            }
-            if (!nearAction) {
-                // Portals can terminate clone forecasting. Increase search
-                // effort before the handoff so a required pre-portal action is
-                // considered while it is still physically possible.
-                auto control = std::lower_bound(
-                    hintControls.begin(), hintControls.end(), px - 10.f,
-                    [](auto const &a, float x) { return a.first < x; });
-                for (auto it = control; it != hintControls.end() && it->first <= px + 280.f;
-                     ++it) {
-                    auto *obj = it->second;
-                    if (obj && !obj->m_isDisabled && !obj->m_isDisabled2 &&
-                        (boundaryObject(obj) || padObject(obj->m_objectType))) {
                         nearAction = true;
                         break;
                     }
@@ -856,13 +852,18 @@ class Runtime {
             seeds[1].capture(layer->m_player2);
         predictionError = error;
         Config searchConfig = settings.config;
+        const int liveMode = mode(p);
         const bool orbOpportunity = touchingOrb || imminentOrb || cubePulse.orbArmed();
         searchConfig.forceRelease =
             pulseMode && (cubePulse.mustRelease() || (!canPress && !orbOpportunity));
         searchConfig.cubePulsePlanning = pulseMode;
+        searchConfig.plannerMode =
+            liveMode >= 0 && liveMode <= 7
+                ? static_cast<PlannerMode>(liveMode)
+                : PlannerMode::Generic;
         searchConfig.immediateOrb =
-            pulseMode && orbOpportunity && !cubePulse.mustRelease();
-        if (mode(p) == 0) {
+            orbOpportunity && (!pulseMode || !cubePulse.mustRelease());
+        if (liveMode == 0) {
             // Keep planning while the cube is still on safe ground. The longer
             // rolling horizon sees the edge/gap/orb before the takeoff is urgent.
             searchConfig.horizon = std::max(searchConfig.horizon, 216);
@@ -882,6 +883,24 @@ class Runtime {
                 searchConfig.horizon = std::max(searchConfig.horizon, 240);
                 searchConfig.candidates = 96;
                 searchConfig.budgetMs = std::max(searchConfig.budgetMs, 5.0);
+            }
+        } else {
+            // Fingerdash-class sections need full-rate mode-aware control, but
+            // only dense local geometry receives the expensive 96-candidate
+            // burst. Open sections stay much cheaper.
+            const bool tightMode = liveMode == 1 || liveMode == 4 || liveMode == 7;
+            searchConfig.horizon =
+                std::max(searchConfig.horizon, tightMode ? 216 : 180);
+            searchConfig.candidates =
+                std::max(searchConfig.candidates, nearAction ? 96 : 64);
+            searchConfig.budgetMs =
+                std::max(searchConfig.budgetMs, nearAction ? 3.8 : 1.6);
+            if (orbSoon || searchConfig.immediateOrb) {
+                searchConfig.horizon = std::max(searchConfig.horizon, 240);
+                searchConfig.candidates = 96;
+                searchConfig.budgetMs =
+                    std::max(searchConfig.budgetMs,
+                             searchConfig.immediateOrb ? 5.0 : 4.2);
             }
         }
         // Cache frozen-world geometry once per tick. Candidate steps query the
@@ -905,6 +924,35 @@ class Runtime {
         routeHandoffBypassed = false;
         routeJumpEvents = 0;
         routeOrbEvents = 0;
+
+        if (!pulseMode) {
+            std::vector<Bounds> modeOrbs;
+            auto firstOrb =
+                std::lower_bound(hintOrbs.begin(), hintOrbs.end(), originX - range,
+                                 [](auto const &a, float x) { return a.first < x; });
+            for (auto it = firstOrb;
+                 it != hintOrbs.end() && it->first <= originX + range; ++it) {
+                auto *obj = it->second;
+                if (!obj || obj->m_isDisabled || obj->m_isDisabled2 || obj->m_isActivated)
+                    continue;
+                auto r = obj->getObjectRect();
+                modeOrbs.push_back(
+                    {r.getMinX(), r.getMinY(), r.getMaxX(), r.getMaxY()});
+            }
+            const int players = layer->m_gameState.m_isDualMode ? 2 : 1;
+            for (int i = 0; i < players; ++i) {
+                auto *real = i == 0 ? p : layer->m_player2;
+                if (!real)
+                    continue;
+                auto pr = real->getObjectRect();
+                seedOrbContactEvents(
+                    searchConfig,
+                    {pr.getMinX(), pr.getMinY(), pr.getMaxX(), pr.getMaxY()},
+                    travelSteps[i].x, modeOrbs);
+            }
+            routeOrbEvents = searchConfig.orbEventCount;
+        }
+
         if (pulseMode) {
             std::vector<Bounds> solids;
             std::vector<Bounds> orbs;
@@ -1113,12 +1161,12 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.8.1 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
+                "AutoGDBot 0.9.0 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
                 "error={:.2f} | guard={} | light={} | reflex={} | forecast={} | landing={}\n"
-                "route: jumps={} orbs={} touch={} gap={} handoff={} | rejected={} | order={}{}\n"
+                "route: mode={} jumps={} orbs={} touch={} gap={} handoff={} | rejected={} | order={}{}\n"
                 "failure: best={} deaths={} landing={} timeout={} | landings={}\n"
                 "native: U={}/{} C={} saw={} mismatch={}\n{}",
                 message, decision.elapsedMs, totalMs, decision.candidates, decision.predictedTicks,
@@ -1135,7 +1183,7 @@ class Runtime {
                 decision.selected.requiresLanding
                     ? (decision.selected.landingVerified ? "OK" : "NO")
                     : "n/a",
-                routeJumpEvents, routeOrbEvents,
+                mode(layer->m_player1), routeJumpEvents, routeOrbEvents,
                 touchingUsableOrb(layer->m_player1)
                     ? "ORB"
                     : (cubePulse.orbArmed() ? "ARM" : "no"),
