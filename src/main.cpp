@@ -871,6 +871,7 @@ class Runtime {
             decision.exhausted = false;
             inputPending = true;
             message = "BOT | cube flight / release";
+            plannerStage = "LIGHT";
             ++lightTicks;
             finishTick(start, error);
             return;
@@ -1331,9 +1332,13 @@ class Runtime {
         if (decision.hasValidatedInput)
             stableTrace = decision.selected.traces[0];
         auto trace = [&](std::vector<Point> const &points, ccColor4F color, float width) {
-            for (size_t i = 3; i < points.size(); i += 3)
-                draw->drawSegment({points[i - 2].x, points[i - 2].y}, {points[i].x, points[i].y},
-                                  width, color);
+            // Keep the visual trajectory cheap on mobile. The old fixed stride
+            // could emit ~170 draw calls for a 512-tick cube tail.
+            const size_t stride =
+                std::max<size_t>(3, points.size() > 48 ? points.size() / 48 : 3);
+            for (size_t i = stride; i < points.size(); i += stride)
+                draw->drawSegment({points[i - stride].x, points[i - stride].y},
+                                  {points[i].x, points[i].y}, width, color);
             if (!points.empty()) {
                 auto q = points.back();
                 std::array<CCPoint, 4> v = {CCPoint{q.x - 7, q.y - 7}, CCPoint{q.x - 7, q.y + 7},
