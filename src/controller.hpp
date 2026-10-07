@@ -145,24 +145,36 @@ inline void retainSearchDiagnostics(Decision &queued, Decision const &search) {
 // state even when interrupted. Ranking cannot turn an untested plan into input.
 class Controller {
     Plan warm_;
+    // Tiny cross-tick reachability frontier. Keep one proven prefix for each
+    // first input instead of collapsing every tick to a single warm route.
+    // These are proposals only: every prefix is re-run through native physics
+    // before it can execute from the next live snapshot.
+    std::array<Plan, 2> frontier_{};
 
   public:
     void reset() {
         warm_ = {};
+        frontier_ = {};
     }
     void advance(int ticks = 1) {
-        if (warm_.length <= 0)
-            return;
-        ticks = std::clamp(ticks, 0, warm_.length);
-        for (int i = 0; i < warm_.length - ticks; ++i)
-            warm_.buttons[i] = warm_.buttons[i + ticks];
-        warm_.length -= ticks;
-        std::fill(warm_.buttons.begin() + warm_.length, warm_.buttons.end(), false);
+        auto shift = [&](Plan &p) {
+            if (p.length <= 0) return;
+            const int n = std::clamp(ticks, 0, p.length);
+            for (int i = 0; i < p.length - n; ++i)
+                p.buttons[i] = p.buttons[i + n];
+            p.length -= n;
+            std::fill(p.buttons.begin() + p.length, p.buttons.end(), false);
+        };
+        shift(warm_);
+        for (auto &p : frontier_) shift(p);
     }
     void seedVerifiedPrefix(Plan const &plan, int verifiedTicks) {
         warm_ = plan;
         warm_.length = std::clamp(verifiedTicks, 0, std::min(plan.length, MaxHorizon));
+        warm_.landingDelay = -1;
         std::fill(warm_.buttons.begin() + warm_.length, warm_.buttons.end(), false);
+        if (warm_.length > 0)
+            frontier_[warm_.at(0) ? 1 : 0] = warm_;
     }
     std::vector<Plan> propose(Config cfg, bool held) {
         cfg.horizon = std::clamp(cfg.horizon, 24, MaxPlanningHorizon);
@@ -213,21 +225,33 @@ class Controller {
             plans.push_back(p);
         };
 
-        // Revalidate the previous collision-checked route first on normal
-        // ticks. During an actual orb contact, PRESS/SKIP must be evaluated
-        // before any cached route because the input window is only a few ticks.
-        if (warm_.length > 0 && !cfg.immediateOrb) {
-            Plan w = warm_;
-            std::fill(w.buttons.begin() + warm_.length, w.buttons.end(), false);
-            add(w);
-        }
-
-        Plan warm = warm_;
-        int known = std::min(warm_.length, cfg.horizon);
         const bool discretePulseMode =
             cfg.cubePulsePlanning || cfg.plannerMode == PlannerMode::Ball ||
             cfg.plannerMode == PlannerMode::Ufo || cfg.plannerMode == PlannerMode::Spider ||
             cfg.plannerMode == PlannerMode::Swing;
+
+        // Revalidate the previous collision-checked frontier first on normal
+        // ticks. Unlike gdsolver's large offline census this frontier is kept
+        // deliberately tiny (UP/DOWN) so it remains suitable for a 240 Hz
+        // rolling controller. No cached prefix is trusted without re-simulation.
+        auto addCached = [&](Plan const &source) {
+            if (source.length <= 0) return;
+            Plan p = source;
+            const int known = std::min(source.length, cfg.horizon);
+            p.landingDelay = -1;
+            std::fill(p.buttons.begin() + known, p.buttons.end(),
+                      discretePulseMode ? false : held);
+            p.length = cfg.horizon;
+            add(p);
+        };
+        if (!cfg.immediateOrb) {
+            addCached(warm_);
+            addCached(frontier_[0]);
+            addCached(frontier_[1]);
+        }
+
+        Plan warm = warm_;
+        int known = std::min(warm_.length, cfg.horizon);
         std::fill(warm.buttons.begin() + known, warm.buttons.end(),
                   discretePulseMode ? false : held);
         warm.length = cfg.horizon;
@@ -1072,6 +1096,15 @@ class Controller {
             result.firstActionClass[a] = reachable[a].safetyClass;
             result.firstActionNearClearance[a] = reachable[a].nearClearance;
             result.firstActionRobustness[a] = reachable[a].robustness;
+            if (reachable[a].valid) {
+                frontier_[a] = reachable[a].plan;
+                frontier_[a].length =
+                    std::clamp(reachable[a].certificateTicks, 0,
+                               std::min(frontier_[a].length, MaxHorizon));
+                frontier_[a].landingDelay = -1;
+                std::fill(frontier_[a].buttons.begin() + frontier_[a].length,
+                          frontier_[a].buttons.end(), false);
+            }
         }
         if ((cfg.compareFirstActions || cfg.immediateOrb) && !cfg.forceRelease &&
             (reachable[0].valid || reachable[1].valid)) {
