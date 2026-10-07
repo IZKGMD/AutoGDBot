@@ -775,10 +775,15 @@ class Controller {
                 !e.controlActions.empty() && int(plans.size()) < cfg.candidates) {
                 furthestControlFailure[first] = e.survived;
                 std::vector<int> children;
+                std::vector<PlannerMode> observedModes{cfg.plannerMode};
+                if (cfg.dual) observedModes.push_back(cfg.secondaryMode);
+                for (auto o : e.controlActions)
+                    if (std::find(observedModes.begin(), observedModes.end(), o.mode) == observedModes.end())
+                        observedModes.push_back(o.mode);
                 for (int baseLead : {24, 48, 12, 64, 96, 8}) {
                     const int lead = std::max(1, int(std::lround((baseLead / 240.0) / safeTickSeconds)));
                     const int target = std::max(0, e.survived - lead);
-                    for (PlannerMode m : {cfg.plannerMode, cfg.secondaryMode}) {
+                    for (PlannerMode m : observedModes) {
                         if (m == PlannerMode::Generic) continue;
                         auto it = std::find_if(e.controlActions.rbegin(), e.controlActions.rend(),
                             [&](ControlOpportunity o) { return o.mode == m && o.tick <= target; });

@@ -11,6 +11,7 @@ dash orb is active. Native PlayerObject physics remains authoritative.
 - Ship/wave recurrent steering candidates are available in small fast-search budgets.
 - Failed native trajectories can branch at valid control opportunities, preserving the observed prefix and future steering. Edge modes receive a fresh release/press; robot receives varied hold lengths; continuous modes receive varied corrections.
 - Robot and cube jumps require a verified native landing and reaction runway. Shared-input mixed dual evaluates the same input on both players and requires both relevant landings. Both players contribute hazard margin and prediction error.
+- Dash release can finish the underlying cube/robot flight beyond the short horizon; repairs use the observed vehicle after release.
 - Mixed dual interleaves candidates from both vehicle policies. HUD names the actual vehicle(s) and active dash.
 - Runway geometry uses local travel/gravity axes for inverted/sideways support and searches in both travel directions.
 

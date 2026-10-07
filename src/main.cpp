@@ -536,7 +536,8 @@ class Runtime {
         layer->m_player2 = clones[1];
         LandingSchedule schedule(plan.landingDelay, clones[0]->m_isOnGround);
         out.hasRealized = true;
-        const bool landingRollout = landingMode(clones[0]) || (dual && landingMode(clones[1]));
+        const bool landingRollout = modePolicy(modeState(clones[0]).mode).mustLand ||
+            (dual && modePolicy(modeState(clones[1]).mode).mustLand);
         std::array<bool, 2> safeLanding{};
         const int limit =
             landingRollout ? std::clamp(std::max(plan.length, cubeTailCap), plan.length, MaxHorizon)
@@ -591,7 +592,7 @@ class Runtime {
             for (int i = 0; i < players; ++i) {
                 auto *cp = clones[i].data();
                 const auto cm = modeState(cp).controlMode();
-                if ((cm != PlannerMode::Cube || !pulseMode) && t < plan.length &&
+                if (t < plan.length &&
                     controlOpportunity(cm, cp->m_isOnGround, touchingUsableOrb(cp)))
                     out.controlActions.push_back({t, cm});
             }
@@ -1183,7 +1184,8 @@ class Runtime {
         fastConfig.budgetMs = std::min(
             {searchConfig.budgetMs, (nearAction ? .90 : .55) * loadScale,
              hardPlannerCap * .36});
-        const bool landingPlanning = landingMode(p) || (liveDual && landingMode(layer->m_player2));
+        const bool landingPlanning = modePolicy(liveModes[0].mode).mustLand ||
+            (liveDual && modePolicy(liveModes[1].mode).mustLand);
         const int fastTailCap = landingPlanning ? (nearAction ? 180 : 120) : fastConfig.horizon;
 
         auto fast = fastController.decide(

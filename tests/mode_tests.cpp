@@ -121,6 +121,19 @@ int main() {
         });
         check(!d.hasValidatedInput,"secondary unsafe landing rejects shared dual action");
     }
+    {
+        // Dash releases into cube physics without a vehicle portal. Repairs
+        // must follow the observed new control mode rather than the start mode.
+        Controller bot;auto c=config(PlannerMode::Dash);
+        auto d=bot.decide(c,false,[&](Plan const&p,auto){
+            Evaluation e;e.clearance=e.nearClearance=40;e.robustness=1;
+            e.controlActions={{0,PlannerMode::Dash},{27,PlannerMode::Cube},{69,PlannerMode::Cube}};
+            e.survived=!p.at(0)?1:p.at(8)?32:
+                !(p.at(27)&&!p.at(26))?51:!(p.at(69)&&!p.at(68))?93:c.horizon;
+            e.died=e.survived<c.horizon;e.firstActionVerified=!e.died;return e;
+        });
+        check(d.completeContinuation,"dash release followed by cube input opportunities");
+    }
     auto b=landingFrame({10,20,30,40},false,true);
     check(b.minX==10 && b.minY==-40 && b.maxY==-20,"inverted supporting surface");
     b=landingFrame({10,20,30,40},true,false);
