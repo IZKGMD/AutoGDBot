@@ -196,6 +196,81 @@ int main() {
     }
     require(foundTwoPulse, "cube planner must propose takeoff-plus-orb two-pulse routes");
 
+    Config orbWindowCfg = ledgeCfg;
+    orbWindowCfg.horizon = 144;
+    orbWindowCfg.orbEventCount = 0;
+    seedOrbContactEvents(orbWindowCfg, {40, 50, 70, 80}, 1.3f, orb);
+    require(orbWindowCfg.orbEventCount >= 5,
+            "orb planner must expose a contact window rather than one guessed center tick");
+
+    Controller nativeOrb;
+    Config nativeOrbCfg;
+    nativeOrbCfg.horizon = 96;
+    nativeOrbCfg.candidates = 64;
+    nativeOrbCfg.budgetMs = 8;
+    nativeOrbCfg.cubePulsePlanning = true;
+    auto nativeOrbEval = [](Plan const &p, Clock::time_point) {
+        Evaluation e;
+        if (p.at(40)) {
+            e.survived = p.length;
+            e.firstActionVerified = true;
+            return e;
+        }
+        e.survived = 70;
+        e.died = true;
+        e.firstActionVerified = true;
+        e.orbActions.push_back(40);
+        return e;
+    };
+    auto nativeOrbDecision = nativeOrb.decide(nativeOrbCfg, false, nativeOrbEval);
+    require(nativeOrbDecision.hasValidatedInput && !nativeOrbDecision.down &&
+                nativeOrbDecision.plan.at(40) && !nativeOrbDecision.selected.died,
+            "rejected rollout must branch at the native-confirmed orb contact tick");
+
+    Controller liveOrb;
+    Config liveOrbCfg = nativeOrbCfg;
+    liveOrbCfg.immediateOrb = true;
+    auto liveOrbEval = [](Plan const &p, Clock::time_point) {
+        Evaluation e;
+        e.survived = p.length;
+        e.firstActionVerified = true;
+        e.clearance = 20;
+        e.robustness = 1.f;
+        return e;
+    };
+    auto liveOrbDecision = liveOrb.decide(liveOrbCfg, false, liveOrbEval);
+    require(liveOrbDecision.hasValidatedInput && liveOrbDecision.down,
+            "when already touching an orb, PRESS NOW must be compared and win an equal safe tie");
+
+    Controller orbChain;
+    Config orbChainCfg;
+    orbChainCfg.horizon = 120;
+    orbChainCfg.candidates = 96;
+    orbChainCfg.budgetMs = 8;
+    orbChainCfg.cubePulsePlanning = true;
+    auto orbChainEval = [](Plan const &p, Clock::time_point) {
+        Evaluation e;
+        e.firstActionVerified = true;
+        if (!p.at(37)) {
+            e.survived = 58;
+            e.died = true;
+            e.orbActions.push_back(37);
+            return e;
+        }
+        if (!p.at(83)) {
+            e.survived = 104;
+            e.died = true;
+            e.orbActions.push_back(83);
+            return e;
+        }
+        e.survived = p.length;
+        return e;
+    };
+    auto orbChainDecision = orbChain.decide(orbChainCfg, false, orbChainEval);
+    require(orbChainDecision.hasValidatedInput && orbChainDecision.plan.at(37) &&
+                orbChainDecision.plan.at(83) && !orbChainDecision.selected.died,
+            "native event expansion must discover a two-orb chain without precomputed orb ticks");
+
     Config stairCfg = ledgeCfg;
     stairCfg.horizon = 216;
     stairCfg.candidates = 64;

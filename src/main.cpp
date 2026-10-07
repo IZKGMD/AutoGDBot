@@ -216,18 +216,19 @@ static bool cubePulseMode(PlayerObject *p1, PlayerObject *p2, bool dual) {
     return p1 && mode(p1) == 0 && !p1->m_isDashing &&
            (!dual || (p2 && mode(p2) == 0 && !p2->m_isDashing));
 }
-static bool cubeCanPress(PlayerObject *p) {
-    if (!p)
+static bool touchingUsableOrb(PlayerObject *p) {
+    if (!p || !p->m_touchingRings)
         return false;
-    if (p->m_isOnGround)
-        return true;
-    if (p->m_touchingRings)
-        for (unsigned i = 0; i < p->m_touchingRings->count(); ++i) {
-            auto *o = static_cast<GameObject *>(p->m_touchingRings->objectAtIndex(i));
-            if (o && !o->m_isDisabled && !o->m_isDisabled2 && !o->m_isActivated)
-                return true;
-        }
+    for (unsigned i = 0; i < p->m_touchingRings->count(); ++i) {
+        auto *o = static_cast<GameObject *>(p->m_touchingRings->objectAtIndex(i));
+        if (o && orbObject(o->m_objectType) && !o->m_isDisabled && !o->m_isDisabled2 &&
+            !o->m_isActivated)
+            return true;
+    }
     return false;
+}
+static bool cubeCanPress(PlayerObject *p) {
+    return p && (p->m_isOnGround || touchingUsableOrb(p));
 }
 struct Settings {
     bool enabled = false, gpu = true, telemetry = false;
@@ -413,7 +414,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.6.1.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.7.0.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -477,9 +478,13 @@ class Runtime {
                 break;
             }
             bool pulseMode = cubePulseMode(clones[0], clones[1], dual);
+            const bool orbContact =
+                touchingUsableOrb(clones[0]) || (dual && touchingUsableOrb(clones[1]));
             bool canPress = cubeCanPress(clones[0]) || (dual && cubeCanPress(clones[1]));
             if (pulseMode && clones[0]->m_isOnGround && !pulse.mustRelease())
                 out.groundedActions.push_back(t);
+            if (pulseMode && orbContact && !pulse.mustRelease())
+                out.orbActions.push_back(t);
             const bool requested = schedule.request(t < plan.length && plan.at(t),
                 clones[0]->m_isOnGround, pulse.mustRelease(), pulseMode && t < plan.length);
             bool down = pulse.command(requested, pulseMode, canPress);
@@ -718,6 +723,9 @@ class Runtime {
         positionValid = true;
         predictionError = error;
         bool pulseMode = cubePulseMode(p, layer->m_player2, layer->m_gameState.m_isDualMode);
+        const bool touchingOrb =
+            touchingUsableOrb(p) ||
+            (layer->m_gameState.m_isDualMode && touchingUsableOrb(layer->m_player2));
         bool canPress =
             cubeCanPress(p) || (layer->m_gameState.m_isDualMode && cubeCanPress(layer->m_player2));
         // Observe game state and release input every tick. Heavy prediction is
@@ -848,6 +856,7 @@ class Runtime {
         Config searchConfig = settings.config;
         searchConfig.forceRelease = pulseMode && (cubePulse.mustRelease() || !canPress);
         searchConfig.cubePulsePlanning = pulseMode;
+        searchConfig.immediateOrb = pulseMode && touchingOrb && !cubePulse.mustRelease();
         if (mode(p) == 0) {
             // Keep planning while the cube is still on safe ground. The longer
             // rolling horizon sees the edge/gap/orb before the takeoff is urgent.
@@ -856,6 +865,12 @@ class Runtime {
             searchConfig.budgetMs = std::max(searchConfig.budgetMs, nearAction ? 3.5 : 1.35);
             if (nearAction)
                 searchConfig.candidates = std::max(searchConfig.candidates, 96);
+            if (searchConfig.immediateOrb) {
+                // Orb contact windows are only a few physics ticks wide. Spend
+                // the full local budget here and compare PRESS NOW vs SKIP first.
+                searchConfig.candidates = 96;
+                searchConfig.budgetMs = std::max(searchConfig.budgetMs, 4.5);
+            }
         }
         // Cache frozen-world geometry once per tick. Candidate steps query the
         // sorted bounds without repeatedly calling native object functions.
@@ -876,7 +891,7 @@ class Runtime {
         routeHandoff = {};
         routeJumpEvents = 0;
         routeOrbEvents = 0;
-        if (pulseMode && canPress) {
+        if (pulseMode) {
             std::vector<Bounds> solids;
             std::vector<Bounds> orbs;
             std::vector<Bounds> boundaries;
@@ -916,23 +931,33 @@ class Runtime {
             int players = layer->m_gameState.m_isDualMode ? 2 : 1;
             for (int i = 0; i < players; ++i) {
                 auto *real = i == 0 ? p : layer->m_player2;
-                if (real && real->m_isOnGround) {
+                if (!real)
+                    continue;
+
+                auto pr = real->getObjectRect();
+                seedOrbContactEvents(
+                    searchConfig,
+                    {pr.getMinX(), pr.getMinY(), pr.getMaxX(), pr.getMaxY()},
+                    travelSteps[i].x, orbs);
+
+                if (real->m_isOnGround) {
                     auto gap = seedCubeEvents(searchConfig, real->getPositionX(),
-                                              real->getObjectRect().getMinY(), travelSteps[i].x,
+                                              pr.getMinY(), travelSteps[i].x,
                                               solids, guardBounds, orbs);
-                    if (i == 0) {
+                    if (i == 0)
                         routeGap = gap;
-                        auto pr = real->getObjectRect();
-                        routeHandoff = seedBoundaryHandoff(
-                            searchConfig,
-                            {pr.getMinX(), pr.getMinY(), pr.getMaxX(), pr.getMaxY()},
-                            travelSteps[i].x, solids, guardBounds, boundaries,
-                            real->m_isUpsideDown);
-                        if (routeHandoff.found) {
-                            guardBounds.push_back(routeHandoff.gate);
-                            searchConfig.candidates = std::max(searchConfig.candidates, 96);
-                            searchConfig.budgetMs = std::max(searchConfig.budgetMs, 3.5);
-                        }
+                }
+
+                if (i == 0 && real->m_isOnGround) {
+                    routeHandoff = seedBoundaryHandoff(
+                        searchConfig,
+                        {pr.getMinX(), pr.getMinY(), pr.getMaxX(), pr.getMaxY()},
+                        travelSteps[i].x, solids, guardBounds, boundaries,
+                        real->m_isUpsideDown);
+                    if (routeHandoff.found) {
+                        guardBounds.push_back(routeHandoff.gate);
+                        searchConfig.candidates = std::max(searchConfig.candidates, 96);
+                        searchConfig.budgetMs = std::max(searchConfig.budgetMs, 3.5);
                     }
                 }
             }
@@ -1046,12 +1071,12 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.6.1 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
+                "AutoGDBot 0.7.0 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
                 "error={:.2f} | guard={} | light={} | reflex={} | forecast={} | landing={}\n"
-                "route: jumps={} orbs={} gap={} handoff={} | rejected={} | order={}{}\n"
+                "route: jumps={} orbs={} touch={} gap={} handoff={} | rejected={} | order={}{}\n"
                 "failure: best={} deaths={} landing={} timeout={} | landings={}\n"
                 "native: U={}/{} C={} saw={} mismatch={}\n{}",
                 message, decision.elapsedMs, totalMs, decision.candidates, decision.predictedTicks,
@@ -1068,8 +1093,9 @@ class Runtime {
                 decision.selected.requiresLanding
                     ? (decision.selected.landingVerified ? "OK" : "NO")
                     : "n/a",
-                routeJumpEvents, routeOrbEvents, routeGap.found ? "YES" : "no",
-                routeHandoff.found ? "GUARD" : "no", decision.rejectedUnsafe,
+                routeJumpEvents, routeOrbEvents, touchingUsableOrb(layer->m_player1) ? "ORB" : "no",
+                routeGap.found ? "YES" : "no", routeHandoff.found ? "GUARD" : "no",
+                decision.rejectedUnsafe,
                 physicsOrder.collisionFirst ? "C-U" : "U-C",
                 physicsOrder.measured ? "*" : "?", decision.bestRejectedTicks,
                 decision.deaths, decision.landingRejects, decision.interruptions,
