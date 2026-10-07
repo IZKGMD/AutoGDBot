@@ -742,8 +742,10 @@ class Runtime {
             error = std::hypot(p->getPositionX() - predicted.x, p->getPositionY() - predicted.y);
         }
         if (lastMode != mode(p) ||
-            (positionValid && std::abs(p->getPositionX() - lastPosition.x) > 40) || error > 2.0f)
-            controller.reset(), fastController.reset();
+            (positionValid && std::abs(p->getPositionX() - lastPosition.x) > 40) || error > 2.0f) {
+            controller.reset();
+            fastController.reset();
+        }
         lastMode = mode(p);
         lastPosition = p->getPosition();
         positionValid = true;
