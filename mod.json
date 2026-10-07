@@ -6,11 +6,11 @@
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v0.6.0",
+  "version": "v0.6.1",
   "developers": [
     "AutoGDBot"
   ],
-  "description": "First-attempt realtime native-physics controller with touchdown-aware replanning, deterministic action coverage and certified trajectories.",
+  "description": "Realtime native-physics controller with wall anticipation, portal-handoff safety gates and certified trajectories.",
   "tags": [
     "gameplay",
     "utility",

@@ -13,6 +13,23 @@ struct GapHint {
     int edgeTick = -1;
 };
 
+struct WallHint {
+    bool found = false;
+    float faceX = 0;
+    float topY = 0;
+    int faceTick = -1;
+};
+
+struct BoundaryHandoffHint {
+    bool found = false;
+    Bounds gate{};
+    float boundaryX = 0;
+    float obstacleX = 0;
+    float obstacleTopY = 0;
+    int boundaryTick = -1;
+    int obstacleTick = -1;
+};
+
 inline void addJumpEvent(Config &cfg, int tick) {
     if (tick < 0 || tick >= cfg.horizon || cfg.jumpEventCount >= int(cfg.jumpEvents.size()))
         return;
@@ -37,6 +54,119 @@ inline void addLandingEvent(Config &cfg, int tick) {
         if (std::abs(cfg.landingEvents[i] - tick) <= 2)
             return;
     cfg.landingEvents[cfg.landingEventCount++] = tick;
+}
+
+inline WallHint seedForwardWallEvents(Config &cfg, float x, float footY, float dx,
+                                       std::span<Bounds const> solids) {
+    WallHint out;
+    if (!std::isfinite(dx) || std::abs(dx) < .0001f)
+        return out;
+    const float direction = dx > 0 ? 1.f : -1.f;
+    const float speed = std::abs(dx);
+    float bestDistance = std::numeric_limits<float>::infinity();
+    for (auto b : solids) {
+        // Only a solid whose front face intersects the cube's normal standing
+        // band is a wall. Raised platforms are handled by landing hints.
+        if (b.maxY <= footY + 5.f || b.minY >= footY + 38.f)
+            continue;
+        const float face = dx > 0 ? b.minX : b.maxX;
+        const float distance = (face - x) * direction;
+        if (distance <= 4.f || distance >= bestDistance)
+            continue;
+        bestDistance = distance;
+        out.found = true;
+        out.faceX = face;
+        out.topY = b.maxY;
+    }
+    if (!out.found)
+        return out;
+
+    out.faceTick = int(std::floor(bestDistance / speed));
+    // Front-face collisions need more lead than a landing-center estimate.
+    // Put the wall timings at the front of the geometry queue so they cannot
+    // be starved by later gap/orb refinements.
+    for (int lead : {48, 56, 40, 64, 32, 72, 24, 80, 96})
+        addJumpEvent(cfg, out.faceTick - lead);
+    return out;
+}
+
+// A portal can truncate native rollout one step before a solid/hazard that is
+// too close to react to after the transition. Build a virtual clearance gate
+// on the approach side: a candidate may cross only if it is already high
+// enough to clear the immediately following obstacle.
+inline BoundaryHandoffHint seedBoundaryHandoff(
+    Config &cfg, Bounds player, float dx, std::span<Bounds const> solids,
+    std::span<Bounds const> hazards, std::span<Bounds const> boundaries,
+    bool upsideDown = false) {
+    BoundaryHandoffHint out;
+    if (upsideDown || !std::isfinite(dx) || std::abs(dx) < .0001f)
+        return out;
+
+    const float direction = dx > 0 ? 1.f : -1.f;
+    const float speed = std::abs(dx);
+    const float x = (player.minX + player.maxX) * .5f;
+
+    float boundaryDistance = std::numeric_limits<float>::infinity();
+    float boundaryFace = 0;
+    for (auto b : boundaries) {
+        const float face = dx > 0 ? b.minX : b.maxX;
+        const float distance = (face - x) * direction;
+        if (distance > 2.f && distance < boundaryDistance) {
+            boundaryDistance = distance;
+            boundaryFace = face;
+        }
+    }
+    if (!std::isfinite(boundaryDistance))
+        return out;
+
+    const float maxRunway = std::clamp(speed * 48.f, 46.f, 78.f);
+    float bestRunway = std::numeric_limits<float>::infinity();
+    float obstacleFace = 0, obstacleTop = 0;
+    auto consider = [&](Bounds b, bool solid) {
+        const float face = dx > 0 ? b.minX : b.maxX;
+        const float runway = (face - boundaryFace) * direction;
+        if (runway < -4.f || runway > maxRunway || runway >= bestRunway)
+            return;
+        const bool verticalThreat =
+            solid ? (b.maxY > player.minY + 5.f && b.minY < player.maxY + 10.f)
+                  : (b.maxY > player.minY && b.minY < player.maxY + 42.f);
+        if (!verticalThreat)
+            return;
+        bestRunway = runway;
+        obstacleFace = face;
+        obstacleTop = b.maxY;
+    };
+    for (auto b : solids)
+        consider(b, true);
+    for (auto b : hazards)
+        consider(b, false);
+    if (!std::isfinite(bestRunway))
+        return out;
+
+    out.found = true;
+    out.boundaryX = boundaryFace;
+    out.obstacleX = obstacleFace;
+    out.obstacleTopY = obstacleTop;
+    out.boundaryTick = int(std::floor(boundaryDistance / speed));
+    out.obstacleTick =
+        int(std::floor(((obstacleFace - x) * direction) / speed));
+
+    // These candidates all begin early enough that the portal handoff can
+    // already have vertical clearance. The virtual gate below rejects the
+    // late members if native physics says they are still too low.
+    for (int lead : {32, 40, 48, 56, 64, 72, 80, 96}) {
+        const int tick = out.obstacleTick - lead;
+        if (tick >= 0 && tick <= out.boundaryTick - 2)
+            addJumpEvent(cfg, tick);
+    }
+
+    const float gateX = boundaryFace - direction * 1.5f;
+    const float half = 1.5f;
+    out.gate.minX = gateX - half;
+    out.gate.maxX = gateX + half;
+    out.gate.minY = player.minY - 220.f;
+    out.gate.maxY = obstacleTop + 2.f;
+    return out;
 }
 
 inline GapHint findForwardGap(float x, float footY, float dx, std::span<Bounds const> solids,
@@ -114,6 +244,11 @@ inline GapHint seedCubeEvents(Config &cfg, float x, float footY, float dx,
     GapHint gap;
     if (!std::isfinite(dx) || std::abs(dx) < .0001f)
         return gap;
+
+    // Front-face walls are a distinct action class. Seed them before support,
+    // gap, hazard and orb refinements so a nearby block never loses its only
+    // safe takeoff window to the candidate cap.
+    seedForwardWallEvents(cfg, x, footY, dx, solids);
 
     std::vector<Bounds> support;
     for (auto b : solids)
