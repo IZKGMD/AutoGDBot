@@ -29,6 +29,11 @@ class FlightCertificate {
 };
 // Learn the native order from real calls in the previous command interval.
 // The source state is captured at the same command boundary as live input.
+inline bool landingDecisionSafe(int runwayTicks, int requiredTicks,
+                                bool collidingLeft, bool collidingRight) {
+    return !collidingLeft && !collidingRight && runwayTicks >= requiredTicks;
+}
+
 class PhysicsOrder {
     bool seenCollision_ = false, seenUpdate_ = false;
   public:
