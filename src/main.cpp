@@ -1050,7 +1050,6 @@ class Runtime {
                         travelSteps[i].x, solids, guardBounds, boundaries,
                         real->m_isUpsideDown);
                     if (routeHandoff.found) {
-                        guardBounds.push_back(routeHandoff.gate);
                         searchConfig.candidates = std::max(searchConfig.candidates, 96);
                         searchConfig.budgetMs = std::max(searchConfig.budgetMs, 3.5);
                     }
@@ -1060,6 +1059,8 @@ class Runtime {
             routeOrbEvents = searchConfig.orbEventCount;
         }
         hazardGuard.set(guardBounds);
+        if (routeHandoff.found)
+            hazardGuard.addExact(routeHandoff.gate);
         auto priorities = settings.gpu ? gpu.poll() : std::vector<float>{};
 
         // Keep the controller inside a fraction of the actual physics-step
