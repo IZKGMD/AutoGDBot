@@ -743,6 +743,34 @@ int main() {
             "a real state already inside the coarse hazard AABB must not be killed at tick zero");
     require(guard.hit({8, 2, 9, 3}, {9.4f, 2, 10.5f, 3}),
             "the same guard must still reject actually entering the hazard AABB");
+
+    Controller causeController;
+    Config causeCfg;
+    causeCfg.horizon = 48;
+    causeCfg.candidates = 8;
+    causeCfg.budgetMs = 8;
+    auto guardOnlyDeath = [](Plan const &, Clock::time_point) {
+        Evaluation e;
+        e.died = true;
+        e.guardDeath = true;
+        return e;
+    };
+    auto guardCollapse = causeController.decide(causeCfg, false, guardOnlyDeath);
+    require(!guardCollapse.hasValidatedInput &&
+                guardCollapse.guardDeaths == guardCollapse.deaths &&
+                guardCollapse.nativeDeaths == 0,
+            "planner diagnostics must identify an all-guard zero-tick collapse");
+    causeController.reset();
+    auto nativeOnlyDeath = [](Plan const &, Clock::time_point) {
+        Evaluation e;
+        e.died = true;
+        e.nativeDeath = true;
+        return e;
+    };
+    auto nativeCollapse = causeController.decide(causeCfg, false, nativeOnlyDeath);
+    require(nativeCollapse.nativeDeaths == nativeCollapse.deaths &&
+                nativeCollapse.guardDeaths == 0,
+            "native collision deaths must remain distinct from guard false positives");
     guard.set({{4, 8, 8, 15}});
     int rejected = 0;
     auto missedNativeCollision = [&](Plan const &plan, Clock::time_point deadline) {
