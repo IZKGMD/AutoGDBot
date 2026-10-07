@@ -88,7 +88,8 @@ inline void seedOrbContactEvents(Config &cfg, Bounds player, float dx,
         addOrbEvent(cfg, begin);
         addOrbEvent(cfg, (begin + end) / 2);
         addOrbEvent(cfg, end);
-        for (int t = begin + 1; t < end; ++t)
+        const int stride = std::max(1, (end - begin) / 8);
+        for (int t = begin + stride; t < end; t += stride)
             addOrbEvent(cfg, t);
     }
 }
