@@ -14,6 +14,8 @@ class VerifiedInputQueue {
     bool dual_ = false;
     bool motionProof_ = false;
     bool modeProof_ = false;
+    int proofKind_ = 0;
+    bool forecastDied_ = false, forecastInterrupted_ = false;
   public:
     void reset() { cursor_ = checked_ = 0; }
     bool seed(Decision const &d, std::array<ModeState, 2> states, bool dual, double dt) {
@@ -33,6 +35,9 @@ class VerifiedInputQueue {
         if (!modeProof_ && !d.selected.transitions.empty()) { reset(); return false; }
         plan_ = d.plan;
         evaluation_ = d.selected;
+        proofKind_ = d.proofKind;
+        forecastDied_ = d.forecastDied;
+        forecastInterrupted_ = d.forecastInterrupted;
         states_ = states; dual_ = dual; dt_ = dt;
         return true;
     }
@@ -45,7 +50,7 @@ class VerifiedInputQueue {
                 return false;
             auto expected = evaluation_.traces[i][cursor_];
             if (!std::isfinite(real[i].x) || !std::isfinite(real[i].y) ||
-                std::hypot(real[i].x - expected.x, real[i].y - expected.y) > .75f) return false;
+                std::hypot(real[i].x - expected.x, real[i].y - expected.y) > .25f) return false;
             if (motionProof_ && (!motion || !evaluation_.motions[i][cursor_].matches((*motion)[i])))
                 return false;
         }
@@ -62,6 +67,9 @@ class VerifiedInputQueue {
         Decision d;
         if (remaining() <= 0) return d;
         d.down = down(); d.hasValidatedInput = true; d.recedingCertificate = true;
+        d.proofKind = proofKind_;
+        d.forecastDied = forecastDied_;
+        d.forecastInterrupted = forecastInterrupted_;
         d.certificateTicks = d.predictedTicks = remaining();
         d.plan.length = remaining();
         for (int t = 0; t < remaining(); ++t) d.plan.buttons[t] = plan_.at(cursor_ + t);

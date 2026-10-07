@@ -1,6 +1,8 @@
 # v0.21.1: early cube jumps and missing block continuation
 
-## Evidence from the supplied v0.21.0 recording
+## Historical recording (v0.4, corrected by the user)
+
+Correction: the user identified this recording as **v0.4**. Earlier attribution to v0.21.0 was wrong. The observations below cannot establish a regression in v0.21.0 or v0.21.1. Source fixture results are separate evidence.
 
 The recording `2026-10-07 21-28-25.mp4` lasts 18.75 seconds at 60 FPS. In its second gameplay segment, the cube makes two early jumps on open floor, lands before the first low block, then dies against that block's side at approximately 14.5 seconds. This failure precedes any portal. Rapid menu changes make the displayed level names unsuitable for identifying this segment conclusively.
 
@@ -32,3 +34,4 @@ The first three defects were independently reproduced against `8eec8da4bb7e37b81
 - Android64 and Windows x64 Release packages are built with the existing pinned GD 2.2081 / Geode 5.10.1 toolchain. Package metadata, CRC, included binary identity, architecture, loader entry and gdsolver MIT notice are checked.
 
 Native installation and a new complete game attempt have not been run. No near-100% success rate or real-time device performance is claimed. The existing frozen-future-world and unsupported portal-frame limitations remain documented in GDSOLVER_REVIEW.md.
+

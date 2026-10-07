@@ -23,7 +23,7 @@ struct MotionSample {
     uint64_t usedInteractions = 0;
     bool matches(MotionSample const &other) const {
         return std::isfinite(velocity) && std::isfinite(other.velocity) &&
-            std::abs(velocity - other.velocity) <= .04 && canJump == other.canJump &&
+            std::abs(velocity - other.velocity) <= .02 && canJump == other.canJump &&
             grounded == other.grounded && buffered == other.buffered && ringUnused == other.ringUnused &&
             usedInteractions == other.usedInteractions;
     }
@@ -43,6 +43,8 @@ struct Evaluation {
     int survived = 0;
     int groundedPrefixTicks = 0; // contiguous native-confirmed UP + ground for both players
     int cubeTakeoffs = 0; // input-caused native ground-to-air transitions
+    int supportLossTick = -1; // first native grounded-to-air transition without a press
+    int cacheResumeTicks=0;
     bool died = false;
     bool guardDeath = false;
     bool nativeDeath = false;
@@ -93,6 +95,7 @@ inline void advanceEvaluation(Evaluation &e, int ticks=1) {
     for(auto *v:{&e.controlActions,&e.transitions}){
         for(auto &o:*v)o.tick-=ticks;std::erase_if(*v,[](auto o){return o.tick<0;});
     }
+    e.supportLossTick=e.supportLossTick>=ticks?e.supportLossTick-ticks:-1;
     e.survived-=ticks;e.groundedPrefixTicks=std::max(0,e.groundedPrefixTicks-ticks);
     e.firstLandingTick=e.firstLandingTick>=ticks?e.firstLandingTick-ticks:-1;
     const int length=std::max(0,e.realized.length-ticks);
@@ -124,6 +127,9 @@ struct Config {
     int landingEventCount = 0;
 };
 struct Decision {
+    bool forecastDied=false, forecastInterrupted=false;
+    int proofKind=0;
+    int coldVerificationTicks=0,cacheMismatches=0;
     bool down = false, hasValidatedInput = false, exhausted = false;
     bool completeContinuation = false;
     bool recedingCertificate = false;
@@ -161,6 +167,8 @@ inline void retainSearchDiagnostics(Decision &queued, Decision const &search) {
     queued.candidates = search.candidates;
     queued.repairsCreated = search.repairsCreated;
     queued.repairsTested = search.repairsTested;
+    queued.coldVerificationTicks = search.coldVerificationTicks;
+    queued.cacheMismatches = search.cacheMismatches;
     queued.firstActionCandidates = search.firstActionCandidates;
     queued.elapsedMs = search.elapsedMs;
     queued.rejectedUnsafe = search.rejectedUnsafe;
