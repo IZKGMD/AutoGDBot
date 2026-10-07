@@ -6,11 +6,11 @@
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v0.11.1",
+  "version": "v0.12.0",
   "developers": [
     "AutoGDBot"
   ],
-  "description": "Tiered realtime native-physics MPC with entry-only hazard guarding, native fallback for zero-tick guard collapses and multi-mode control.",
+  "description": "Realtime native-physics MPC with robust orb discovery, reaction-runway landing certificates, tiered search and multi-mode control.",
   "tags": [
     "gameplay",
     "utility",

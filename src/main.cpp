@@ -134,14 +134,14 @@ struct SimulationContext {
 };
 static SimulationContext sim;
 static bool injected = false;
-static bool physicsObject(GameObjectType t) {
-    return isClonePhysicsType(t);
+static bool physicsObject(GameObject *o) {
+    return isClonePhysicsObject(o);
 }
-static bool padObject(GameObjectType t) {
-    return isPadType(t);
+static bool padObject(GameObject *o) {
+    return isPadObject(o);
 }
-static bool orbObject(GameObjectType t) {
-    return isOrbType(t);
+static bool orbObject(GameObject *o) {
+    return isOrbObject(o);
 }
 static bool boundaryObject(GameObject *o) {
     return isForecastBoundary(o);
@@ -165,7 +165,7 @@ static bool touchingUsableOrb(PlayerObject *p) {
         return false;
     for (unsigned i = 0; i < p->m_touchingRings->count(); ++i) {
         auto *o = static_cast<GameObject *>(p->m_touchingRings->objectAtIndex(i));
-        if (o && orbObject(o->m_objectType) && !o->m_isDisabled && !o->m_isDisabled2 &&
+        if (o && orbObject(o) && !o->m_isDisabled && !o->m_isDisabled2 &&
             !o->m_isActivated)
             return true;
     }
@@ -221,6 +221,7 @@ class Runtime {
     TraceNode *draw = nullptr;
     CCLabelBMFont *label = nullptr;
     SemanticMap semantic;
+    bool semanticReady = false;
     std::vector<std::pair<float, GameObject *>> hintObjects;
     std::vector<std::pair<float, GameObject *>> hintSolids;
     std::vector<std::pair<float, GameObject *>> hintOrbs;
@@ -252,14 +253,18 @@ class Runtime {
     std::string message = "Autopilot off";
     std::string plannerStage = "IDLE";
     std::vector<std::string> csv;
-    void init(PlayLayer *pl) {
-        layer = pl;
-        settings.read();
-        semantic.build(pl);
+    void refreshSemantic() {
+        semantic.build(layer);
         hintObjects = semantic.hazards();
         hintSolids = semantic.solids();
         hintOrbs = semantic.orbs();
         hintControls = semantic.controlObjects();
+        semanticReady = true;
+    }
+    void init(PlayLayer *pl) {
+        layer = pl;
+        settings.read();
+        refreshSemantic();
         for (int i = 0; i < 2; ++i) {
             auto *p = PlayerObject::create(1, 1, pl, pl, true);
             if (!p)
@@ -319,7 +324,7 @@ class Runtime {
         for (auto it = first; it != hintOrbs.end() && it->first <= px + 90.f; ++it) {
             auto *o = it->second;
             if (!o || o->m_isDisabled || o->m_isDisabled2 || o->m_isActivated ||
-                !orbObject(o->m_objectType))
+                !orbObject(o))
                 continue;
             auto r = o->getObjectRect();
             if (maxX >= r.getMinX() - 8.f && minX <= r.getMaxX() + 8.f &&
@@ -328,6 +333,75 @@ class Runtime {
         }
         return false;
     }
+
+    int landingRunwayTicks(PlayerObject *p, float dx) const {
+        if (!p || !std::isfinite(dx) || std::abs(dx) < .0001f)
+            return MaxHorizon;
+        auto pr = p->getObjectRect(.35f, .35f);
+        const float footY = pr.getMinY();
+        const float dir = dx > 0 ? 1.f : -1.f;
+        const float speed = std::abs(dx);
+        float best = std::numeric_limits<float>::infinity();
+
+        std::vector<std::pair<float, float>> support;
+        const float px = p->getPositionX();
+        auto first = std::lower_bound(
+            hintSolids.begin(), hintSolids.end(), px - 240.f,
+            [](auto const &a, float x) { return a.first < x; });
+        for (auto it = first; it != hintSolids.end() && it->first <= px + 240.f; ++it) {
+            auto *o = it->second;
+            if (!o || o->m_isDisabled || o->m_isDisabled2)
+                continue;
+            auto r = o->getObjectRect();
+            if (std::abs(r.getMaxY() - footY) <= 5.f)
+                support.emplace_back(r.getMinX(), r.getMaxX());
+        }
+        std::sort(support.begin(), support.end());
+        std::vector<std::pair<float, float>> merged;
+        for (auto span : support) {
+            if (!merged.empty() && span.first <= merged.back().second + 1.5f)
+                merged.back().second = std::max(merged.back().second, span.second);
+            else
+                merged.push_back(span);
+        }
+        for (auto span : merged) {
+            if (pr.getMaxX() < span.first || pr.getMinX() > span.second)
+                continue;
+            const float runway =
+                dx > 0 ? span.second - pr.getMaxX() : pr.getMinX() - span.first;
+            if (runway >= 0)
+                best = std::min(best, runway);
+        }
+
+        auto consider = [&](CCRect r, float extraY) {
+            if (r.getMaxY() <= pr.getMinY() + 3.f ||
+                r.getMinY() >= pr.getMaxY() + extraY)
+                return;
+            const float face = dx > 0 ? r.getMinX() : r.getMaxX();
+            const float lead = dx > 0 ? pr.getMaxX() : pr.getMinX();
+            const float dist = (face - lead) * dir;
+            if (dist > 2.f)
+                best = std::min(best, dist);
+        };
+        for (auto it = first; it != hintSolids.end() && it->first <= px + 240.f; ++it) {
+            auto *o = it->second;
+            if (o && !o->m_isDisabled && !o->m_isDisabled2)
+                consider(o->getObjectRect(), 8.f);
+        }
+        auto hz = std::lower_bound(
+            hintObjects.begin(), hintObjects.end(), px - 40.f,
+            [](auto const &a, float x) { return a.first < x; });
+        for (auto it = hz; it != hintObjects.end() && it->first <= px + 240.f; ++it) {
+            auto *o = it->second;
+            if (o && !o->m_isDisabled && !o->m_isDisabled2)
+                consider(o->getObjectRect(), 42.f);
+        }
+
+        if (!std::isfinite(best))
+            return MaxHorizon;
+        return std::clamp(int(std::floor(best / speed)), 0, MaxHorizon);
+    }
+
     void releaseLiveInput() {
         if (!layer)
             return;
@@ -399,7 +473,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.11.1.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.12.0.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -463,6 +537,8 @@ class Runtime {
         out.robustness = 1.f;
         const int nearClearanceTicks =
             std::clamp(int(std::ceil(.15 / std::max(0.001f, dt))), 8, 64);
+        const int landingReactionTicks =
+            std::clamp(int(std::ceil(.11 / std::max(0.001f, dt))), 18, 40);
         auto addOrbAction = [&](int tick) {
             if (tick < 0 || tick >= plan.length)
                 return;
@@ -485,12 +561,9 @@ class Runtime {
             if (pulseMode && clones[0]->m_isOnGround && !pulse.mustRelease())
                 out.groundedActions.push_back(t);
             if (pulseMode && orbContact && !pulse.mustRelease()) {
+                // Contact is an action opportunity, not a certificate. Reaching
+                // a ring does not prove that pressing/skipping it is safe.
                 addOrbAction(t);
-                // A ring already touching the real/clone player at t=0 is a
-                // decision that must be evaluated now, not a future handoff.
-                // Future contacts are safe replanning boundaries.
-                if (t > 0)
-                    out.decisionPoint = true;
             }
             const bool requested = schedule.request(t < plan.length && plan.at(t),
                 clones[0]->m_isOnGround, pulse.mustRelease(), pulseMode && t < plan.length);
@@ -537,7 +610,6 @@ class Runtime {
                 if (!down && touchingUsableOrb(p) && !pulse.mustRelease()) {
                     addOrbAction(t - 1);
                     addOrbAction(t);
-                    out.decisionPoint = true;
                 }
                 if (sim.dead[i] || p->m_isDead) {
                     out.died = true;
@@ -593,7 +665,6 @@ class Runtime {
                     flights[i].observe(groundedBefore[i], p->m_isOnGround, down);
                     if (!wasVerified && flights[i].verified()) {
                         if (i == 0) {
-                            out.decisionPoint = true;
                             auto pr = p->getObjectRect();
                             const float px = p->getPositionX();
                             std::vector<std::pair<float, float>> spans;
@@ -626,6 +697,16 @@ class Runtime {
                                 out.landingMargin =
                                     std::max(out.landingMargin, std::max(0.f, std::min(left, right)));
                             }
+                            out.landingRunwayTicks =
+                                landingRunwayTicks(p, travelSteps[i].x);
+                            // A stable touchdown is only a safe MPC handoff if
+                            // the next action still has reaction runway. This
+                            // rejects the Fingerdash failure where the rollout
+                            // stopped on the floor directly in front of a wall.
+                            if (landingDecisionSafe(
+                                    out.landingRunwayTicks, landingReactionTicks,
+                                    p->m_collidingWithLeft, p->m_collidingWithRight))
+                                out.decisionPoint = true;
                         }
                     }
                 }
@@ -704,6 +785,8 @@ class Runtime {
             return;
         }
         controlling = true;
+        if (!semanticReady || ticks == 0)
+            refreshSemantic();
         if (!wasEnabled) {
             botHeld = p->m_holdingButtons[1];
             controller.reset();
@@ -780,8 +863,7 @@ class Runtime {
              it != hintControls.end() && it->first <= px + 300.f; ++it) {
             auto *obj = it->second;
             if (obj && !obj->m_isDisabled && !obj->m_isDisabled2 &&
-                (boundaryObject(obj) || padObject(obj->m_objectType) ||
-                 orbObject(obj->m_objectType))) {
+                (boundaryObject(obj) || padObject(obj) || orbObject(obj))) {
                 nearAction = true;
                 break;
             }
@@ -1324,12 +1406,12 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.11.1 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
+                "AutoGDBot 0.12.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
-                "error={:.2f} | guard={} | light={} | reflex={} | forecast={} | landing={}\n"
-                "route: mode={} jumps={} orbs={} touch={} gap={} handoff={} | rejected={} | order={}{}\n"
+                "error={:.2f} | guard={} | light={} | reflex={} | forecast={} | landing={} runway={}\n"
+                "route: mode={} jumps={} orbs={} map-orbs={} touch={} gap={} handoff={} | rejected={} | order={}{}\n"
                 "failure: best={} deaths={} guard={} native={} landing={} timeout={} | landings={}\n"
                 "native: U={}/{} C={} saw={} mismatch={}\n{}",
                 message, plannerStage, decision.elapsedMs, totalMs, decision.candidates,
@@ -1351,7 +1433,9 @@ class Runtime {
                 decision.selected.requiresLanding
                     ? (decision.selected.landingVerified ? "OK" : "NO")
                     : "n/a",
+                decision.selected.landingRunwayTicks,
                 mode(layer->m_player1), routeJumpEvents, routeOrbEvents,
+                semantic.stats().counts[static_cast<size_t>(SemanticKind::Orb)],
                 touchingUsableOrb(layer->m_player1)
                     ? "ORB"
                     : (cubePulse.orbArmed() ? "ARM" : "no"),
@@ -1560,7 +1644,7 @@ class $modify(AGBBaseLayer, GJBaseGameLayer) {
                 continue;
             if (agb::boundaryObject(o) && p->getObjectRect().intersectsRect(o->getObjectRect()))
                 agb::sim.boundary = true;
-            if (agb::physicsObject(o->m_objectType)) {
+            if (agb::physicsObject(o)) {
                 agb::sim.save(o);
                 filtered.push_back(o);
             }

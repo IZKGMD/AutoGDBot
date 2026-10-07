@@ -45,6 +45,7 @@ struct Evaluation {
     float clearance = 0;
     float nearClearance = 0; // minimum hazard margin in the immediate control window
     float landingMargin = 0;
+    int landingRunwayTicks = 0;
     float robustness = 0;
     int buttonChanges = -1;
     bool firstActionVerified = true;
@@ -650,7 +651,8 @@ class Controller {
             // Event-driven expansion: if native clone physics actually touches
             // an orb on a rejected route, branch exactly at that contact tick.
             // This replaces fragile "orb X coordinate == press time" guessing.
-            if (cfg.cubePulsePlanning && e.died &&
+            if (cfg.cubePulsePlanning &&
+                (e.died || e.interrupted || !e.firstActionVerified) &&
                 !e.orbActions.empty() && e.survived >= furthestOrbFailure &&
                 int(plans.size()) < cfg.candidates) {
                 furthestOrbFailure = e.survived;

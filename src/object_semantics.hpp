@@ -36,6 +36,43 @@ inline bool isOrbType(GameObjectType t) {
     }
 }
 
+// Main-level fallback IDs. Old official levels occasionally surface objects
+// through a generic/legacy type path on some builds, while their object IDs are
+// stable. Keep this fallback intentionally small and limited to interaction
+// objects whose IDs are well established.
+inline bool isLegacyOrbId(int id) {
+    switch (id) {
+    case 36:   // yellow orb
+    case 84:   // blue/gravity orb
+    case 141:  // pink orb
+    case 1022: // green orb
+    case 1330: // drop/black orb
+    case 1333: // red/black ring family
+    case 1704: // dash orb
+    case 1751: // gravity dash orb
+        return true;
+    default:
+        return false;
+    }
+}
+inline bool isLegacyPadId(int id) {
+    switch (id) {
+    case 35:   // yellow pad
+    case 67:   // blue/gravity pad
+    case 140:  // pink pad
+    case 1332: // red pad
+        return true;
+    default:
+        return false;
+    }
+}
+inline bool isOrbObject(GameObject const *o) {
+    return o && (isOrbType(o->m_objectType) || isLegacyOrbId(o->m_objectID));
+}
+inline bool isPadObject(GameObject const *o) {
+    return o && (isPadType(o->m_objectType) || isLegacyPadId(o->m_objectID));
+}
+
 inline bool isPortalType(GameObjectType t) {
     switch (t) {
     case GameObjectType::InverseGravityPortal:
@@ -75,15 +112,17 @@ inline bool isForecastBoundary(GameObject const *o) {
 // Objects allowed through clone collision filtering. Every semantic orb must
 // reach native collision code; otherwise the planner can see a ring that the
 // clone can never activate.
-inline bool isClonePhysicsType(GameObjectType t) {
-    switch (t) {
+inline bool isClonePhysicsObject(GameObject const *o) {
+    if (!o)
+        return false;
+    switch (o->m_objectType) {
     case GameObjectType::Solid:
     case GameObjectType::Hazard:
     case GameObjectType::AnimatedHazard:
     case GameObjectType::Slope:
         return true;
     default:
-        return isPadType(t) || isOrbType(t);
+        return isPadObject(o) || isOrbObject(o);
     }
 }
 
