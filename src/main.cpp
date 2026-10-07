@@ -265,6 +265,8 @@ class Runtime {
     uint64_t orbAttempts = 0, orbHits = 0, padAttempts = 0, padHits = 0;
     uint64_t reflexJumps = 0;
     uint64_t lightTicks = 0;
+    uint64_t reanchors = 0;
+    uint64_t executionVetoes = 0;
     double totalMs = 0;
     bool telemetryPending = false;
     Clock::time_point redraw = Clock::now();
@@ -444,6 +446,8 @@ class Runtime {
         orbAttempts = orbHits = padAttempts = padHits = 0;
         reflexJumps = 0;
         lightTicks = 0;
+        reanchors = 0;
+        executionVetoes = 0;
         totalMs = 0;
         telemetryPending = false;
         geometryRejects = 0;
@@ -466,7 +470,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.20.0.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.19.0.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -837,11 +841,19 @@ class Runtime {
         std::array<ModeState, 2> liveModes{modeState(p), modeState(layer->m_player2)};
         const bool stateChanged = !modeStateValid || lastDual != liveDual ||
             lastModes[0] != liveModes[0] || (liveDual && lastModes[1] != liveModes[1]);
-        if (stateChanged ||
+        const bool reanchor =
+            stateChanged ||
             (positionValid && std::hypot(p->getPositionX() - lastPosition.x,
-                                        p->getPositionY() - lastPosition.y) > 40) || error > 2.0f) {
+                                        p->getPositionY() - lastPosition.y) > 40) ||
+            error > 1.25f;
+        if (reanchor) {
+            // Re-anchor immediately on the observed game state, like the
+            // verifier/repair loop in gdsolver. Candidate clones are seeded
+            // again below from the live player; no stale warm tail survives.
             controller.reset();
             fastController.reset();
+            inputQueue.reset();
+            ++reanchors;
             if (stateChanged) cubePulse.reset();
         }
         lastModes = liveModes;
@@ -1009,8 +1021,12 @@ class Runtime {
         searchConfig.plannerMode = liveModes[0].controlMode();
         searchConfig.dual = liveDual;
         searchConfig.secondaryMode = liveDual ? liveModes[1].controlMode() : PlannerMode::Generic;
-        searchConfig.compareFirstActions = !pulseMode ||
-            (nearAction && canPress && !searchConfig.forceRelease);
+        // Always reserve a witness for both immediate inputs whenever the
+        // current mode can actually choose. Previously open-ground cube ticks
+        // could accept the first safe-looking PRESS without ever proving that
+        // simply waiting was wider and safer.
+        searchConfig.compareFirstActions =
+            !searchConfig.forceRelease && (!pulseMode || canPress);
         searchConfig.immediateOrb =
             orbOpportunity && (!pulseMode || !cubePulse.mustRelease());
         if (liveMode == 0) {
@@ -1443,8 +1459,20 @@ class Runtime {
         if (dual && layer->m_player2)
             imminentOrb |= orbImminent(layer->m_player2, travelSteps[1]);
         bool canPress = cubeCanPress(layer->m_player1) || (dual && cubeCanPress(layer->m_player2));
+        const bool requestedDown = decision.down;
         bool down =
-            cubePulse.command(decision.down, pulseMode, canPress, imminentOrb, orbContact);
+            cubePulse.command(requestedDown, pulseMode, canPress, imminentOrb, orbContact);
+        // The executor is not allowed to invent a rising edge that the planner
+        // did not certify. This closes the trace/action split: if CubePulse
+        // rewrites UP -> DOWN for buffering, DOWN needs its own reachability
+        // witness from this exact snapshot or the press is vetoed.
+        if (pulseMode && down && !requestedDown && !decision.firstActionCertified[1]) {
+            down = false;
+            ++executionVetoes;
+            inputQueue.reset();
+            message = "BOT | uncertified press veto";
+            plannerStage = "EXEC-VETO";
+        }
         decision.down = down;
         const int players = layer->m_gameState.m_isDualMode ? 2 : 1;
         for (int i = 0; i < players; ++i) {
@@ -1474,7 +1502,7 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.20.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
+                "AutoGDBot 0.19.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={} | tested={}/{}\n"
