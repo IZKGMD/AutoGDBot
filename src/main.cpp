@@ -1703,16 +1703,6 @@ class $modify(AGBBaseLayer, GJBaseGameLayer) {
             return;
         GJBaseGameLayer::playerTouchedTrigger(p, o);
     }
-    void activateCustomRing(RingObject *o) {
-        if (agb::sim.active) {
-            // A custom orb can toggle arbitrary world geometry. Commit only
-            // to the contact; rebuild the local prediction after the real
-            // game executes its effect, without modifying the live world.
-            agb::sim.boundary = true;
-            return;
-        }
-        GJBaseGameLayer::activateCustomRing(o);
-    }
     void gameEventTriggered(GJGameEvent event, int material, int playerID) {
         if (agb::sim.active)
             return;
@@ -1735,6 +1725,13 @@ class $modify(AGBObject, GameObject) {
 };
 class $modify(AGBPlayer, PlayerObject) {
     void ringJump(RingObject *o, bool skipCheck) {
+        if (agb::sim.isClone(this) && o && o->m_objectType == GameObjectType::CustomRing) {
+            // activateCustomRing is inline on Windows and cannot be hooked.
+            // End this forecast before native group mutations; only the real
+            // player executes those effects, followed by live replanning.
+            agb::sim.boundary = true;
+            return;
+        }
         const auto velocity = m_yVelocity;
         const auto position = getPosition();
         const bool gravity = m_isUpsideDown, dash = m_isDashing;
