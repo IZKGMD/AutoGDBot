@@ -6,11 +6,11 @@
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v0.9.0",
+  "version": "v0.10.0",
   "developers": [
     "AutoGDBot"
   ],
-  "description": "Multi-mode realtime native-physics MPC with deterministic ship/wave/ball/UFO/robot/spider/swing control, universal orb events and certified trajectories.",
+  "description": "Realtime receding-horizon native-physics MPC with event certificates, TPS-invariant timing, multi-mode control and universal orb handling.",
   "tags": [
     "gameplay",
     "utility",
