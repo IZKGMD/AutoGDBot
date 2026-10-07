@@ -282,7 +282,8 @@ int main() {
     require(hasPrePortalTiming,
             "portal handoff timings must execute before the forecast boundary");
     HazardGuard portalGate;
-    portalGate.set({handoff.gate});
+    portalGate.set({});
+    portalGate.addExact(handoff.gate);
     require(portalGate.hit({80, 0, 90, 30}, {94, 10, 104, 40}),
             "a low portal crossing must be rejected before the hidden wall");
     require(!portalGate.hit({80, 110, 90, 140}, {94, 112, 104, 142}),
