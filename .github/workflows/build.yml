@@ -55,11 +55,15 @@ jobs:
       - name: Verify Android libc++ ABI
         shell: bash
         run: |
-          unzip -p "${{ steps.build.outputs.build-output }}" autogdbot.realtime.android64.so > /tmp/autogdbot.realtime.android64.so
+          GEODE_FILE="$(find "${{ steps.build.outputs.build-output }}" -type f -name '*.geode' -print -quit)"
+          test -n "$GEODE_FILE"
+          unzip -p "$GEODE_FILE" autogdbot.realtime.android64.so > /tmp/autogdbot.realtime.android64.so
+          test -s /tmp/autogdbot.realtime.android64.so
           if readelf -Ws /tmp/autogdbot.realtime.android64.so | grep -E 'UND[[:space:]]+_ZNSt6__ndk113__hash_memoryEPKvm'; then
             echo "Android build still depends on private libc++ __hash_memory"
             exit 1
           fi
+          readelf -Ws /tmp/autogdbot.realtime.android64.so | grep '_ZNSt6__ndk113__hash_memoryEPKvm'
       - name: Upload Android64 artifact
         uses: actions/upload-artifact@v4
         with:
