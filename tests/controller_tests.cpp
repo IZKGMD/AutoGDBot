@@ -198,6 +198,13 @@ int main() {
         handoffCfg, {40, 0, 70, 30}, 1.3f, farPostPortalWall, {}, portalBounds, false);
     require(!farHandoff.found,
             "a distant post-portal wall must be left for normal replanning after the portal");
+
+    Config overlappingPortalCfg = ledgeCfg;
+    std::array<Bounds, 1> touchingPortal{{{70.5f, -30, 78, 120}}};
+    auto overlappingHandoff = seedBoundaryHandoff(
+        overlappingPortalCfg, {40, 0, 70, 30}, 1.3f, postPortalWall, {}, touchingPortal, false);
+    require(!overlappingHandoff.found,
+            "handoff guard must not be created through a player already at the portal face");
     Config orbCfg = ledgeCfg;
     orbCfg.jumpEventCount = 0;
     orbCfg.orbEventCount = 0;

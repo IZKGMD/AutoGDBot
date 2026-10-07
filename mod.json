@@ -6,11 +6,11 @@
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v0.8.0",
+  "version": "v0.8.1",
   "developers": [
     "AutoGDBot"
   ],
-  "description": "Realtime native-physics controller with orb pre-contact arming, native contact branching, portal handoff safety and certified trajectories.",
+  "description": "Realtime native-physics controller with unified orb semantics, pre-contact arming and resilient portal-handoff safety.",
   "tags": [
     "gameplay",
     "utility",

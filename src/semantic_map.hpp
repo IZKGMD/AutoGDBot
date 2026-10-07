@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <utility>
 #include <vector>
+#include "object_semantics.hpp"
 
 namespace agb {
 using namespace geode::prelude;
@@ -33,62 +34,6 @@ class SemanticMap {
     std::vector<std::pair<float, GameObject *>> control_;
     SemanticStats stats_{};
 
-    static bool isOrbType(GameObjectType t) {
-        switch (t) {
-        case GameObjectType::YellowJumpRing:
-        case GameObjectType::PinkJumpRing:
-        case GameObjectType::GravityRing:
-        case GameObjectType::GreenRing:
-        case GameObjectType::DropRing:
-        case GameObjectType::RedJumpRing:
-        case GameObjectType::SpiderOrb:
-        case GameObjectType::DashRing:
-        case GameObjectType::GravityDashRing:
-        case GameObjectType::CustomRing:
-        case GameObjectType::TeleportOrb:
-            return true;
-        default:
-            return false;
-        }
-    }
-
-    static bool isPadType(GameObjectType t) {
-        switch (t) {
-        case GameObjectType::YellowJumpPad:
-        case GameObjectType::PinkJumpPad:
-        case GameObjectType::GravityPad:
-        case GameObjectType::RedJumpPad:
-        case GameObjectType::SpiderPad:
-            return true;
-        default:
-            return false;
-        }
-    }
-
-    static bool isPortalType(GameObjectType t) {
-        switch (t) {
-        case GameObjectType::InverseGravityPortal:
-        case GameObjectType::NormalGravityPortal:
-        case GameObjectType::ShipPortal:
-        case GameObjectType::CubePortal:
-        case GameObjectType::BallPortal:
-        case GameObjectType::RegularSizePortal:
-        case GameObjectType::MiniSizePortal:
-        case GameObjectType::UfoPortal:
-        case GameObjectType::DualPortal:
-        case GameObjectType::SoloPortal:
-        case GameObjectType::WavePortal:
-        case GameObjectType::RobotPortal:
-        case GameObjectType::TeleportPortal:
-        case GameObjectType::SpiderPortal:
-        case GameObjectType::SwingPortal:
-        case GameObjectType::GravityTogglePortal:
-            return true;
-        default:
-            return false;
-        }
-    }
-
   public:
     static SemanticKind classify(GameObject *o) {
         if (!o)
@@ -104,15 +49,14 @@ class SemanticMap {
         default:
             break;
         }
-        if (isPadType(o->m_objectType))
+        if (agb::isPadType(o->m_objectType))
             return SemanticKind::Pad;
-        if (isOrbType(o->m_objectType))
+        if (agb::isOrbType(o->m_objectType))
             return SemanticKind::Orb;
-        if (isPortalType(o->m_objectType))
+        if (agb::isPortalType(o->m_objectType))
             return SemanticKind::Portal;
         // GD speed portals are stable object IDs across the supported 2.2081 target.
-        if (o->m_objectID == 200 || o->m_objectID == 201 || o->m_objectID == 202 ||
-            o->m_objectID == 203 || o->m_objectID == 1334)
+        if (agb::isSpeedPortalObject(o))
             return SemanticKind::SpeedPortal;
         return SemanticKind::Other;
     }
