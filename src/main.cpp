@@ -395,7 +395,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.9.0.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.10.0.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -859,6 +859,7 @@ class Runtime {
             seeds[1].capture(layer->m_player2);
         predictionError = error;
         Config searchConfig = settings.config;
+        searchConfig.tickSeconds = dt;
         const int liveMode = mode(p);
         const bool orbOpportunity = touchingOrb || imminentOrb || cubePulse.orbArmed();
         searchConfig.forceRelease =
@@ -1062,11 +1063,11 @@ class Runtime {
         }
         if (decision.hasValidatedInput || searchConfig.forceRelease) {
             inputPending = true;
-            message = !decision.hasValidatedInput     ? "BOT | forced release"
-                      : decision.selected.died        ? "BOT | no safe continuation"
-                      : decision.selected.interrupted ? "BOT | partial forecast"
-                      : decision.completeContinuation ? "BOT | online"
-                                                      : "BOT | short forecast";
+            message = !decision.hasValidatedInput       ? "BOT | forced release"
+                      : decision.completeContinuation   ? "BOT | online"
+                      : decision.recedingCertificate   ? "BOT | receding certificate"
+                      : decision.selected.interrupted  ? "BOT | partial forecast"
+                                                        : "BOT | short forecast";
         } else
             message = "BOT | no surviving candidate";
         // No unverified reflex override: when no complete cube route exists,
@@ -1168,7 +1169,7 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.9.0 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
+                "AutoGDBot 0.10.0 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
@@ -1177,15 +1178,19 @@ class Runtime {
                 "failure: best={} deaths={} landing={} timeout={} | landings={}\n"
                 "native: U={}/{} C={} saw={} mismatch={}\n{}",
                 message, decision.elapsedMs, totalMs, decision.candidates, decision.predictedTicks,
-                settings.gpu ? gpu.status() : "CPU", ticks, decision.down ? "DOWN" : "UP",
+                decision.certificateTicks, settings.gpu ? gpu.status() : "CPU",
+                ticks, decision.down ? "DOWN" : "UP",
                 botHeld ? "DOWN" : "UP", inputTransitions, travelSteps[0].x, previousDt,
                 timing.nativeStep(previousDt), timing.measured() ? "*" : "",
                 decision.alternatives[0].survived, decision.alternatives[1].survived,
                 predictionError, geometryRejects, lightTicks, reflexJumps,
-                decision.selected.died          ? "DEAD"
+                decision.completeContinuation  ? "HORIZON"
+                : decision.selected.boundary   ? "PORTAL"
+                : decision.selected.decisionPoint ? "EVENT"
+                : decision.recedingCertificate ? (decision.selected.died ? "RECEDING-DEATH"
+                                                                           : "RECEDING")
                 : decision.selected.interrupted ? "PARTIAL"
-                : decision.selected.boundary    ? "PORTAL"
-                : decision.completeContinuation ? "HORIZON"
+                : decision.selected.died        ? "DEAD"
                                                 : "SHORT",
                 decision.selected.requiresLanding
                     ? (decision.selected.landingVerified ? "OK" : "NO")
