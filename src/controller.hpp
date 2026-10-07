@@ -39,6 +39,8 @@ struct Plan {
 struct Evaluation {
     int survived = 0;
     bool died = false;
+    bool guardDeath = false;
+    bool nativeDeath = false;
     bool interrupted = false;
     float clearance = 0;
     float nearClearance = 0; // minimum hazard margin in the immediate control window
@@ -77,7 +79,8 @@ struct Decision {
     bool completeContinuation = false;
     bool recedingCertificate = false;
     int candidates = 0, predictedTicks = 0, certificateTicks = 0, rejectedUnsafe = 0;
-    int bestRejectedTicks = 0, landingRejects = 0, deaths = 0, interruptions = 0;
+    int bestRejectedTicks = 0, landingRejects = 0, deaths = 0;
+    int guardDeaths = 0, nativeDeaths = 0, interruptions = 0;
     double elapsedMs = 0;
     Plan plan;
     Evaluation selected;
@@ -520,6 +523,8 @@ class Controller {
                 result.bestRejectedTicks = std::max(result.bestRejectedTicks, e.survived);
                 result.landingRejects += !e.firstActionVerified;
                 result.deaths += e.died;
+                result.guardDeaths += e.guardDeath;
+                result.nativeDeaths += e.nativeDeath;
                 result.interruptions += e.interrupted;
                 return false;
             }
