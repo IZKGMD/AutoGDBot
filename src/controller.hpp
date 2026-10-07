@@ -100,10 +100,22 @@ class Controller {
                     return;
             plans.push_back(p);
         };
-        for (bool down : {held, !held}) {
-            Plan p;
-            p.buttons.fill(down);
-            add(p);
+        if (cfg.cubePulsePlanning) {
+            // Cube input is a pulse, not a sustained state. Keep the first two
+            // probes semantically clean: coast, then one immediate jump pulse.
+            Plan coast;
+            coast.buttons.fill(false);
+            add(coast);
+            Plan jumpNow;
+            jumpNow.buttons.fill(false);
+            jumpNow.buttons[0] = true;
+            add(jumpNow);
+        } else {
+            for (bool down : {held, !held}) {
+                Plan p;
+                p.buttons.fill(down);
+                add(p);
+            }
         }
         Plan warm = warm_;
         int known = std::min(warm_.length, cfg.horizon);
@@ -196,16 +208,28 @@ class Controller {
                 }
             }
         }
-        for (int attempts = 0; int(plans.size()) < cfg.candidates && attempts < cfg.candidates * 16;
-             ++attempts) {
-            Plan p = warm;
-            int from = nextRandom() % cfg.horizon;
-            int to = std::min(cfg.horizon, from + 1 + int(nextRandom() % 36));
-            for (int k = from; k < to; ++k)
-                p.buttons[k] ^= 1;
-            if (attempts & 1)
-                p.buttons[0] = !held;
-            add(p);
+        if (cfg.cubePulsePlanning) {
+            // First-attempt cube play must be deterministic. Fill spare budget
+            // with a fixed timing lattice instead of pseudo-random mutations.
+            // Geometry-derived windows above are still inserted first.
+            for (int phase : {0, 3}) {
+                for (int t = phase; t < cfg.horizon && int(plans.size()) < cfg.candidates;
+                     t += 6)
+                    pulseAt(t);
+            }
+        } else {
+            for (int attempts = 0;
+                 int(plans.size()) < cfg.candidates && attempts < cfg.candidates * 16;
+                 ++attempts) {
+                Plan p = warm;
+                int from = nextRandom() % cfg.horizon;
+                int to = std::min(cfg.horizon, from + 1 + int(nextRandom() % 36));
+                for (int k = from; k < to; ++k)
+                    p.buttons[k] ^= 1;
+                if (attempts & 1)
+                    p.buttons[0] = !held;
+                add(p);
+            }
         }
         return plans;
     }
@@ -229,6 +253,14 @@ class Controller {
         float bestScore = -std::numeric_limits<float>::infinity();
         auto consider = [&](Plan const &plan, Evaluation e) {
             if (e.survived <= 0 || !e.firstActionVerified)
+                return false;
+            // A changed cube action must be verified for a meaningful future
+            // window. An 8-tick prefix is diagnostic only and can never
+            // authorize a speculative jump.
+            const bool changedFirstAction = plan.at(0) != held;
+            const int actionVerifyTicks = std::min(cfg.horizon, 48);
+            if (cfg.cubePulsePlanning && changedFirstAction && !e.boundary &&
+                (e.died || e.interrupted || e.survived < actionVerifyTicks))
                 return false;
             int changes = e.buttonChanges;
             if (changes < 0) {
@@ -256,6 +288,13 @@ class Controller {
                           safeClearance * 85.f * marginWeight +
                           safeLanding * 55.f * marginWeight + robust * 18000.f -
                           changes * 18.f + continuity * 5.f;
+            // A rollout that is known to die is never equivalent to one that
+            // is merely shorter because the per-tick budget expired. Among
+            // all-fatal routes, survived ticks still choose the least-bad one.
+            if (e.died)
+                score -= 4000000.f;
+            else if (!e.interrupted)
+                score += 500000.f;
             if (exactWarm)
                 score += 1200.f;
             if (complete)
@@ -304,6 +343,8 @@ class Controller {
             probe.length = std::min(8, probe.length);
             auto e = evaluate(probe, deadline);
             ++result.candidates;
+            if (!e.died && !e.boundary && e.survived >= probe.length)
+                e.interrupted = true; // deliberate short probe, not a safe horizon
             result.alternatives[probe.at(0)] = e;
             consider(probe, std::move(e));
         }
