@@ -189,23 +189,50 @@ inline GapHint seedCubeEvents(Config &cfg, float x, float footY, float dx,
         i = j;
     }
 
+    // Build real landing surfaces, not one target per decorative/block tile.
+    // Adjacent blocks at the same height are one platform; aiming inside the
+    // merged platform prevents the staircase planner from treating every tile
+    // seam as a separate landing.
+    struct Surface { float lo, hi, top; };
+    std::vector<Surface> rawSurfaces;
+    for (auto b : solids) {
+        const float width = b.maxX - b.minX;
+        if (width < 6.f)
+            continue;
+        if (b.maxY <= footY + 3.f || b.maxY > footY + 190.f)
+            continue;
+        rawSurfaces.push_back({b.minX, b.maxX, b.maxY});
+    }
+    std::sort(rawSurfaces.begin(), rawSurfaces.end(), [](Surface a, Surface b) {
+        if (std::abs(a.top - b.top) > 2.5f)
+            return a.top < b.top;
+        return a.lo < b.lo;
+    });
+    std::vector<Surface> surfaces;
+    for (auto r : rawSurfaces) {
+        if (!surfaces.empty() && std::abs(surfaces.back().top - r.top) <= 2.5f &&
+            r.lo <= surfaces.back().hi + 1.5f) {
+            surfaces.back().hi = std::max(surfaces.back().hi, r.hi);
+        } else {
+            surfaces.push_back(r);
+        }
+    }
+
     struct StepTarget { float tick, topY, width; };
     std::vector<StepTarget> steps;
     const float directionForSteps = dx > 0 ? 1.f : -1.f;
-    for (auto b : solids) {
-        const float top = b.maxY;
-        const float width = b.maxX - b.minX;
-        if (width < 6.f || width > 120.f)
-            continue;
-        if (top <= footY + 3.f || top > footY + 190.f)
-            continue;
-        const float center = (b.minX + b.maxX) * .5f;
-        const float dist = (center - x) * directionForSteps;
+    for (auto s : surfaces) {
+        const float width = s.hi - s.lo;
+        // Aim a safe distance inside the leading edge. The native rollout
+        // decides whether the exact height is reachable.
+        const float inset = std::clamp(width * .35f, 10.f, 34.f);
+        const float targetX = dx > 0 ? s.lo + inset : s.hi - inset;
+        const float dist = (targetX - x) * directionForSteps;
         if (dist <= 8.f)
             continue;
         const float t = dist / std::abs(dx);
         if (t > 6.f && t < cfg.horizon)
-            steps.push_back({t, top, width});
+            steps.push_back({t, s.top, width});
     }
     std::sort(steps.begin(), steps.end(), [](auto a, auto b) { return a.tick < b.tick; });
     float lastTop = footY;
@@ -252,10 +279,22 @@ inline GapHint seedCubeEvents(Config &cfg, float x, float footY, float dx,
             end = std::max(end, floorHazards[j].farDist);
             ++j;
         }
-        if (j - i >= 2 && floorHazards[i].nearDist > 0) {
-            int firstTick = int(std::floor(floorHazards[i].nearDist / speed));
-            for (int lead : {40, 48, 56, 64, 72, 80, 88, 96})
-                addJumpEvent(cfg, firstTick - lead);
+        if (floorHazards[i].nearDist > 0) {
+            const size_t count = j - i;
+            const int firstTick = int(std::floor(floorHazards[i].nearDist / speed));
+            // Every floor hazard gets an explicit deterministic takeoff
+            // neighborhood. Wider clusters start earlier; native rollouts
+            // reject timings that graze the first or last spike.
+            if (count >= 3) {
+                for (int lead : {48, 56, 64, 72, 80, 88, 96, 104})
+                    addJumpEvent(cfg, firstTick - lead);
+            } else if (count == 2) {
+                for (int lead : {40, 48, 56, 64, 72, 80, 88, 96})
+                    addJumpEvent(cfg, firstTick - lead);
+            } else {
+                for (int lead : {24, 32, 40, 48, 56, 64, 72})
+                    addJumpEvent(cfg, firstTick - lead);
+            }
         }
         i = j;
     }
