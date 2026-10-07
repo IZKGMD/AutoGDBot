@@ -28,4 +28,3 @@ class LandingSchedule {
     }
 };
 } // namespace agb
-

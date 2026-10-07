@@ -111,4 +111,3 @@ class HazardGuard {
 };
 } // namespace agb
 
-

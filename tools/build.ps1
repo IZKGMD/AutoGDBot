@@ -17,4 +17,3 @@ if ($LASTEXITCODE -ne 0) { throw "CMake configure failed" }
 cmake --build $buildRoot --config Release --parallel 2
 if ($LASTEXITCODE -ne 0) { throw "Build failed" }
 Write-Host "Package: $buildRoot/autogdbot.realtime.geode"
-

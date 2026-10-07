@@ -218,4 +218,3 @@ AGB_SCALAR(m_spiderAnimationEnabled)
 AGB_SCALAR(m_ignoreDamage)
 AGB_SCALAR(m_enable22Changes)
 AGB_SCALAR(m_enableImpulseFix)
-

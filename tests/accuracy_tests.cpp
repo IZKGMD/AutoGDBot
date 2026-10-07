@@ -54,13 +54,18 @@ int main() {
     });
     check(delayed.hasValidatedInput && !delayed.down && delayed.plan.at(10) &&
           delayed.selected.landingVerified,"safe later takeoff outranks short wait and fatal early jump");
-    c.jumpEventCount=0; c.budgetMs=2; bot.reset(); int calls=0;
-    auto fair=bot.decide(c,false,[&](Plan const &,auto deadline){
+    c.jumpEventCount=0; c.budgetMs=8; bot.reset(); int calls=0;
+    Clock::time_point firstDeadline{}; bool firstButton=false, reserved=false;
+    auto fair=bot.decide(c,false,[&](Plan const &p,auto deadline){
         ++calls;
-        if(calls==1) {while(Clock::now()<deadline){} Evaluation e;e.interrupted=true;return e;}
+        if(calls==1) {
+            firstDeadline=deadline;firstButton=p.at(0);
+            Evaluation e;e.interrupted=true;return e;
+        }
+        if(calls==2) reserved=p.at(0)!=firstButton && deadline>firstDeadline;
         Evaluation e;e.survived=c.horizon;return e;
     });
-    check(fair.firstActionCandidates[0]>0 && fair.firstActionCandidates[1]>0 && fair.hasValidatedInput,
+    check(reserved && fair.firstActionCandidates[0]>0 && fair.firstActionCandidates[1]>0 && fair.hasValidatedInput,
           "slow first forecast cannot starve the opposite button");
     c.sharedDeadline=Clock::now();calls=0;bot.reset();
     auto expired=bot.decide(c,false,[&](Plan const&,auto){++calls;return Evaluation{};});

@@ -1,3 +1,7 @@
+# Current version: v0.20.0
+
+Six standalone regression suites pass (controller, staircase, mode, interaction, survival and accuracy). Android64 Release builds locally using NDK r29, Geode 5.10.1 and pinned bindings. Package CRC/manifest, AArch64 binary identity, SONAME and locally defined libc++ hash compatibility symbol checks pass. See ACCURACY_v0.20.0.md for new regressions and limits. Native rollout fidelity, in-game installation, completion, FPS and success rates remain unverified. The notes below document historical versions rather than current gameplay validation.
+
 # Validation status
 
 Version 0.2.1 is an experimental prototype. Build/controller checks are separate from actual game verification. The supplied v0.1.4 video shows death at 14% Stereo Madness. A later screenshot shows v0.2.0 loaded and dead at 22% on a floor spike; no v0.2.1 game run is available.
@@ -59,4 +63,3 @@ User reports v0.1.3 holds after the first jump and looks jerky. Its equal-surviv
 5. Report actual completion/death and frame-time percentiles. A compiled package alone is insufficient.
 
 Version 0.2.1 retains the 0.2.0 planner and adds a bounded grounded-cube hazard reflex. Version 0.2.0 prioritizes geometry events, removes duplicate plans, validates a new grounded cube jump through forecast landing (or portal boundary), distinguishes fatal/partial traces, expires only the checked warm prefix, and stops search early on a fully checked unchanged action. Standalone tests validate these behaviors on synthetic scenarios; the test ledge is not the real Stereo Madness level. New native physics, landing fidelity, FPS and completion remain unverified.
-

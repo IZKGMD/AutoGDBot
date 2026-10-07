@@ -458,4 +458,3 @@ inline GapHint seedCubeEvents(Config &cfg, float x, float footY, float dx,
 }
 } // namespace agb
 
-

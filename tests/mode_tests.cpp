@@ -140,4 +140,3 @@ int main() {
     check(b.minX==20 && b.maxX==40 && b.minY==-30,"sideways travel coordinates");
     std::cout<<"Mode tests passed: "<<routes<<" action-window routes; flag, transition, dual and landing regressions.\n";
 }
-

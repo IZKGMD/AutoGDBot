@@ -143,4 +143,3 @@ void refreshPressedJumpSnapshot(Player &p) {
     }
 }
 } // namespace agb
-
