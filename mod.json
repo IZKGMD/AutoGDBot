@@ -6,11 +6,11 @@
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v0.10.0",
+  "version": "v0.11.0",
   "developers": [
     "AutoGDBot"
   ],
-  "description": "Realtime receding-horizon native-physics MPC with event certificates, TPS-invariant timing, multi-mode control and universal orb handling.",
+  "description": "Tiered realtime native-physics MPC with fast/rescue search, near-term clearance scoring, event certificates and multi-mode control.",
   "tags": [
     "gameplay",
     "utility",
@@ -33,21 +33,21 @@
     "budget-ms": {
       "type": "float",
       "name": "CPU search budget per physics tick (ms)",
-      "default": 1.5,
+      "default": 1.0,
       "min": 0.2,
       "max": 8.0
     },
     "horizon": {
       "type": "int",
       "name": "Lookahead in physics ticks",
-      "default": 216,
+      "default": 180,
       "min": 24,
       "max": 240
     },
     "candidates": {
       "type": "int",
       "name": "Maximum candidates per tick",
-      "default": 64,
+      "default": 48,
       "min": 4,
       "max": 96
     },
