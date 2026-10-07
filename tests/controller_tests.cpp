@@ -402,6 +402,22 @@ int main() {
     require(orbChainDecision.hasValidatedInput && orbChainDecision.plan.at(37) &&
                 orbChainDecision.plan.at(83) && !orbChainDecision.selected.died,
             "native event expansion must discover a two-orb chain without precomputed orb ticks");
+    Controller shorterOrbChain;
+    Config shorterChainCfg = orbChainCfg;
+    shorterChainCfg.horizon = 180;
+    auto shorterChainDecision = shorterOrbChain.decide(shorterChainCfg, false,
+        [](Plan const &p, Clock::time_point) {
+            Evaluation e;
+            if (!p.at(37)) {
+                e.survived = 150; e.died = true; e.orbActions.push_back(37);
+            } else if (!p.at(83)) {
+                e.survived = 104; e.died = true; e.orbActions.push_back(83);
+            } else e.survived = p.length;
+            return e;
+        });
+    require(shorterChainDecision.hasValidatedInput && !shorterChainDecision.selected.died &&
+                shorterChainDecision.plan.at(37) && shorterChainDecision.plan.at(83),
+            "using first orb must allow second-orb expansion even if first child dies sooner than coast");
 
     // A ship needs both a fresh orb edge and thrust after that edge. Event
     // expansion must preserve the rest of the original control timeline.

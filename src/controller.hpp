@@ -667,7 +667,6 @@ class Controller {
             std::stable_sort(order.begin() + protectedCount, order.end(),
                              [&](int a, int b) { return priority[a] > priority[b]; });
         int furthestFailure = -1;
-        int furthestOrbFailure = -1;
         for (size_t cursor = 0; cursor < order.size(); ++cursor) {
             const int i = order[cursor];
             if (Clock::now() >= deadline) {
@@ -686,9 +685,8 @@ class Controller {
             // This replaces fragile "orb X coordinate == press time" guessing.
             if (
                 (e.died || e.interrupted || !e.firstActionVerified) &&
-                !e.orbActions.empty() && e.survived >= furthestOrbFailure &&
+                !e.orbActions.empty() &&
                 int(plans.size()) < cfg.candidates) {
-                furthestOrbFailure = e.survived;
                 std::vector<int> children;
                 int emitted = 0;
                 for (auto it = e.orbActions.rbegin();

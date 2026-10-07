@@ -1732,7 +1732,9 @@ class $modify(AGBPlayer, PlayerObject) {
             // activateCustomRing is inline on Windows and cannot be hooked.
             // End this forecast before native group mutations; only the real
             // player executes those effects, followed by live replanning.
-            agb::sim.boundary = true;
+            if ((m_jumpBuffered || m_holdingButtons[1]) && !o->m_isDisabled &&
+                !o->m_isDisabled2 && m_ringRelatedSet.find(o->m_uniqueID) == m_ringRelatedSet.end())
+                agb::sim.boundary = true;
             return;
         }
         const auto velocity = m_yVelocity;
