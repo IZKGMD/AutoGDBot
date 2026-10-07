@@ -49,9 +49,9 @@ class SemanticMap {
         default:
             break;
         }
-        if (agb::isPadType(o->m_objectType))
+        if (agb::isPadObject(o))
             return SemanticKind::Pad;
-        if (agb::isOrbType(o->m_objectType))
+        if (agb::isOrbObject(o))
             return SemanticKind::Orb;
         if (agb::isPortalType(o->m_objectType))
             return SemanticKind::Portal;
