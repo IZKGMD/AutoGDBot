@@ -1059,6 +1059,14 @@ class Runtime {
         hazardGuard.set(guardBounds);
         auto priorities = settings.gpu ? gpu.poll() : std::vector<float>{};
 
+        // Keep the controller inside a fraction of the actual physics-step
+        // budget. At 240 TPS one tick is ~4.17 ms; sustained 3-5 ms searches
+        // starve the game thread and create the stutter visible in the video.
+        const double tickMs = std::clamp(double(dt) * 1000.0, 2.0, 20.0);
+        const bool overloaded = totalMs > tickMs * .70;
+        const double loadScale = overloaded ? .68 : 1.0;
+        const double hardPlannerCap = tickMs * (overloaded ? .42 : .62);
+
         // Tier 1: cheap receding MPC. Most frames should finish here.
         Config fastConfig = searchConfig;
         fastConfig.horizon =
@@ -1066,8 +1074,9 @@ class Runtime {
                                                     : (nearAction ? 96 : 72));
         fastConfig.candidates =
             std::min(searchConfig.candidates, nearAction ? 16 : 10);
-        fastConfig.budgetMs =
-            std::min(searchConfig.budgetMs, nearAction ? .90 : .55);
+        fastConfig.budgetMs = std::min(
+            {searchConfig.budgetMs, (nearAction ? .90 : .55) * loadScale,
+             hardPlannerCap * .36});
         const int fastTailCap = pulseMode ? (nearAction ? 180 : 120) : fastConfig.horizon;
 
         auto fast = fastController.decide(
@@ -1090,8 +1099,9 @@ class Runtime {
                                                     : (nearAction ? 156 : 120));
         rescueConfig.candidates =
             std::min(searchConfig.candidates, nearAction ? 40 : 28);
-        rescueConfig.budgetMs =
-            std::min(searchConfig.budgetMs, nearAction ? 1.90 : 1.20);
+        rescueConfig.budgetMs = std::min(
+            {searchConfig.budgetMs, (nearAction ? 1.90 : 1.20) * loadScale,
+             hardPlannerCap * .72});
         const int rescueTailCap =
             pulseMode ? (nearAction ? 320 : 240) : rescueConfig.horizon;
 
@@ -1118,7 +1128,8 @@ class Runtime {
                 Config emergencyConfig = searchConfig;
                 emergencyConfig.horizon = std::min(searchConfig.horizon, 216);
                 emergencyConfig.candidates = std::min(searchConfig.candidates, 64);
-                emergencyConfig.budgetMs = std::min(searchConfig.budgetMs, 3.0);
+                emergencyConfig.budgetMs =
+                    std::min({searchConfig.budgetMs, 3.0 * loadScale, hardPlannerCap});
                 Controller emergencyController;
                 auto emergency = emergencyController.decide(
                     emergencyConfig, botHeld,
