@@ -16,6 +16,8 @@
 #include "object_semantics.hpp"
 #include "flight_certificate.hpp"
 #include "landing_schedule.hpp"
+#include "interaction_state.hpp"
+#include "verified_input_queue.hpp"
 #include <fstream>
 #include <unordered_set>
 
@@ -110,10 +112,7 @@ struct SimulationContext {
     PlayLayer *layer = nullptr;
     std::array<PlayerObject *, 2> clones{};
     std::array<bool, 2> dead{};
-    struct Flags {
-        GameObject *object;
-        bool activated, disabled, disabled2, powered;
-    };
+    using Flags = InteractionSnapshot<GameObject, EnhancedGameObject, RingObject>;
     std::vector<Flags> changed;
     std::unordered_set<GameObject *> visited;
     bool isClone(PlayerObject *p) const {
@@ -121,16 +120,11 @@ struct SimulationContext {
     }
     void save(GameObject *o) {
         if (visited.insert(o).second)
-            changed.push_back(
-                {o, o->m_isActivated, o->m_isDisabled, o->m_isDisabled2, o->m_isRingPoweredOn});
+            changed.emplace_back(o, typeinfo_cast<EnhancedGameObject *>(o),
+                                 typeinfo_cast<RingObject *>(o));
     }
     void restoreFlags() {
-        for (auto const &s : changed) {
-            s.object->m_isActivated = s.activated;
-            s.object->m_isDisabled = s.disabled;
-            s.object->m_isDisabled2 = s.disabled2;
-            s.object->m_isRingPoweredOn = s.powered;
-        }
+        for (auto it = changed.rbegin(); it != changed.rend(); ++it) it->restore();
         changed.clear();
         visited.clear();
     }
@@ -226,6 +220,8 @@ class Runtime {
     PhysicsTiming timing;
     PhysicsOrder physicsOrder;
     CubePulse cubePulse;
+    VerifiedInputQueue inputQueue;
+    bool usingQueuedInput = false;
     HazardGuard hazardGuard;
     uint64_t geometryRejects = 0;
     float predictionError = 0;
@@ -260,7 +256,7 @@ class Runtime {
     uint64_t inputPhaseMismatches = 0;
     std::string lastAttempt;
     uint64_t inputTransitions = 0;
-    uint64_t orbAttempts = 0, orbHits = 0;
+    uint64_t orbAttempts = 0, orbHits = 0, padAttempts = 0, padHits = 0;
     uint64_t reflexJumps = 0;
     uint64_t lightTicks = 0;
     double totalMs = 0;
@@ -357,7 +353,9 @@ class Runtime {
             return landingFrame({r.getMinX(), r.getMinY(), r.getMaxX(), r.getMaxY()},
                                 p->m_isSideways, p->m_isUpsideDown);
         };
-        const auto pr = local(p->getObjectRect(.35f, .35f));
+        // Support contact uses the full native collider. An inset foot lies
+        // above the actual surface and previously made every ledge look infinite.
+        const auto pr = local(p->getObjectRect());
         const float dir = dx > 0 ? 1.f : -1.f;
         const float speed = std::abs(dx);
         float best = std::numeric_limits<float>::infinity();
@@ -374,22 +372,9 @@ class Runtime {
                 if (b.maxX >= pr.minX - 260.f && b.minX <= pr.maxX + 260.f) visit(b);
             }
         };
-        std::vector<std::pair<float, float>> support;
-        nearby(hintSolids, [&](Bounds b) {
-            if (std::abs(b.maxY - pr.minY) <= 5.f) support.emplace_back(b.minX, b.maxX);
-        });
-        std::sort(support.begin(), support.end());
-        std::vector<std::pair<float, float>> merged;
-        for (auto span : support) {
-            if (!merged.empty() && span.first <= merged.back().second + 1.5f)
-                merged.back().second = std::max(merged.back().second, span.second);
-            else merged.push_back(span);
-        }
-        for (auto span : merged) {
-            if (pr.maxX < span.first || pr.minX > span.second) continue;
-            const float runway = dx > 0 ? span.second - pr.maxX : pr.minX - span.first;
-            if (runway >= 0) best = std::min(best, runway);
-        }
+        std::vector<Bounds> support;
+        nearby(hintSolids, [&](Bounds b) { support.push_back(b); });
+        best = supportRunway(pr, dx, support);
         auto consider = [&](Bounds b, float extraY) {
             if (b.maxY <= pr.minY + 3.f || b.minY >= pr.maxY + extraY) return;
             const float dist = ((dx > 0 ? b.minX : b.maxX) -
@@ -436,6 +421,7 @@ class Runtime {
         timing.reset();
         physicsOrder = {};
         cubePulse.reset();
+        inputQueue.reset();
         ticks = 0;
         botHeld = false;
         wasEnabled = false;
@@ -449,7 +435,7 @@ class Runtime {
         inputPhaseMismatches = 0;
         previousDt = 0;
         inputTransitions = 0;
-        orbAttempts = orbHits = 0;
+        orbAttempts = orbHits = padAttempts = padHits = 0;
         reflexJumps = 0;
         lightTicks = 0;
         totalMs = 0;
@@ -474,7 +460,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.14.0.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.15.0.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -608,12 +594,13 @@ class Runtime {
             previousButton = down;
             for (int i = 0; i < players; ++i) {
                 auto *p = clones[i].data();
-                applyJumpState(
+                const bool inputChanged = applyJumpState(
                     down, [&] { return p->m_holdingButtons[1]; },
                     [&] { p->pushButton(PlayerButton::Jump); },
                     [&] { p->releaseButton(PlayerButton::Jump); });
-                p->updateStateVariables();
-                p->updateJumpVariables();
+                if (inputChanged && down) refreshPressedJumpSnapshot(*p);
+                // Native update already advances jump snapshots and state
+                // counters at its end. Do not advance them twice per substep.
                 // Match the layer's per-step bookkeeping, not just its reset
                 // at the beginning of the whole hypothetical timeline.
                 p->resetTouchedRings(false);
@@ -763,6 +750,7 @@ class Runtime {
         const auto start = Clock::now();
         controlling = false;
         inputPending = false;
+        usingQueuedInput = false;
         if ((ticks & 15) == 0)
             settings.read();
         if (!settings.enabled) {
@@ -773,6 +761,7 @@ class Runtime {
                 controller.reset();
                 fastController.reset();
                 cubePulse.reset();
+                inputQueue.reset();
                 botHeld = false;
             }
             wasEnabled = false;
@@ -865,6 +854,25 @@ class Runtime {
             imminentOrb |= orbImminent(layer->m_player2, travelSteps[1]);
         bool canPress =
             cubeCanPress(p) || (layer->m_gameState.m_isDualMode && cubeCanPress(layer->m_player2));
+        std::array<Point, 2> livePositions{Point{p->getPositionX(), p->getPositionY()}, {}};
+        if (liveDual && layer->m_player2)
+            livePositions[1] = {layer->m_player2->getPositionX(), layer->m_player2->getPositionY()};
+        const bool queueReady = inputQueue.matches(livePositions, liveModes, liveDual, dt);
+        if (!queueReady) inputQueue.reset();
+        // Commit a previously verified critical click before another search
+        // can consume the narrow orb/takeoff window. No geometry-only reflex.
+        const bool criticalClick = queueReady && inputQueue.down() &&
+            (touchingOrb || imminentOrb || (pulseMode && p->m_isOnGround)) &&
+            (!pulseMode || !cubePulse.mustRelease());
+        if (criticalClick) {
+            decision = inputQueue.continuation();
+            usingQueuedInput = true;
+            inputPending = true;
+            message = "BOT | verified timed click";
+            plannerStage = "QUEUED-CLICK";
+            finishTick(start, error);
+            return;
+        }
         // Observe game state and release input every tick. Heavy prediction is
         // 60 Hz during uncontrollable cube flight at 240 TPS, and every tick
         // on the ground, at an orb or in a continuous-control mode.
@@ -1265,6 +1273,11 @@ class Runtime {
             }
         }
 
+        if (!decision.hasValidatedInput && queueReady) {
+            decision = inputQueue.continuation();
+            usingQueuedInput = true;
+            plannerStage = "QUEUED";
+        }
         // Share only the proven prefix, never an unchecked tail. This lets the
         // cheap tier revalidate yesterday's rescue route first on the next tick.
         if (decision.hasValidatedInput && decision.certificateTicks > 0) {
@@ -1339,6 +1352,10 @@ class Runtime {
             inputPending = true;
             message = "BOT | NO VERIFIED ROUTE";
             stableTrace.clear();
+        }
+        if (!usingQueuedInput) {
+            if (decision.hasValidatedInput) inputQueue.seed(decision, liveModes, liveDual, dt);
+            else inputQueue.reset();
         }
         if (settings.gpu && gpu.ready() && (ticks & 7) == 0) {
             GpuState s;
@@ -1418,10 +1435,16 @@ class Runtime {
             if (applyJumpState(
                     down, [&] { return p->m_holdingButtons[1]; },
                     [&] { p->pushButton(PlayerButton::Jump); },
-                    [&] { p->releaseButton(PlayerButton::Jump); }))
+                    [&] { p->releaseButton(PlayerButton::Jump); })) {
                 ++inputTransitions;
+                if (down) refreshPressedJumpSnapshot(*p);
+            }
         }
         botHeld = layer->m_player1->m_holdingButtons[1];
+        bool actualMatches = botHeld == down;
+        if (dual && layer->m_player2) actualMatches &= layer->m_player2->m_holdingButtons[1] == down;
+        if (actualMatches) inputQueue.consume(down);
+        else inputQueue.reset();
     }
     void render() {
         if (!draw || !label)
@@ -1432,14 +1455,14 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.14.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
+                "AutoGDBot 0.15.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
                 "error={:.2f} | guard={} | light={} | reflex={} | forecast={} | landing={} runway={}\n"
                 "route: mode={} jumps={} orbs={} map-orbs={} touch={} gap={} handoff={} | rejected={} | order={}{}\n"
                 "failure: best={} deaths={} guard={} native={} landing={} timeout={} | landings={}\n"
-                "native: U={}/{} C={} saw={} mismatch={} orb-hit={}/{}\n{}",
+                "native: U={}/{} C={} saw={} mismatch={} orb-hit={}/{} pad-hit={}/{} queue={}\n{}",
                 message, plannerStage, decision.elapsedMs, totalMs, decision.candidates,
                 decision.predictedTicks, decision.certificateTicks,
                 settings.gpu ? gpu.status() : "CPU",
@@ -1477,7 +1500,7 @@ class Runtime {
                 decision.landingRejects, decision.interruptions,
                 decision.selected.landingCount, nativeUpdates, nativeUpdatesInside, nativeCollisions,
                 nativeSawDown ? "DOWN" : "UP", inputPhaseMismatches,
-                orbHits, orbAttempts, lastAttempt)
+                orbHits, orbAttempts, padHits, padAttempts, inputQueue.remaining(), lastAttempt)
                 .c_str());
         label->setColor(decision.hasValidatedInput ? ccColor3B{120, 255, 170}
                                                    : ccColor3B{255, 180, 100});
@@ -1681,6 +1704,22 @@ class $modify(AGBBaseLayer, GJBaseGameLayer) {
         }
         GJBaseGameLayer::collisionCheckObjects(p, &filtered, int(filtered.size()), dt);
     }
+    void bumpPlayer(PlayerObject *p, EffectGameObject *o) {
+        if (o && agb::sim.isClone(p)) agb::sim.save(o);
+        const bool live = agb::active && !agb::sim.active && agb::active->controlling &&
+            static_cast<GJBaseGameLayer *>(agb::active->layer) == this && o && agb::padObject(o);
+        const double velocity = p->m_yVelocity;
+        const bool gravity = p->m_isUpsideDown;
+        const auto used = p->m_jumpPadRelated.size();
+        const auto pos = p->getPosition();
+        GJBaseGameLayer::bumpPlayer(p, o);
+        if (live) {
+            ++agb::active->padAttempts;
+            if (velocity != p->m_yVelocity || gravity != p->m_isUpsideDown ||
+                used != p->m_jumpPadRelated.size() || pos.x != p->getPositionX() || pos.y != p->getPositionY())
+                ++agb::active->padHits;
+        }
+    }
     void flipGravity(PlayerObject *p, bool flip, bool noEffects) {
         if (agb::sim.isClone(p)) {
             p->flipGravity(flip, true);
@@ -1700,6 +1739,10 @@ class $modify(AGBBaseLayer, GJBaseGameLayer) {
     }
 };
 class $modify(AGBEffects, EffectGameObject) {
+    void playTriggerEffect() {
+        if (agb::sim.active) return;
+        EffectGameObject::playTriggerEffect();
+    }
     void triggerObject(GJBaseGameLayer *l, int p, gd::vector<int> const *groups) {
         if (agb::sim.active)
             return;
@@ -1715,6 +1758,9 @@ class $modify(AGBObject, GameObject) {
 };
 class $modify(AGBPlayer, PlayerObject) {
     void ringJump(RingObject *o, bool skipCheck) {
+        // Cached touching rings can be activated by update before the next
+        // collision pass. Journal the object before that earliest mutation.
+        if (o && agb::sim.isClone(this)) agb::sim.save(o);
         if (agb::sim.isClone(this) && o && o->m_objectType == GameObjectType::CustomRing) {
             // activateCustomRing is inline on Windows and cannot be hooked.
             // End this forecast before native group mutations; only the real
