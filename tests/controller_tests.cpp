@@ -550,8 +550,8 @@ int main() {
     prefixCfg.candidates = 4;
     auto partialHold = [](Plan const &plan, Clock::time_point) {
         Evaluation e;
-        e.survived = std::min(plan.length, plan.at(0) ? 10 : 3);
-        e.interrupted = plan.at(0) && plan.length > 10;
+        e.survived = std::min(plan.length, plan.at(0) ? 32 : 3);
+        e.interrupted = plan.at(0) && plan.length > 32;
         e.died = !plan.at(0) && plan.length > 3;
         return e;
     };
@@ -562,9 +562,91 @@ int main() {
     for (auto const &plan : c.propose(prefixCfg, false)) {
         bool expiredHold = true;
         for (int i = 0; i < plan.length; ++i)
-            expiredHold &= plan.at(i) == (i < 10);
+            expiredHold &= plan.at(i) == (i < 32);
         require(!expiredHold, "expired checked prefix must not perpetuate its held tail");
     }
+    c.reset();
+
+    // Video-driven regression: a continuous mode may have no candidate that
+    // survives the entire horizon, yet one action can be proven safe for the
+    // next MPC interval. It must be executable instead of producing
+    // NO VERIFIED ROUTE until impact.
+    Config recedingCfg = cfg;
+    recedingCfg.plannerMode = PlannerMode::Ship;
+    recedingCfg.tickSeconds = 1.0 / 240.0;
+    recedingCfg.candidates = 16;
+    auto lateDeath = [](Plan const &p, Clock::time_point) {
+        Evaluation e;
+        e.survived = p.at(0) ? 42 : 14;
+        e.died = true;
+        e.clearance = p.at(0) ? 18.f : 4.f;
+        e.robustness = .7f;
+        return e;
+    };
+    auto receding = c.decide(recedingCfg, false, lateDeath);
+    require(receding.hasValidatedInput && receding.down &&
+                receding.recedingCertificate && !receding.completeContinuation &&
+                receding.certificateTicks >= 20,
+            "continuous MPC must use a safe receding prefix when all long forecasts eventually die");
+
+    c.reset();
+    Config eventCfg = cfg;
+    eventCfg.cubePulsePlanning = true;
+    eventCfg.plannerMode = PlannerMode::Cube;
+    eventCfg.candidates = 16;
+    auto landingEvent = [](Plan const &p, Clock::time_point) {
+        Evaluation e;
+        if (p.at(0)) {
+            e.survived = 18;
+            e.decisionPoint = true;
+            e.firstActionVerified = true;
+            e.requiresLanding = true;
+            e.landingVerified = true;
+            e.landingMargin = 12.f;
+            return e;
+        }
+        e.survived = 4;
+        e.died = true;
+        return e;
+    };
+    auto eventDecision = c.decide(eventCfg, false, landingEvent);
+    require(eventDecision.hasValidatedInput && eventDecision.down &&
+                eventDecision.recedingCertificate &&
+                eventDecision.selected.decisionPoint,
+            "cube may execute a route certified through the next native landing/orb decision point");
+
+    // Render refresh must not change real-time control windows. At 120 physics
+    // ticks/sec, the old 180-tick ship switch becomes 90 ticks; at 240 TPS it
+    // remains 180.
+    auto hasSingleSwitchAt = [](std::vector<Plan> const &plans, int at) {
+        for (auto const &p : plans) {
+            if (!p.at(0) || at <= 0 || at >= p.length || p.at(at))
+                continue;
+            bool ok = true;
+            for (int i = 0; i < at; ++i)
+                ok &= p.at(i);
+            for (int i = at; i < p.length; ++i)
+                ok &= !p.at(i);
+            if (ok)
+                return true;
+        }
+        return false;
+    };
+    Controller timingPlanner;
+    Config timingCfg;
+    timingCfg.horizon = 240;
+    timingCfg.candidates = 96;
+    timingCfg.plannerMode = PlannerMode::Ship;
+    timingCfg.tickSeconds = 1.0 / 240.0;
+    auto at240 = timingPlanner.propose(timingCfg, false);
+    require(hasSingleSwitchAt(at240, 180),
+            "240-TPS ship planner must preserve the 0.75-second switch window");
+    timingPlanner.reset();
+    timingCfg.tickSeconds = 1.0 / 120.0;
+    auto at120 = timingPlanner.propose(timingCfg, false);
+    require(hasSingleSwitchAt(at120, 90),
+            "120-TPS ship planner must scale the same 0.75-second switch window to 90 ticks");
+
     c.reset();
     Config safety = cfg;
     safety.cubePulsePlanning = true;

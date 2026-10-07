@@ -395,7 +395,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.9.0.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.10.0.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -474,8 +474,14 @@ class Runtime {
             bool canPress = cubeCanPress(clones[0]) || (dual && cubeCanPress(clones[1]));
             if (pulseMode && clones[0]->m_isOnGround && !pulse.mustRelease())
                 out.groundedActions.push_back(t);
-            if (pulseMode && orbContact && !pulse.mustRelease())
+            if (pulseMode && orbContact && !pulse.mustRelease()) {
                 addOrbAction(t);
+                // A ring already touching the real/clone player at t=0 is a
+                // decision that must be evaluated now, not a future handoff.
+                // Future contacts are safe replanning boundaries.
+                if (t > 0)
+                    out.decisionPoint = true;
+            }
             const bool requested = schedule.request(t < plan.length && plan.at(t),
                 clones[0]->m_isOnGround, pulse.mustRelease(), pulseMode && t < plan.length);
             bool down =
@@ -520,6 +526,7 @@ class Runtime {
                 if (!down && touchingUsableOrb(p) && !pulse.mustRelease()) {
                     addOrbAction(t - 1);
                     addOrbAction(t);
+                    out.decisionPoint = true;
                 }
                 if (sim.dead[i] || p->m_isDead) {
                     out.died = true;
@@ -570,6 +577,7 @@ class Runtime {
                     flights[i].observe(groundedBefore[i], p->m_isOnGround, down);
                     if (!wasVerified && flights[i].verified()) {
                         if (i == 0) {
+                            out.decisionPoint = true;
                             auto pr = p->getObjectRect();
                             const float px = p->getPositionX();
                             std::vector<std::pair<float, float>> spans;
@@ -616,6 +624,8 @@ class Runtime {
             bool settled = true;
             for (int i = 0; i < players; ++i)
                 if (mode(clones[i]) == 0) settled &= flights[i].verified();
+            if (cubeRollout && out.decisionPoint)
+                break;
             if (out.survived >= plan.length && (!cubeRollout || settled))
                 break;
             // Do not invent a future after a mode/speed/dual portal. The actual
@@ -633,7 +643,8 @@ class Runtime {
             }
         }
         out.landingVerified = out.requiresLanding && allLanded;
-        out.firstActionVerified = !out.requiresLanding || allLanded || out.boundary;
+        out.firstActionVerified =
+            !out.requiresLanding || allLanded || out.boundary || out.decisionPoint;
         // Robustness is intentionally cheap: map the worst geometric margin to [0,1].
         // Native collisions remain authoritative; this only ranks surviving candidates.
         out.robustness = std::clamp(out.clearance / 28.f, 0.f, 1.f);
@@ -852,6 +863,7 @@ class Runtime {
             seeds[1].capture(layer->m_player2);
         predictionError = error;
         Config searchConfig = settings.config;
+        searchConfig.tickSeconds = dt;
         const int liveMode = mode(p);
         const bool orbOpportunity = touchingOrb || imminentOrb || cubePulse.orbArmed();
         searchConfig.forceRelease =
@@ -1055,11 +1067,11 @@ class Runtime {
         }
         if (decision.hasValidatedInput || searchConfig.forceRelease) {
             inputPending = true;
-            message = !decision.hasValidatedInput     ? "BOT | forced release"
-                      : decision.selected.died        ? "BOT | no safe continuation"
-                      : decision.selected.interrupted ? "BOT | partial forecast"
-                      : decision.completeContinuation ? "BOT | online"
-                                                      : "BOT | short forecast";
+            message = !decision.hasValidatedInput       ? "BOT | forced release"
+                      : decision.completeContinuation   ? "BOT | online"
+                      : decision.recedingCertificate   ? "BOT | receding certificate"
+                      : decision.selected.interrupted  ? "BOT | partial forecast"
+                                                        : "BOT | short forecast";
         } else
             message = "BOT | no surviving candidate";
         // No unverified reflex override: when no complete cube route exists,
@@ -1161,7 +1173,7 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.9.0 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | "
+                "AutoGDBot 0.10.0 | {}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
@@ -1170,15 +1182,19 @@ class Runtime {
                 "failure: best={} deaths={} landing={} timeout={} | landings={}\n"
                 "native: U={}/{} C={} saw={} mismatch={}\n{}",
                 message, decision.elapsedMs, totalMs, decision.candidates, decision.predictedTicks,
-                settings.gpu ? gpu.status() : "CPU", ticks, decision.down ? "DOWN" : "UP",
+                decision.certificateTicks, settings.gpu ? gpu.status() : "CPU",
+                ticks, decision.down ? "DOWN" : "UP",
                 botHeld ? "DOWN" : "UP", inputTransitions, travelSteps[0].x, previousDt,
                 timing.nativeStep(previousDt), timing.measured() ? "*" : "",
                 decision.alternatives[0].survived, decision.alternatives[1].survived,
                 predictionError, geometryRejects, lightTicks, reflexJumps,
-                decision.selected.died          ? "DEAD"
+                decision.completeContinuation  ? "HORIZON"
+                : decision.selected.boundary   ? "PORTAL"
+                : decision.selected.decisionPoint ? "EVENT"
+                : decision.recedingCertificate ? (decision.selected.died ? "RECEDING-DEATH"
+                                                                           : "RECEDING")
                 : decision.selected.interrupted ? "PARTIAL"
-                : decision.selected.boundary    ? "PORTAL"
-                : decision.completeContinuation ? "HORIZON"
+                : decision.selected.died        ? "DEAD"
                                                 : "SHORT",
                 decision.selected.requiresLanding
                     ? (decision.selected.landingVerified ? "OK" : "NO")

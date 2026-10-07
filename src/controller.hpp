@@ -46,6 +46,7 @@ struct Evaluation {
     int buttonChanges = -1;
     bool firstActionVerified = true;
     bool boundary = false;
+    bool decisionPoint = false; // native state where the live controller can safely replan
     bool requiresLanding = false, landingVerified = false;
     std::array<std::vector<Point>, 2> traces;
     Plan realized;
@@ -58,6 +59,7 @@ struct Evaluation {
 struct Config {
     int horizon = 144, candidates = 48;
     double budgetMs = 1.0;
+    double tickSeconds = 1.0 / 240.0;
     bool forceRelease = false;
     bool cubePulsePlanning = false;
     bool immediateOrb = false; // touching or within the certified pre-contact orb window
@@ -72,7 +74,8 @@ struct Config {
 struct Decision {
     bool down = false, hasValidatedInput = false, exhausted = false;
     bool completeContinuation = false;
-    int candidates = 0, predictedTicks = 0, rejectedUnsafe = 0;
+    bool recedingCertificate = false;
+    int candidates = 0, predictedTicks = 0, certificateTicks = 0, rejectedUnsafe = 0;
     int bestRejectedTicks = 0, landingRejects = 0, deaths = 0, interruptions = 0;
     double elapsedMs = 0;
     Plan plan;
@@ -103,6 +106,13 @@ class Controller {
         cfg.candidates = std::clamp(cfg.candidates, 4, MaxCandidates);
         std::vector<Plan> plans;
         plans.reserve(cfg.candidates);
+        const double tickSeconds =
+            std::clamp(cfg.tickSeconds, 1.0 / 1000.0, 1.0 / 30.0);
+        auto T = [&](int base240Ticks) {
+            return std::clamp(
+                int(std::lround((base240Ticks / 240.0) / tickSeconds)),
+                1, cfg.horizon - 1);
+        };
         auto add = [&](Plan p) {
             if (int(plans.size()) >= cfg.candidates)
                 return;
@@ -257,8 +267,8 @@ class Controller {
 
             // Refine only after all important action classes have had a chance
             // to enter the bounded list.
-            for (int t = 1; t <= 12; ++t)
-                pulseAt(t);
+            for (int base = 1; base <= 12; ++base)
+                pulseAt(T(base));
             for (int d : {-1, 1, -2, 2, -3, 3})
                 for (int i = 0; i < jumpCount; ++i)
                     pulseAt(cfg.jumpEvents[i] + d);
@@ -266,16 +276,18 @@ class Controller {
                 for (int d : {-1, 1, -2, 2})
                     pulseAt(cfg.orbEvents[i] + d);
 
-            for (int t : {24, 48, 72, 96, 12, 36, 60, 84, 120, 144, 168, 192, 216,
-                          6, 18, 1, 2, 3, 4, 8})
-                pulseAt(t);
+            for (int base : {24, 48, 72, 96, 12, 36, 60, 84, 120, 144, 168, 192, 216,
+                             6, 18, 1, 2, 3, 4, 8})
+                pulseAt(T(base));
 
             // No pseudo-random cube tail. Spare slots are a deterministic
             // timing lattice, so identical game states produce identical
             // proposals on the first attempt.
-            for (int phase : {0, 3}) {
+            for (int basePhase : {0, 3}) {
+                const int phase = basePhase == 0 ? 0 : T(basePhase);
+                const int step = std::max(1, T(6));
                 for (int t = phase; t < cfg.horizon && int(plans.size()) < cfg.candidates;
-                     t += 6)
+                     t += step)
                     pulseAt(t);
             }
         } else {
@@ -351,9 +363,10 @@ class Controller {
                 // without ever relying on a long held state.
                 constant(false);
                 edgePulse(0, false);
-                for (int t : {1, 2, 3, 4, 6, 8, 12, 18, 24, 32, 40, 48, 64, 80, 96, 120, 144})
-                    edgePulse(t, false);
-                for (int period : {6, 8, 10, 12, 16, 20, 24, 32, 40, 48}) {
+                for (int base : {1, 2, 3, 4, 6, 8, 12, 18, 24, 32, 40, 48, 64, 80, 96, 120, 144})
+                    edgePulse(T(base), false);
+                for (int basePeriod : {6, 8, 10, 12, 16, 20, 24, 32, 40, 48}) {
+                    const int period = std::max(2, T(basePeriod));
                     pulseTrain(period, 0);
                     pulseTrain(period, period / 2);
                 }
@@ -366,11 +379,11 @@ class Controller {
                 // windows for landing and obstacle timing.
                 constant(false);
                 constant(true);
-                for (int duration : {1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64})
-                    window(0, duration);
-                for (int startTick : {2, 4, 6, 8, 12, 18, 24, 32, 48})
-                    for (int duration : {2, 4, 8, 16, 24})
-                        window(startTick, duration);
+                for (int baseDuration : {1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64})
+                    window(0, T(baseDuration));
+                for (int baseStart : {2, 4, 6, 8, 12, 18, 24, 32, 48})
+                    for (int baseDuration : {2, 4, 8, 16, 24})
+                        window(T(baseStart), T(baseDuration));
                 break;
             }
 
@@ -387,12 +400,14 @@ class Controller {
                 flipped.buttons[0] = !warm.at(0);
                 add(flipped);
 
-                for (int t : {1, 2, 3, 4, 6, 8, 12, 18, 24, 32, 40, 48, 64, 80, 96, 120, 144, 180})
+                for (int base : {1, 2, 3, 4, 6, 8, 12, 18, 24, 32, 40, 48, 64, 80, 96, 120, 144, 180})
                     for (bool first : {held, !held})
-                        switchAt(t, first);
+                        switchAt(T(base), first);
 
-                for (int firstSwitch : {4, 8, 12, 18, 24, 32}) {
-                    for (int width : {4, 8, 12, 18, 24, 32}) {
+                for (int baseFirst : {4, 8, 12, 18, 24, 32}) {
+                    for (int baseWidth : {4, 8, 12, 18, 24, 32}) {
+                        const int firstSwitch = T(baseFirst);
+                        const int width = T(baseWidth);
                         Plan p;
                         p.buttons.fill(held);
                         for (int k = firstSwitch;
@@ -402,7 +417,8 @@ class Controller {
                     }
                 }
 
-                for (int period : {4, 6, 8, 12, 16, 24, 32}) {
+                for (int basePeriod : {4, 6, 8, 12, 16, 24, 32}) {
+                    const int period = std::max(2, T(basePeriod));
                     pwm(period, std::max(1, period / 3), 0);
                     pwm(period, std::max(1, period / 2), period / 4);
                     pwm(period, std::max(1, (period * 2) / 3), period / 2);
@@ -416,11 +432,13 @@ class Controller {
                 constant(held);
                 constant(!held);
                 add(warm);
-                for (int t : {1, 2, 3, 4, 6, 8, 12, 18, 24, 36, 48, 72, 96, 120, 144})
+                for (int base : {1, 2, 3, 4, 6, 8, 12, 18, 24, 36, 48, 72, 96, 120, 144})
                     for (bool first : {held, !held})
-                        switchAt(t, first);
-                for (int period : {8, 12, 16, 24, 32})
+                        switchAt(T(base), first);
+                for (int basePeriod : {8, 12, 16, 24, 32}) {
+                    const int period = std::max(2, T(basePeriod));
                     pwm(period, period / 2, 0);
+                }
                 break;
             }
             }
@@ -449,15 +467,49 @@ class Controller {
         result.down = cfg.forceRelease ? false : held;
         float bestScore = -std::numeric_limits<float>::infinity();
         std::array<bool, 2> immediateOrbEvaluated{};
+        const double safeTickSeconds =
+            std::clamp(cfg.tickSeconds, 1.0 / 1000.0, 1.0 / 30.0);
+        auto secondsToTicks = [&](double seconds) {
+            return std::clamp(int(std::ceil(seconds / safeTickSeconds)), 4, cfg.horizon);
+        };
+        double certificateSeconds = .12;
+        switch (cfg.plannerMode) {
+        case PlannerMode::Ship:
+        case PlannerMode::Wave:
+        case PlannerMode::Swing:
+            certificateSeconds = .10;
+            break;
+        case PlannerMode::Ufo:
+        case PlannerMode::Robot:
+            certificateSeconds = .12;
+            break;
+        case PlannerMode::Ball:
+        case PlannerMode::Spider:
+            certificateSeconds = .14;
+            break;
+        default:
+            certificateSeconds = .12;
+            break;
+        }
+        const int minCertificateTicks = secondsToTicks(certificateSeconds);
+
         auto consider = [&](Plan const &plan, Evaluation e) {
             const bool complete = !e.died && !e.interrupted &&
                 (e.boundary || e.survived >= cfg.horizon);
-            // A short probe does not certify a jump or its landing. Never rank
-            // a known death, even if it survives longer than another prefix.
-            // Continuous modes may use a checked prefix; cube decisions need
-            // a complete trajectory with all landings checked by the evaluator.
-            if (e.survived <= 0 || !e.firstActionVerified || e.died ||
-                (cfg.cubePulsePlanning && !complete)) {
+            const bool eventCertified =
+                !e.died && e.firstActionVerified && e.decisionPoint;
+            // Continuous/re-responsive modes do not need to prove the whole
+            // 0.8-1.0 s future every frame. A collision-free prefix long
+            // enough for the next live replanning cycle is a valid MPC
+            // certificate. Cube still requires a native decision point
+            // (landing/orb/portal) because its airborne path is not freely
+            // steerable.
+            const bool prefixCertified =
+                !cfg.cubePulsePlanning && e.firstActionVerified &&
+                e.survived >= minCertificateTicks;
+            const bool certified = complete || eventCertified || prefixCertified;
+
+            if (e.survived <= 0 || !e.firstActionVerified || !certified) {
                 ++result.rejectedUnsafe;
                 result.bestRejectedTicks = std::max(result.bestRejectedTicks, e.survived);
                 result.landingRejects += !e.firstActionVerified;
@@ -465,6 +517,7 @@ class Controller {
                 result.interruptions += e.interrupted;
                 return false;
             }
+
             int changes = e.buttonChanges;
             if (changes < 0) {
                 changes = 0;
@@ -482,10 +535,8 @@ class Controller {
             const float safeClearance = std::clamp(e.clearance, 0.f, 120.f);
             const float safeLanding = std::clamp(e.landingMargin, 0.f, 80.f);
             const float robust = std::clamp(e.robustness, 0.f, 1.f);
-            // Clearance is meaningful only when the runtime rollout populated the
-            // robustness metric from the whole trajectory. This prevents an endpoint
-            // or synthetic clearance value from causing an unnecessary jump on open ground.
             const float marginWeight = robust > 0.f ? 1.f : 0.f;
+
             float score = std::min(e.survived, cfg.horizon) * 10000.f -
                           std::max(0, e.survived - cfg.horizon) * 10.f +
                           safeClearance * 85.f * marginWeight +
@@ -495,28 +546,36 @@ class Controller {
                 score += 1200.f;
             if (complete)
                 score += 3000000.f;
-            if (complete && e.landingVerified)
+            else if (eventCertified)
+                score += 1900000.f;
+            else if (!e.died)
+                score += 650000.f;
+            else
+                score -= 1200000.f; // known later death: usable only as last-resort prefix
+            if ((complete || eventCertified) && e.landingVerified)
                 score += 60000.f;
             if (plan.at(0) == held || (cfg.forceRelease && !plan.at(0)))
                 score += 100.f;
             if (cfg.immediateOrb) {
                 const bool realizedPress = e.hasRealized ? e.realized.at(0) : plan.at(0);
                 if (realizedPress)
-                    score += 4000.f; // tie-break toward using a safe contacted orb
+                    score += 4000.f;
             }
+
             if (score > bestScore) {
                 bestScore = score;
                 result.down = e.hasRealized ? e.realized.at(0) : plan.at(0);
                 result.predictedTicks = e.survived;
+                result.certificateTicks =
+                    complete ? cfg.horizon
+                             : (eventCertified ? e.survived : minCertificateTicks);
                 result.hasValidatedInput = true;
                 result.completeContinuation = complete;
+                result.recedingCertificate = !complete;
                 result.plan = e.hasRealized ? e.realized : plan;
                 result.selected = std::move(e);
             }
-            // Once a route has been validated, do not stop on a different
-            // merely-safe timing. Re-test the warm route and keep it unless a
-            // materially better continuation wins. This removes frame-to-frame
-            // takeoff jitter near double/triple spikes.
+
             bool warmCompatible = warm_.length <= 0;
             if (!warmCompatible) {
                 const int n = std::min({24, warm_.length, plan.length});
@@ -524,22 +583,17 @@ class Controller {
                 for (int k = 0; k < n && warmCompatible; ++k)
                     warmCompatible = plan.at(k) == warm_.at(k);
             }
-            // Never stop at the first merely-surviving geometry route. Without a
-            // previously verified warm route, compare the protected timing neighborhood
-            // so a wide-margin takeoff can beat a spike-grazing one. With a warm route,
-            // early-stop is allowed only when that route itself has meaningful margin.
             const bool currentRobust = robust >= .55f || safeClearance >= 18.f;
             const bool geometrySensitive = cfg.jumpEventCount > 0 || cfg.orbEventCount > 0 ||
                                            cfg.landingEventCount > 0;
-            // Open ground keeps the cheap three-evaluation fast path. Around hazards,
-            // orbs and landing chains we compare the protected timing neighborhood unless
-            // an already-verified robust warm route can be reused safely.
             const bool comparedImmediateOrb =
                 !cfg.immediateOrb || (immediateOrbEvaluated[0] && immediateOrbEvaluated[1]);
             const bool mayEarlyStop =
                 comparedImmediateOrb &&
                 (!geometrySensitive ||
                  (warm_.length > 0 && currentRobust && warmCompatible));
+            // Receding certificates are intentionally compared against more
+            // candidates. Only a full continuation may short-circuit search.
             return complete && mayEarlyStop && result.plan.at(0) == plan.at(0) &&
                    (plan.at(0) == held || (cfg.forceRelease && !plan.at(0)));
         };
