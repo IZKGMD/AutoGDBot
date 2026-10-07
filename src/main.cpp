@@ -478,7 +478,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.21.0.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.21.1.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -487,7 +487,7 @@ class Runtime {
                      "requested_down,actual_down,deadline_hit,selected_died,selected_interrupted,"
                      "first_action_verified,requires_landing,landing_verified,boundary,position_"
                      "error,light_ticks,reflex_jumps,route_id,mode_transitions,post_portal_ticks,"
-                     "portal_verified,queue_ticks\n";
+                     "portal_verified,queue_ticks,repairs_created,repairs_tested\n";
             for (auto const &row : csv)
                 f << row << '\n';
         }
@@ -746,6 +746,9 @@ class Runtime {
                     if (t < nearClearanceTicks) out.nearClearance = std::min(out.nearClearance, margin);
                 }
                 if (landingMode(p)) {
+                    if (down && groundedBefore[i] && !p->m_isOnGround &&
+                        currentMode.mode == PlannerMode::Cube && !orbContact)
+                        ++out.cubeTakeoffs;
                     if (!groundedBefore[i] && p->m_isOnGround && i == 0) {
                         ++out.landingCount;
                         if (out.firstLandingTick < 0) out.firstLandingTick = t;
@@ -1467,7 +1470,8 @@ class Runtime {
                                   e.firstActionVerified, e.requiresLanding, e.landingVerified,
                                   e.boundary, predictionError, lightTicks, reflexJumps)
             .append(fmt::format(",{:016x},{},{},{},{}", e.routeId, e.transitions.size(),
-                e.postPortalTicks, e.portalVerified, inputQueue.remaining())));
+                e.postPortalTicks, e.portalVerified, inputQueue.remaining()))
+            .append(fmt::format(",{},{}", decision.repairsCreated, decision.repairsTested)));
         if (csv.size() >= 256)
             flush();
     }
@@ -1516,7 +1520,7 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.21.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
+                "AutoGDBot 0.21.1 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={} | tested={}/{}\n"
@@ -1567,6 +1571,7 @@ class Runtime {
                 .append(fmt::format("\nplan={:016x} transitions={} after={} checked={}",
                     decision.selected.routeId, decision.selected.transitions.size(),
                     decision.selected.postPortalTicks, decision.selected.portalVerified ? "YES" : "no"))
+                .append(fmt::format(" repairs={}/{}", decision.repairsTested, decision.repairsCreated))
                 .c_str());
         label->setColor(decision.hasValidatedInput ? ccColor3B{120, 255, 170}
                                                    : ccColor3B{255, 180, 100});

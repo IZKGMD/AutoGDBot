@@ -42,6 +42,7 @@ struct Plan {
 struct Evaluation {
     int survived = 0;
     int groundedPrefixTicks = 0; // contiguous native-confirmed UP + ground for both players
+    int cubeTakeoffs = 0; // input-caused native ground-to-air transitions
     bool died = false;
     bool guardDeath = false;
     bool nativeDeath = false;
@@ -130,6 +131,7 @@ struct Decision {
     int recoveryTicks = 0;
     int candidates = 0, predictedTicks = 0, certificateTicks = 0, rejectedUnsafe = 0;
     int bestRejectedTicks = 0, landingRejects = 0, deaths = 0;
+    int repairsCreated = 0, repairsTested = 0;
     int guardDeaths = 0, nativeDeaths = 0, interruptions = 0;
     double elapsedMs = 0;
     std::array<int, 2> firstActionCandidates{};
@@ -157,6 +159,8 @@ inline bool preferVerifiedFallback(Decision const &current, Decision const &fall
 }
 inline void retainSearchDiagnostics(Decision &queued, Decision const &search) {
     queued.candidates = search.candidates;
+    queued.repairsCreated = search.repairsCreated;
+    queued.repairsTested = search.repairsTested;
     queued.firstActionCandidates = search.firstActionCandidates;
     queued.elapsedMs = search.elapsedMs;
     queued.rejectedUnsafe = search.rejectedUnsafe;
@@ -664,6 +668,11 @@ class Controller {
         const int expansionReserve = std::min(32, cfg.candidates / 3);
         proposalConfig.candidates -= expansionReserve;
         auto plans = propose(proposalConfig, held);
+        const size_t initialPlanCount = plans.size();
+        // Unevaluated proposals must not consume the opportunities to repair
+        // a later native-discovered touchdown. Bound storage separately from
+        // the actual native evaluation count and the common time deadline.
+        const int repairPoolCapacity = cfg.candidates * 2;
         Decision result;
         result.down = cfg.forceRelease ? false : held;
         float bestScore = -std::numeric_limits<float>::infinity();
@@ -811,8 +820,21 @@ class Controller {
                 score += 650000.f;
             else
                 score -= 1200000.f; // known later death: usable only as last-resort prefix
-            if ((complete || eventCertified) && e.landingVerified)
-                score += 60000.f;
+            // Landing is a safety obligation, not progress by itself. Rewarding
+            // it made equally safe empty-floor plans schedule needless jumps.
+            if (cfg.cubePulsePlanning && !cfg.immediateOrb) {
+                int takeoffs = e.cubeTakeoffs;
+                if (e.modeTraces[0].empty() && takeoffs == 0) {
+                    // Standalone evaluators may supply only the realized input.
+                    auto const &input = e.hasRealized ? e.realized : plan;
+                    bool previous = held;
+                    for (int t=0;t<std::min(e.survived,input.length);++t) {
+                        takeoffs += !previous && input.at(t);
+                        previous = input.at(t);
+                    }
+                }
+                score -= 160000.f * takeoffs;
+            }
             if (plan.at(0) == held || (cfg.forceRelease && !plan.at(0)))
                 score += 100.f;
             if (cfg.immediateOrb) {
@@ -882,9 +904,10 @@ class Controller {
         // Keep the initial action basis ahead of adaptive repairs. Repeated
         // repairs of one failed cached coast used to starve the opposite
         // first action on Android (only 2-4 forecasts fit in one substep).
-        const size_t basisEnd = std::min(size_t(4), order.size());
+        const size_t basisEnd = std::min(cfg.forceRelease ? size_t(1) : size_t(2), order.size());
         auto enqueueRepairs = [&](size_t cursor, std::vector<int> const &children, bool transition = false) {
-            const bool compared = immediateOrbEvaluated[0] && immediateOrbEvaluated[1];
+            const bool compared = cfg.forceRelease ||
+                (immediateOrbEvaluated[0] && immediateOrbEvaluated[1]);
             if (transition && (compared || cfg.forceRelease)) {
                 order.insert(order.begin() + cursor + 1, children.begin(), children.end());
                 return;
@@ -896,7 +919,7 @@ class Controller {
         };
         for (size_t cursor = 0; cursor < order.size(); ++cursor) {
             const int i = order[cursor];
-            if (Clock::now() >= deadline) {
+            if (Clock::now() >= deadline || result.candidates >= cfg.candidates) {
                 result.exhausted = true;
                 break;
             }
@@ -909,6 +932,7 @@ class Controller {
             auto e = evaluate(plans[i], candidateDeadline);
             e.routeId = routeFingerprint(e.hasRealized ? e.realized : plans[i]);
             ++result.candidates;
+            result.repairsTested += size_t(i) >= initialPlanCount;
             ++result.firstActionCandidates[plans[i].at(0) ? 1 : 0];
             immediateOrbEvaluated[plans[i].at(0) ? 1 : 0] = true;
             auto &alternative = result.alternatives[plans[i].at(0)];
@@ -919,7 +943,7 @@ class Controller {
             // reached by this lineage, retaining its exact native input prefix.
             // Never apply the old cube pulse policy to a new ship/wave section.
             if (!e.transitions.empty() && (e.died || e.interrupted || !e.firstActionVerified || !e.portalVerified) &&
-                int(plans.size()) < cfg.candidates) {
+                int(plans.size()) < repairPoolCapacity) {
                 std::vector<int> children;
                 for(auto o:e.transitions) {
                     const int at=o.tick;
@@ -927,10 +951,10 @@ class Controller {
                     const auto kind=modePolicy(o.mode).input;
                     const bool edge=kind==InputKind::GroundPulse || kind==InputKind::GroundEdge || kind==InputKind::AirEdge;
                     for(int variant=0;variant<(edge?4:2);++variant) {
-                        if(int(plans.size())>=cfg.candidates || children.size()>=8)break;
+                        if(int(plans.size())>=repairPoolCapacity || children.size()>=8)break;
                         Plan child=plans[i];
-                        child.length=std::min(MaxHorizon, std::max(cfg.horizon,
-                            at + std::max(4, int(std::ceil(.18/safeTickSeconds))) + 1));
+                        child.length=std::min(MaxHorizon, std::max({cfg.horizon, plans[i].length,
+                            at + std::max(4, int(std::ceil(.18/safeTickSeconds))) + 1}));
                         child.landingDelay=-1;
                         if(e.hasRealized)std::copy_n(e.realized.buttons.begin(),at,child.buttons.begin());
                         std::fill(child.buttons.begin()+at,child.buttons.end(),!edge && variant==1);
@@ -955,14 +979,14 @@ class Controller {
             if (
                 (e.died || e.interrupted || !e.firstActionVerified) &&
                 !e.orbActions.empty() &&
-                int(plans.size()) < cfg.candidates) {
+                int(plans.size()) < repairPoolCapacity) {
                 std::vector<int> children;
                 int emitted = 0;
                 for (auto it = e.orbActions.rbegin();
                      it != e.orbActions.rend() && emitted < 6 &&
-                     int(plans.size()) < cfg.candidates; ++it) {
+                     int(plans.size()) < repairPoolCapacity; ++it) {
                     const int at = *it;
-                    if (at < 0 || at >= cfg.horizon)
+                    if (at < 0 || at >= MaxHorizon)
                         continue;
                     const bool dash = std::find(e.dashActions.begin(), e.dashActions.end(), at) !=
                                       e.dashActions.end();
@@ -970,19 +994,20 @@ class Controller {
                         continue;
                     for (int hold : {1, 8, 24, 64, 144, 240}) {
                         if (!dash && hold != 1) break;
-                        if (int(plans.size()) >= cfg.candidates) break;
+                        if (int(plans.size()) >= repairPoolCapacity) break;
                         Plan child = plans[i];
                         // Keep the observed prefix and the original future
                         // steering. Clearing the whole tail destroyed ship
                         // thrust and the next action in an orb chain.
                         if (e.hasRealized)
                             std::copy_n(e.realized.buttons.begin(), at, child.buttons.begin());
-                        child.length = cfg.horizon;
+                        child.length = std::min(MaxHorizon, std::max({cfg.horizon,
+                            plans[i].length, at + 1}));
                         child.landingDelay = -1;
                         if (at > 0) child.buttons[at - 1] = false;
-                        const int end = std::min(cfg.horizon, at + hold);
+                        const int end = std::min(child.length, at + hold);
                         std::fill(child.buttons.begin() + at, child.buttons.begin() + end, true);
-                        if (end < cfg.horizon) child.buttons[end] = false;
+                        if (end < child.length) child.buttons[end] = false;
                         bool duplicate = false;
                         for (auto const &old : plans)
                             duplicate |= old.buttons == child.buttons &&
@@ -1001,7 +1026,7 @@ class Controller {
             // already observed prefix instead of replacing the whole route.
             const int first = plans[i].at(0) ? 1 : 0;
             if (e.died && e.survived > furthestControlFailure[first] &&
-                !e.controlActions.empty() && int(plans.size()) < cfg.candidates) {
+                !e.controlActions.empty() && int(plans.size()) < repairPoolCapacity) {
                 furthestControlFailure[first] = e.survived;
                 std::vector<int> children;
                 std::vector<PlannerMode> observedModes{cfg.plannerMode};
@@ -1018,23 +1043,25 @@ class Controller {
                             [&](ControlOpportunity o) { return o.mode == m && o.tick <= target; });
                         if (it == e.controlActions.rend()) continue;
                         const int at = it->tick;
+                        if (at < 0 || at >= MaxHorizon) continue;
                         const auto input = modePolicy(m).input;
                         for (int duration : {1, 8, 24, 64}) {
                             const bool edge = input == InputKind::GroundPulse ||
                                 input == InputKind::GroundEdge || input == InputKind::AirEdge;
                             if (edge && duration != 1) break;
-                            if (int(plans.size()) >= cfg.candidates || children.size() >= 8) break;
+                            if (int(plans.size()) >= repairPoolCapacity || children.size() >= 8) break;
                             Plan child = plans[i];
                             if (e.hasRealized)
                                 std::copy_n(e.realized.buttons.begin(), at, child.buttons.begin());
-                            child.length = cfg.horizon;
+                            child.length = std::min(MaxHorizon, std::max({cfg.horizon,
+                                plans[i].length, at + 1}));
                             child.landingDelay = -1;
                             const bool down = edge || input == InputKind::JumpHold ? true : !child.at(at);
                             if ((edge || input == InputKind::JumpHold) && at > 0) child.buttons[at - 1] = false;
                             const int hold = std::max(1, int(std::lround((duration / 240.0) / safeTickSeconds)));
-                            const int end = std::min(cfg.horizon, at + hold);
+                            const int end = std::min(child.length, at + hold);
                             std::fill(child.buttons.begin() + at, child.buttons.begin() + end, down);
-                            if (end < cfg.horizon && (edge || input == InputKind::JumpHold)) child.buttons[end] = false;
+                            if (end < child.length && (edge || input == InputKind::JumpHold)) child.buttons[end] = false;
                             bool duplicate = false;
                             for (auto const &old : plans)
                                 duplicate |= old.buttons == child.buttons && old.landingDelay == child.landingDelay;
@@ -1049,16 +1076,17 @@ class Controller {
 
             // The same mechanism remains for native-confirmed touchdowns.
             if (cfg.cubePulsePlanning && e.died && e.survived > furthestFailure &&
-                !e.groundedActions.empty() && int(plans.size()) < cfg.candidates) {
+                !e.groundedActions.empty() && int(plans.size()) < repairPoolCapacity) {
                 furthestFailure = e.survived;
                 std::vector<int> children;
                 for (int lead : {24, 32, 16, 40, 8, 48, 0, 56}) {
                     const int index = std::max(0, int(e.groundedActions.size()) - 1 - lead);
                     const int at = e.groundedActions[index];
-                    if (at < 1 || at >= cfg.horizon || plans[i].at(at))
+                    if (at < 1 || at >= MaxHorizon || plans[i].at(at))
                         continue;
                     Plan child = e.hasRealized ? e.realized : plans[i];
-                    child.length = cfg.horizon;
+                    child.length = std::min(MaxHorizon, std::max({cfg.horizon,
+                        plans[i].length, at + 1}));
                     child.landingDelay = -1;
                     std::fill(child.buttons.begin() + at, child.buttons.end(), false);
                     child.buttons[at] = true;
@@ -1070,7 +1098,7 @@ class Controller {
                         continue;
                     children.push_back(int(plans.size()));
                     plans.push_back(child);
-                    if (int(plans.size()) >= cfg.candidates)
+                    if (int(plans.size()) >= repairPoolCapacity)
                         break;
                 }
                 enqueueRepairs(cursor, children);
@@ -1094,6 +1122,7 @@ class Controller {
                 if (cfg.cubePulsePlanning) result.down = false;
             }
         }
+        result.repairsCreated = int(plans.size() - initialPlanCount);
         result.proposals = std::move(plans);
         result.elapsedMs = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
         return result;
