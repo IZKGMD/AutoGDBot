@@ -102,6 +102,11 @@ class Controller {
         warm_.length -= ticks;
         std::fill(warm_.buttons.begin() + warm_.length, warm_.buttons.end(), false);
     }
+    void seedVerifiedPrefix(Plan const &plan, int verifiedTicks) {
+        warm_ = plan;
+        warm_.length = std::clamp(verifiedTicks, 0, std::min(plan.length, MaxHorizon));
+        std::fill(warm_.buttons.begin() + warm_.length, warm_.buttons.end(), false);
+    }
     std::vector<Plan> propose(Config cfg, bool held) {
         cfg.horizon = std::clamp(cfg.horizon, 24, MaxPlanningHorizon);
         cfg.candidates = std::clamp(cfg.candidates, 4, MaxCandidates);
