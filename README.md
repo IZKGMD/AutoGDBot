@@ -1,4 +1,4 @@
-# AutoGDBot Realtime v0.20.0
+# AutoGDBot Realtime v0.19.0
 
 Geode mod for Geometry Dash 2.2081, Geode SDK 5.10.1 and bindings f050fd74ad531b0827377c97510cb807903ff1b3.
 
@@ -8,9 +8,11 @@ On Android, import the Android64 .geode in Geometry Dash's Geode local-package p
 
 ## Changes
 
-New cube launches and orb activations require verified landings; known-fatal or interrupted trajectories cannot win merely by surviving longer. Safe native-confirmed grounded UP prefixes can certify waiting. Near obstacles, short coast predictions defer to longer landing checks. Both immediate input choices receive reserved search time, and all tiers share one absolute deadline. Queued releases and airborne clicks execute at their verified step, while native motion, position, mode and timestep must still match. Optional rings retain continuous hold candidates. Recovery is disabled by default for new installs.
+v0.19 keeps the native-physics rolling-horizon controller realtime: no whole-level pre-solve and no external process. Inspired by gdsolver's reachability/verification loop, UP and DOWN are now tracked as separate certified reachable sets. The arbiter ranks survival class, immediate clearance and robustness before secondary score terms, so an unnecessary tight jump cannot beat a wider safe wait merely on progress or continuity.
 
-See ACCURACY_v0.20.0.md for the concrete regressions and limits.
+Every controllable cube tick reserves search for both first inputs. Model drift above 1.25 units invalidates the warm plan and verified queue and immediately re-seeds rollouts from the live player state. The executor may not invent an UP->DOWN rising edge: a buffered press without its own current-snapshot reachability witness is vetoed. Verified landings, grounded waits, native-motion queue matching, orb timing, shared per-tick deadlines and multi-mode control from the accuracy branch are retained.
+
+See REACHABILITY_v0.19.0.md for the design, regressions and limits.
 
 ## Validation
 
