@@ -801,16 +801,15 @@ class Runtime {
         // 60 Hz during uncontrollable cube flight at 240 TPS, and every tick
         // on the ground, at an orb or in a continuous-control mode.
         bool nearAction = false;
+        bool orbSoon = false;
         if (pulseMode) {
             const float px = p->getPositionX();
+            auto o = std::lower_bound(hintOrbs.begin(), hintOrbs.end(), px - 12.f,
+                                      [](auto const &a, float x) { return a.first < x; });
+            orbSoon = o != hintOrbs.end() && o->first <= px + 230.f;
             auto h = std::lower_bound(hintObjects.begin(), hintObjects.end(), px - 12.f,
                                       [](auto const &a, float x) { return a.first < x; });
-            nearAction = h != hintObjects.end() && h->first <= px + 230.f;
-            if (!nearAction) {
-                auto o = std::lower_bound(hintOrbs.begin(), hintOrbs.end(), px - 12.f,
-                                          [](auto const &a, float x) { return a.first < x; });
-                nearAction = o != hintOrbs.end() && o->first <= px + 230.f;
-            }
+            nearAction = (h != hintObjects.end() && h->first <= px + 230.f) || orbSoon;
             if (!nearAction) {
                 // A wall/raised block is as timing-sensitive as a spike. In
                 // v0.6.0 these solids did not raise the search budget, which
@@ -937,11 +936,18 @@ class Runtime {
             searchConfig.budgetMs = std::max(searchConfig.budgetMs, nearAction ? 3.5 : 1.35);
             if (nearAction)
                 searchConfig.candidates = std::max(searchConfig.candidates, 96);
-            if (searchConfig.immediateOrb) {
-                // Orb contact windows are only a few physics ticks wide. Spend
-                // the full local budget here and compare PRESS NOW vs SKIP first.
+            if (orbSoon) {
+                searchConfig.horizon = std::max(searchConfig.horizon, 240);
                 searchConfig.candidates = 96;
-                searchConfig.budgetMs = std::max(searchConfig.budgetMs, 4.5);
+                searchConfig.budgetMs = std::max(searchConfig.budgetMs, 4.0);
+            }
+            if (searchConfig.immediateOrb) {
+                // The actual/pre-contact ring window is only a few physics
+                // ticks wide. Spend the largest local burst here, never as a
+                // level-wide precomputation.
+                searchConfig.horizon = std::max(searchConfig.horizon, 240);
+                searchConfig.candidates = 96;
+                searchConfig.budgetMs = std::max(searchConfig.budgetMs, 5.0);
             }
         }
         // Cache frozen-world geometry once per tick. Candidate steps query the
