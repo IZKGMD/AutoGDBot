@@ -1073,7 +1073,7 @@ class Controller {
             result.firstActionNearClearance[a] = reachable[a].nearClearance;
             result.firstActionRobustness[a] = reachable[a].robustness;
         }
-        if (cfg.compareFirstActions && !cfg.forceRelease &&
+        if ((cfg.compareFirstActions || cfg.immediateOrb) && !cfg.forceRelease &&
             (reachable[0].valid || reachable[1].valid)) {
             int winner = reachable[1].valid && betterReachability(reachable[1], reachable[0]) ? 1 : 0;
             // Near an actual ring, an equally safe DOWN witness may be the
