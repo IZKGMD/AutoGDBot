@@ -1,6 +1,6 @@
-# Current version: v0.20.0
+# Current version: v0.19.0
 
-Six standalone regression suites pass (controller, staircase, mode, interaction, survival and accuracy). Android64 and Windows x64 Release packages build locally with Clang 21, Geode 5.10.1 and pinned bindings. Android uses NDK r29; Windows uses the MSVC 143 runtime and Windows SDK 10.0.26100 via xwin. Package CRC/manifest, AArch64 binary identity, SONAME and locally defined libc++ hash compatibility symbol checks pass. Windows PE x86-64, binary identity, Release runtime imports and geodeImplicitEntry export checks also pass. See ACCURACY_v0.20.0.md for new regressions and limits. Native rollout fidelity, in-game installation, completion, FPS and success rates remain unverified. The notes below document historical versions rather than current gameplay validation.
+Six standalone regression suites pass (controller, staircase, mode, interaction, survival and accuracy). Android64 and Windows x64 Release packages build locally with Clang 21, Geode 5.10.1 and pinned bindings. Android uses NDK r29; Windows uses the MSVC 143 runtime and Windows SDK 10.0.26100 via xwin. Package CRC/manifest, AArch64 binary identity, SONAME and locally defined libc++ hash compatibility symbol checks pass. Windows PE x86-64, binary identity, Release runtime imports and geodeImplicitEntry export checks also pass. See REACHABILITY_v0.19.0.md for current regressions and limits. Native rollout fidelity, in-game installation, completion, FPS and success rates remain unverified. The notes below document historical versions rather than current gameplay validation.
 
 # Validation status
 
