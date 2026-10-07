@@ -267,8 +267,8 @@ class Controller {
 
             // Refine only after all important action classes have had a chance
             // to enter the bounded list.
-            for (int t = 1; t <= 12; ++t)
-                pulseAt(t);
+            for (int base = 1; base <= 12; ++base)
+                pulseAt(T(base));
             for (int d : {-1, 1, -2, 2, -3, 3})
                 for (int i = 0; i < jumpCount; ++i)
                     pulseAt(cfg.jumpEvents[i] + d);
@@ -276,16 +276,18 @@ class Controller {
                 for (int d : {-1, 1, -2, 2})
                     pulseAt(cfg.orbEvents[i] + d);
 
-            for (int t : {24, 48, 72, 96, 12, 36, 60, 84, 120, 144, 168, 192, 216,
-                          6, 18, 1, 2, 3, 4, 8})
-                pulseAt(t);
+            for (int base : {24, 48, 72, 96, 12, 36, 60, 84, 120, 144, 168, 192, 216,
+                             6, 18, 1, 2, 3, 4, 8})
+                pulseAt(T(base));
 
             // No pseudo-random cube tail. Spare slots are a deterministic
             // timing lattice, so identical game states produce identical
             // proposals on the first attempt.
-            for (int phase : {0, 3}) {
+            for (int basePhase : {0, 3}) {
+                const int phase = basePhase == 0 ? 0 : T(basePhase);
+                const int step = std::max(1, T(6));
                 for (int t = phase; t < cfg.horizon && int(plans.size()) < cfg.candidates;
-                     t += 6)
+                     t += step)
                     pulseAt(t);
             }
         } else {
