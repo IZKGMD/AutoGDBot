@@ -347,13 +347,13 @@ class Runtime {
             auto *p = layer ? layer->m_player1 : nullptr;
             lastAttempt = fmt::format(
                 "last attempt: step={} x={:.1f} want={} held={} native={} U={}/{} C={} mismatch={} | "
-                "route={} rejected={} best={} deaths={} landing={} timeout={}",
+                "route={} rejected={} best={} deaths={} guard={} native={} landing={} timeout={}",
                 ticks, p ? p->getPositionX() : 0.f, decision.down ? "DOWN" : "UP",
                 botHeld ? "DOWN" : "UP", nativeSawDown ? "DOWN" : "UP",
                 nativeUpdates, nativeUpdatesInside, nativeCollisions, inputPhaseMismatches,
                 decision.hasValidatedInput ? "OK" : "NONE", decision.rejectedUnsafe,
-                decision.bestRejectedTicks, decision.deaths, decision.landingRejects,
-                decision.interruptions);
+                decision.bestRejectedTicks, decision.deaths, decision.guardDeaths,
+                decision.nativeDeaths, decision.landingRejects, decision.interruptions);
         }
         flush();
         releaseLiveInput();
@@ -1182,6 +1182,34 @@ class Runtime {
                 decision = std::move(retry);
                 routeHandoffBypassed = true;
                 plannerStage = "BYPASS";
+            } else {
+                hazardGuard.set(guardBounds);
+            }
+        }
+
+        // Video 553 regression: if EVERY route dies at tick zero only because
+        // of the independent coarse hazard guard, the real state itself proves
+        // that guard is too conservative at this instant. Re-run once with
+        // native collision as authority rather than choosing "no input" and
+        // guaranteeing impact. Native deaths never trigger this bypass.
+        const bool zeroTickGuardCollapse =
+            !decision.hasValidatedInput && decision.candidates > 0 &&
+            decision.deaths == decision.candidates && decision.bestRejectedTicks == 0 &&
+            decision.guardDeaths == decision.deaths && decision.nativeDeaths == 0;
+        if (zeroTickGuardCollapse) {
+            hazardGuard.set({});
+            controller.reset();
+            fastController.reset();
+            auto nativeRetry = controller.decide(
+                rescueConfig, botHeld,
+                [&](Plan const &plan, auto deadline) {
+                    return evaluate(plan, deadline, dt, rescueTailCap);
+                },
+                priorities);
+            if (nativeRetry.hasValidatedInput) {
+                decision = std::move(nativeRetry);
+                plannerStage = "GUARD-BYPASS";
+                routeHandoffBypassed |= routeHandoff.found;
             } else {
                 hazardGuard.set(guardBounds);
             }
