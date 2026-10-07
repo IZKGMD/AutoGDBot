@@ -77,6 +77,8 @@ inline bool isPortalType(GameObjectType t) {
     switch (t) {
     case GameObjectType::InverseGravityPortal:
     case GameObjectType::NormalGravityPortal:
+    case GameObjectType::InverseMirrorPortal:
+    case GameObjectType::NormalMirrorPortal:
     case GameObjectType::ShipPortal:
     case GameObjectType::CubePortal:
     case GameObjectType::BallPortal:
@@ -109,6 +111,22 @@ inline bool isForecastBoundary(GameObject const *o) {
     return o && (isPortalType(o->m_objectType) || isSpeedPortalObject(o));
 }
 
+// Native collision may execute these without teleporting/spawning a body or
+// changing trigger groups. Complex portals remain an explicit live handoff.
+inline bool isLocalPhysicsPortal(GameObject const *o) {
+    if (!o || !isForecastBoundary(o)) return false;
+    switch (o->m_objectType) {
+    case GameObjectType::DualPortal:
+    case GameObjectType::SoloPortal:
+    case GameObjectType::TeleportPortal:
+        return false;
+    case GameObjectType::InverseMirrorPortal:
+    case GameObjectType::NormalMirrorPortal:
+        return false;
+    default: return true;
+    }
+}
+
 // Objects allowed through clone collision filtering. Every semantic orb must
 // reach native collision code; otherwise the planner can see a ring that the
 // clone can never activate.
@@ -131,7 +149,7 @@ inline bool isClonePhysicsObject(GameObject const *o) {
     case GameObjectType::Slope:
         return true;
     default:
-        return isPadObject(o) || isOrbObject(o);
+        return isPadObject(o) || isOrbObject(o) || isLocalPhysicsPortal(o);
     }
 }
 

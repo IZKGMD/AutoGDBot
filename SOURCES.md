@@ -4,7 +4,7 @@
 - Geode SDK v5.10.1: https://github.com/geode-sdk/geode/tree/v5.10.1
 - Geode GD 2.2081 bindings: https://github.com/geode-sdk/bindings/tree/main/bindings/2.2081
 - Geode package/build documentation: https://docs.geode-sdk.org/
-- GD Solver: https://github.com/gdsolver/gdsolver — studied restoration/fidelity failure modes, the distinction between a model and game verification, and physics-tick input timing. Its offline solver and saved solutions are not bundled or used.
+- GD Solver: https://github.com/gdsolver/gdsolver/tree/8e8d69ada86a315c71d05cc8b8fe4d369d883aa2 — studied exact-state reachability, mode transitions, native verification/repair and snapshot isolation. The normal-frame portal-band formula from dp/src/dp/bands.hpp is adapted in src/portal_continuation.hpp. Its MIT license is preserved in third_party/gdsolver-LICENSE and distributed with packages. The offline solver and saved solutions are not bundled. See GDSOLVER_REVIEW.md.
 - Eclipse Menu ShowTrajectory: https://github.com/Srivanthv/eclipsemenu/blob/main/src/hacks/Player/ShowTrajectory.cpp — studied the native clone rollout pattern and effect suppression. Eclipse binaries/resources are not bundled.
 - Frame Window: https://github.com/leopconfalone-eng/frame-window-mod — studied documented collision-log allocation and frozen-world limitations; its code is not bundled.
 - GDP GJBaseGameLayer update reconstruction: https://github.com/camila314/gdp/blob/2.2/GJBaseGameLayer/GJBaseGameLayer_update.cpp — examined the difference between command seconds and 60 Hz frame units for native player physics. Cross-checked with Eclipse's capture of the actual PlayerObject::update argument and GD Solver's 2.2081 timing notes. No reconstructed game code is bundled.

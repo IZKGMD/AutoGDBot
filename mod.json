@@ -6,11 +6,11 @@
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v0.20.0",
+  "version": "v0.21.0",
   "developers": [
     "AutoGDBot"
   ],
-  "description": "Realtime native-physics control with per-player orb eligibility, orb chains across modes, dash hold/release and swing edge planning.",
+  "description": "Realtime native-physics planning with portal continuation, mode-aware route branches and verified orb input timelines.",
   "tags": [
     "gameplay",
     "utility",
@@ -69,6 +69,17 @@
       "name": "Survival recovery",
       "description": "Optional unproved-flight continuation. New cube launches still require a verified landing.",
       "default": false
+    },
+    "debug-traces": {
+      "type": "bool",
+      "name": "Show candidate traces",
+      "description": "Show UP (red) and DOWN (blue) diagnostic alternatives alongside the selected route.",
+      "default": false
     }
+  },
+  "resources": {
+    "files": [
+      "third_party/gdsolver-LICENSE"
+    ]
   }
 }

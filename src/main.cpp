@@ -18,6 +18,7 @@
 #include "landing_schedule.hpp"
 #include "interaction_state.hpp"
 #include "verified_input_queue.hpp"
+#include "portal_continuation.hpp"
 #include <fstream>
 #include <unordered_set>
 
@@ -109,6 +110,10 @@ struct PlayerSeed {
 };
 struct SimulationContext {
     bool active = false, boundary = false;
+    bool localPortals = false;
+    GameObject *currentPortal = nullptr;
+    PortalBand band;
+    unsigned portalSerial = 0;
     PlayLayer *layer = nullptr;
     std::array<PlayerObject *, 2> clones{};
     std::array<bool, 2> dead{};
@@ -161,8 +166,14 @@ static ModeState modeState(PlayerObject *p) {
 static int mode(PlayerObject *p) { return int(modeState(p).mode); }
 static MotionSample motionSample(PlayerObject *p) {
     if (!p) return {};
-    return {p->m_yVelocity, p->m_isOnGround, p->m_isOnGround2,
-            p->m_jumpBuffered, p->m_stateRingJump};
+    MotionSample m{p->m_yVelocity, p->m_isOnGround, p->m_isOnGround2,
+                   p->m_jumpBuffered, p->m_stateRingJump};
+    // Order-independent identity of consumed interactions: equal position and
+    // velocity cannot make a used ring eligible again in a queued continuation.
+    for (auto id : p->m_ringRelatedSet) m.usedInteractions ^= (uint64_t(id) + 1) * 0x9e3779b185ebca87ull;
+    for (auto const &[id, used] : p->m_jumpPadRelated)
+        m.usedInteractions ^= ((uint64_t(id) + 1) * 2 + used) * 0xc2b2ae3d27d4eb4full;
+    return m;
 }
 static bool landingMode(PlayerObject *p) {
     return p && modePolicy(modeState(p).controlMode()).mustLand;
@@ -188,7 +199,7 @@ static bool cubeCanPress(PlayerObject *p) {
     return p && (p->m_isOnGround || touchingUsableOrb(p));
 }
 struct Settings {
-    bool enabled = false, gpu = true, telemetry = false, recovery = true;
+    bool enabled = false, gpu = true, telemetry = false, recovery = false, debugTraces = false;
     int traceHz = 30;
     Config config;
     void read() {
@@ -197,6 +208,7 @@ struct Settings {
         gpu = m->getSettingValue<bool>("gpu");
         telemetry = m->getSettingValue<bool>("telemetry");
         recovery = m->getSettingValue<bool>("flight-recovery");
+        debugTraces = m->getSettingValue<bool>("debug-traces");
         traceHz = int(m->getSettingValue<int64_t>("trace-hz"));
         config.horizon = int(m->getSettingValue<int64_t>("horizon"));
         config.candidates = int(m->getSettingValue<int64_t>("candidates"));
@@ -466,7 +478,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.20.0.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.21.0.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -474,7 +486,8 @@ class Runtime {
                 f << "tick,x,y,command_dt,native_dt,search_ms,total_ms,candidates,predicted_ticks,"
                      "requested_down,actual_down,deadline_hit,selected_died,selected_interrupted,"
                      "first_action_verified,requires_landing,landing_verified,boundary,position_"
-                     "error,light_ticks,reflex_jumps\n";
+                     "error,light_ticks,reflex_jumps,route_id,mode_transitions,post_portal_ticks,"
+                     "portal_verified,queue_ticks\n";
             for (auto const &row : csv)
                 f << row << '\n';
         }
@@ -486,8 +499,11 @@ class Runtime {
         CubePulse pulse = cubePulse;
         bool previousButton = botHeld;
         const int lastRequest = lastRequestedTick(plan);
+        PortalContinuation portalProof;
         std::array<FlightCertificate, 2> flights;
         std::array<bool, 2> groundedBefore{};
+        std::array<ModeState, 2> previousModes{};
+        std::array<double, 2> rootVelocity{};
         out.buttonChanges = 0;
         const float physicsDt = timing.nativeStep(dt);
         bool dual = layer->m_gameState.m_isDualMode;
@@ -497,18 +513,37 @@ class Runtime {
             PlayLayer *l;
             GJGameState state;
             PlayerObject *p1, *p2;
+            float height, targetHeight, width, unzoomedHeight;
+            bool calculateHeight, freezeCamera, groundShadows;
             Scope(PlayLayer *p, GJGameState const &s)
-                : l(p), state(s), p1(p->m_player1), p2(p->m_player2) {
+                : l(p), state(s), p1(p->m_player1), p2(p->m_player2),
+                  height(p->m_cameraHeightOffset), targetHeight(p->m_targetCameraHeightOffset),
+                  width(p->m_cameraWidthOffset), unzoomedHeight(p->m_cameraUnzoomedHeightOffset),
+                  calculateHeight(p->m_calculateTargetHeightOffset),
+                  freezeCamera(p->m_freezeStartCamera), groundShadows(p->m_updateGroundShadows) {
                 sim.active = true;
                 sim.layer = p;
                 sim.dead = {};
                 sim.boundary = false;
+                sim.band = {};
+                sim.currentPortal = nullptr;
+                sim.portalSerial = 0;
+                sim.localPortals = !s.m_isDualMode && !p1->m_isSideways &&
+                    !s.m_isFreeMode && !s.m_isFlipping && std::abs(s.m_cameraAngle) < .001f &&
+                    std::abs(s.m_cameraZoom - 1.f) < .001f;
             }
             ~Scope() {
                 sim.restoreFlags();
                 l->m_gameState = state;
                 l->m_player1 = p1;
                 l->m_player2 = p2;
+                l->m_cameraHeightOffset = height;
+                l->m_targetCameraHeightOffset = targetHeight;
+                l->m_cameraWidthOffset = width;
+                l->m_cameraUnzoomedHeightOffset = unzoomedHeight;
+                l->m_calculateTargetHeightOffset = calculateHeight;
+                l->m_freezeStartCamera = freezeCamera;
+                l->m_updateGroundShadows = groundShadows;
                 sim.active = false;
                 sim.layer = nullptr;
                 sim.clones = {};
@@ -521,8 +556,12 @@ class Runtime {
                 flights[i] = FlightCertificate(clones[i]->m_isOnGround);
                 out.traces[i].reserve(MaxHorizon + 1);
                 out.motions[i].reserve(MaxHorizon + 1);
+                out.modeTraces[i].reserve(MaxHorizon + 1);
                 out.traces[i].push_back({clones[i]->getPositionX(), clones[i]->getPositionY()});
                 out.motions[i].push_back(motionSample(clones[i]));
+                previousModes[i] = modeState(clones[i]);
+                rootVelocity[i] = std::abs(clones[i]->getCurrentXVelocity());
+                out.modeTraces[i].push_back(previousModes[i]);
             }
         }
         // Native ring/spider/dual routines resolve players through the layer.
@@ -534,7 +573,7 @@ class Runtime {
         const bool landingRollout = modePolicy(modeState(clones[0]).mode).mustLand ||
             (dual && modePolicy(modeState(clones[1]).mode).mustLand);
         std::array<bool, 2> safeLanding{};
-        const int limit =
+        int limit =
             landingRollout ? std::clamp(std::max(plan.length, cubeTailCap), plan.length, MaxHorizon)
                         : plan.length;
         out.clearance = 120;
@@ -571,6 +610,7 @@ class Runtime {
                 break;
             }
             bool pulseMode = cubePulseMode(clones[0], clones[1], dual);
+            const unsigned portalSerialBefore = sim.portalSerial;
             const bool orbContact =
                 touchingUsableOrb(clones[0]) || (dual && touchingUsableOrb(clones[1]));
             bool imminentOrb = false;
@@ -591,7 +631,12 @@ class Runtime {
                     controlOpportunity(cm, cp->m_isOnGround, touchingUsableOrb(cp)))
                     out.controlActions.push_back({t, cm});
             }
-            const bool requested = schedule.request(t < plan.length && plan.at(t),
+            // A continuous new mode keeps the last requested control while a
+            // portal near the horizon receives its required reaction window.
+            const bool tailHold = t >= plan.length && plan.length > 0 &&
+                !pulseMode && modePolicy(modeState(clones[0]).controlMode()).input == InputKind::Thrust;
+            const bool requested = schedule.request((t < plan.length && plan.at(t)) ||
+                (tailHold && plan.at(plan.length - 1)),
                 clones[0]->m_isOnGround, pulse.mustRelease(), pulseMode && t < plan.length);
             bool down =
                 pulse.command(requested, pulseMode, canPress, imminentOrb, orbContact);
@@ -625,13 +670,35 @@ class Runtime {
                 }
                 p->update(physicsDt);
                 Point after{p->getPositionX(), p->getPositionY()};
-                auto completed = completeTravelStep(before, after, travelSteps[i], p->m_isSideways);
+                Point travel = travelSteps[i];
+                if (modeState(p) != out.modeTraces[i].front() && rootVelocity[i] > .0001) {
+                    const float magnitude = std::hypot(travel.x, travel.y) *
+                        float(std::abs(p->getCurrentXVelocity()) / rootVelocity[i]);
+                    const float signedStep = p->m_isGoingLeft ? -magnitude : magnitude;
+                    travel = p->m_isSideways ? Point{0, signedStep} : Point{signedStep, 0};
+                }
+                auto completed = completeTravelStep(before, after, travel, p->m_isSideways);
                 if (completed.x != after.x || completed.y != after.y)
                     p->setPosition({completed.x, completed.y});
                 // Mirror the real collision/update order observed in this game.
                 // Never run the native collision cycle twice for one step.
                 if (!physicsOrder.collisionFirst)
                     layer->checkCollisions(p, physicsDt, false);
+                const auto currentMode = modeState(p);
+                if (currentMode != previousModes[i] || sim.portalSerial != portalSerialBefore) {
+                    out.transitions.push_back({t + 1, currentMode.controlMode()});
+                    portalProof.changed(t);
+                    if (modePolicy(currentMode.controlMode()).mustLand &&
+                        currentMode != previousModes[i]) {
+                        flights[i] = FlightCertificate(p->m_isOnGround);
+                        safeLanding[i] = false;
+                    }
+                    previousModes[i] = currentMode;
+                    limit = std::max(limit, std::min(MaxHorizon,
+                        t + 2 + int(std::ceil(.18 / std::max(.001f, dt)))));
+                    if (modePolicy(currentMode.controlMode()).mustLand && !p->m_isOnGround)
+                        limit = MaxHorizon;
+                }
                 // Input is injected before collision processing. If a no-press
                 // clone first becomes eligible for a ring in this collision
                 // pass, expose both the exact tick and one pre-arm tick to the
@@ -669,6 +736,8 @@ class Runtime {
                 }
                 out.traces[i].push_back({p->getPositionX(), p->getPositionY()});
                 out.motions[i].push_back(motionSample(p));
+                out.modeTraces[i].push_back(currentMode);
+                if (p->m_wasTeleported) out.discontinuities[i].push_back(t + 1);
                 {
                     auto pr = p->getObjectRect(.35f, .35f);
                     const float margin = hazardGuard.clearance(
@@ -714,17 +783,22 @@ class Runtime {
                 anyFlight |= flights[i].required;
                 safeHandoff &= flights[i].verified() && (!flights[i].required || safeLanding[i]);
             }
-            out.decisionPoint = anyFlight && safeHandoff;
-            if (landingRollout && flightRouteFinished(out.decisionPoint, t, lastRequest)) break;
-            if (out.survived >= plan.length && (!landingRollout || settled))
+            const bool afterPortalSafe = portalProof.verified(out.survived, dt);
+            out.decisionPoint = safeHandoff && (anyFlight ||
+                (portalProof.required() && afterPortalSafe));
+            if (landingRollout && afterPortalSafe &&
+                flightRouteFinished(out.decisionPoint, t, lastRequest)) break;
+            if (out.survived >= plan.length && (!landingRollout || settled) && afterPortalSafe)
                 break;
-            // Do not invent a future after a mode/speed/dual portal. The actual
-            // game performs it; the following physics tick starts a fresh plan.
+            // Complex/unsupported frame transitions require a live re-anchor.
             if (sim.boundary)
                 break;
             layer->m_gameState.m_levelTime += dt;
         }
         out.boundary = sim.boundary && !out.died;
+        out.postPortalTicks = portalProof.after(out.survived);
+        out.portalVerified = portalProof.required() && !out.died &&
+            portalProof.verified(out.survived, dt);
         bool allLanded = true;
         for (int i = 0; i < players; ++i) {
             if (landingMode(clones[i])) {
@@ -737,7 +811,8 @@ class Runtime {
         // landing handoff. Otherwise the last touchdown just before a spike
         // is incorrectly certified when the short horizon expires.
         out.firstActionVerified = flightActionSafe(
-            out.requiresLanding, allLanded, out.decisionPoint, out.boundary);
+            out.requiresLanding, allLanded, out.decisionPoint, false) &&
+            portalProof.verified(out.survived, dt);
         // Robustness is intentionally cheap: map the worst geometric margin to [0,1].
         // Native collisions remain authoritative; this only ranks surviving candidates.
         out.robustness = std::clamp(out.clearance / 28.f, 0.f, 1.f);
@@ -805,10 +880,10 @@ class Runtime {
             if (!real)
                 continue;
             Point now{real->getPositionX(), real->getPositionY()};
-            float step = std::abs(float(real->getCurrentXVelocity())) * dt * 60.f;
+            float step = std::abs(float(real->getCurrentXVelocity())) * timing.nativeStep(dt);
             Point expected = real->m_isSideways ? Point{0, real->m_isGoingLeft ? -step : step}
                                                 : Point{real->m_isGoingLeft ? -step : step, 0};
-            if (motionValid && previousDt > 0) {
+            if (motionValid && previousDt > 0 && modeStateValid && modeState(real) == lastModes[i]) {
                 float delta = real->m_isSideways ? now.y - previousPositions[i].y
                                                  : now.x - previousPositions[i].x;
                 if (std::isfinite(delta) && std::abs(delta) > .0001f && std::abs(delta) < 32.f) {
@@ -969,26 +1044,16 @@ class Runtime {
                 }
             }
         }
-        if (pulseMode && !canPress && !nearAction && (ticks & 3) != 0) {
-            auto shift = [](Evaluation &e) {
-                for (auto &trace : e.traces)
-                    if (!trace.empty())
-                        trace.erase(trace.begin());
-                e.survived = std::max(0, e.survived - 1);
-            };
-            shift(decision.selected);
-            for (auto &e : decision.alternatives)
-                shift(e);
-            decision.down = false;
+        if (pulseMode && !canPress && !nearAction && (ticks & 3) != 0 &&
+            queueReady && !inputQueue.down()) {
+            // Reuse only a state-matched verified suffix. A stale position-only
+            // light trace cannot authorize input or remain on the display.
+            decision = inputQueue.continuation();
+            usingQueuedInput = true;
             decision.elapsedMs = 0;
             decision.candidates = 0;
-            decision.predictedTicks = decision.selected.survived;
-            if (!decision.predictedTicks)
-                decision.completeContinuation = false;
-            decision.plan.length = std::max(0, decision.plan.length - 1);
-            decision.exhausted = false;
             inputPending = true;
-            message = "BOT | cube flight / release";
+            message = "BOT | cube flight / verified release";
             plannerStage = "LIGHT";
             ++lightTicks;
             finishTick(start, error);
@@ -1068,7 +1133,6 @@ class Runtime {
             auto r = o->getObjectRect();
             guardBounds.push_back({r.getMinX(), r.getMinY(), r.getMaxX(), r.getMaxY()});
         }
-        const std::vector<Bounds> physicalGuardBounds = guardBounds;
         routeGap = {};
         routeHandoff = {};
         routeHandoffBypassed = false;
@@ -1176,8 +1240,8 @@ class Runtime {
             routeOrbEvents = searchConfig.orbEventCount;
         }
         hazardGuard.set(guardBounds);
-        if (routeHandoff.found)
-            hazardGuard.addExact(routeHandoff.gate);
+        // Portal geometry seeds candidate timing, never an artificial wall.
+        // Native collision decides whether that particular portal is entered.
         auto priorities = settings.gpu ? gpu.poll() : std::vector<float>{};
 
         // Keep the controller inside a fraction of the actual physics-step
@@ -1303,30 +1367,6 @@ class Runtime {
             controller.seedVerifiedPrefix(decision.plan, decision.certificateTicks);
         }
 
-        // A virtual portal gate is advisory safety, never an authority allowed
-        // to erase the whole action space. If every candidate dies before even
-        // one simulated tick, retry once with only physical hazards/native
-        // collisions.
-        if (routeHandoff.found && !decision.hasValidatedInput && decision.candidates > 0 &&
-            decision.deaths == decision.candidates && decision.bestRejectedTicks == 0) {
-            hazardGuard.set(physicalGuardBounds);
-            controller.reset();
-            fastController.reset();
-            auto retry = controller.decide(
-                rescueConfig, botHeld,
-                [&](Plan const &plan, auto deadline) {
-                    return evaluate(plan, deadline, dt, rescueTailCap);
-                },
-                priorities);
-            if (retry.hasValidatedInput) {
-                decision = std::move(retry);
-                routeHandoffBypassed = true;
-                plannerStage = "BYPASS";
-            } else {
-                hazardGuard.set(guardBounds);
-            }
-        }
-
         // Video 553 regression: if EVERY route dies at tick zero only because
         // of the independent coarse hazard guard, the real state itself proves
         // that guard is too conservative at this instant. Re-run once with
@@ -1425,7 +1465,9 @@ class Runtime {
                                   decision.candidates, decision.predictedTicks, decision.down,
                                   p->m_holdingButtons[1], decision.exhausted, e.died, e.interrupted,
                                   e.firstActionVerified, e.requiresLanding, e.landingVerified,
-                                  e.boundary, predictionError, lightTicks, reflexJumps));
+                                  e.boundary, predictionError, lightTicks, reflexJumps)
+            .append(fmt::format(",{:016x},{},{},{},{}", e.routeId, e.transitions.size(),
+                e.postPortalTicks, e.portalVerified, inputQueue.remaining())));
         if (csv.size() >= 256)
             flush();
     }
@@ -1474,7 +1516,7 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.20.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
+                "AutoGDBot 0.21.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={} | tested={}/{}\n"
@@ -1513,7 +1555,7 @@ class Runtime {
                     ? "ORB"
                     : (cubePulse.orbArmed() ? "ARM" : "no"),
                 routeGap.found ? "YES" : "no",
-                routeHandoffBypassed ? "BYPASS" : (routeHandoff.found ? "GUARD" : "no"),
+                routeHandoffBypassed ? "BYPASS" : (routeHandoff.found ? "HINT" : "no"),
                 decision.rejectedUnsafe,
                 physicsOrder.collisionFirst ? "C-U" : "U-C",
                 physicsOrder.measured ? "*" : "?", decision.bestRejectedTicks,
@@ -1522,6 +1564,9 @@ class Runtime {
                 decision.selected.landingCount, nativeUpdates, nativeUpdatesInside, nativeCollisions,
                 nativeSawDown ? "DOWN" : "UP", inputPhaseMismatches,
                 orbHits, orbAttempts, padHits, padAttempts, inputQueue.remaining(), lastAttempt)
+                .append(fmt::format("\nplan={:016x} transitions={} after={} checked={}",
+                    decision.selected.routeId, decision.selected.transitions.size(),
+                    decision.selected.postPortalTicks, decision.selected.portalVerified ? "YES" : "no"))
                 .c_str());
         label->setColor(decision.hasValidatedInput ? ccColor3B{120, 255, 170}
                                                    : ccColor3B{255, 180, 100});
@@ -1533,16 +1578,23 @@ class Runtime {
         stableTrace.clear();
         if (decision.hasValidatedInput || decision.recoveryInput)
             stableTrace = decision.selected.traces[0];
+        if (decision.hasValidatedInput && stableTrace.size() > size_t(decision.certificateTicks + 1))
+            stableTrace.resize(decision.certificateTicks + 1);
         if (decision.recoveryInput && stableTrace.size() > size_t(decision.recoveryTicks + 1))
             stableTrace.resize(decision.recoveryTicks + 1);
-        auto trace = [&](std::vector<Point> const &points, ccColor4F color, float width) {
+        auto trace = [&](std::vector<Point> const &points, std::vector<int> const &breaks,
+                         ccColor4F color, float width) {
             // Keep the visual trajectory cheap on mobile. The old fixed stride
             // could emit ~170 draw calls for a 512-tick cube tail.
             const size_t stride =
                 std::max<size_t>(3, points.size() > 48 ? points.size() / 48 : 3);
-            for (size_t i = stride; i < points.size(); i += stride)
-                draw->drawSegment({points[i - stride].x, points[i - stride].y},
-                                  {points[i].x, points[i].y}, width, color);
+            for (size_t i = stride; i < points.size(); i += stride) {
+                const bool discontinuous = std::any_of(breaks.begin(), breaks.end(),
+                    [&](int t) { return t > int(i - stride) && t <= int(i); });
+                if (!discontinuous)
+                    draw->drawSegment({points[i - stride].x, points[i - stride].y},
+                                      {points[i].x, points[i].y}, width, color);
+            }
             if (!points.empty()) {
                 auto q = points.back();
                 std::array<CCPoint, 4> v = {CCPoint{q.x - 7, q.y - 7}, CCPoint{q.x - 7, q.y + 7},
@@ -1550,14 +1602,18 @@ class Runtime {
                 draw->drawPolygon(v.data(), 4, {0, 0, 0, 0}, .5f, color);
             }
         };
-        trace(decision.alternatives[0].traces[0], {1, .25f, .3f, .4f}, .4f);
-        trace(decision.alternatives[1].traces[0], {.35f, .6f, 1, .4f}, .4f);
+        if (settings.debugTraces) {
+            trace(decision.alternatives[0].traces[0], decision.alternatives[0].discontinuities[0],
+                {1, .25f, .3f, .25f}, .3f);
+            trace(decision.alternatives[1].traces[0], decision.alternatives[1].discontinuities[0],
+                {.35f, .6f, 1, .25f}, .3f);
+        }
         bool complete = decision.completeContinuation;
         ccColor4F chosen = decision.selected.died       ? ccColor4F{1, .15f, .15f, .9f}
                            : decision.selected.boundary ? ccColor4F{.3f, .8f, 1, .9f}
                            : complete                   ? ccColor4F{.2f, 1, .45f, .9f}
                                                         : ccColor4F{1, .65f, .1f, .9f};
-        trace(stableTrace, chosen, .85f);
+        trace(stableTrace, decision.selected.discontinuities[0], chosen, .85f);
         if (layer->m_player1) {
             float x = layer->m_player1->getPositionX();
             int shown = 0;
@@ -1670,6 +1726,14 @@ class $modify(AGBPlayLayer, PlayLayer) {
             return;
         PlayLayer::playEndAnimationToPos(pos);
     }
+    void playGravityEffect(bool flip) {
+        if (agb::sim.active) return;
+        PlayLayer::playGravityEffect(flip);
+    }
+    void flipArt(bool flip) {
+        if (agb::sim.active) return;
+        PlayLayer::flipArt(flip);
+    }
 };
 class $modify(AGBBaseLayer, GJBaseGameLayer) {
     void processCommands(float dt, bool half, bool last) {
@@ -1718,14 +1782,53 @@ class $modify(AGBBaseLayer, GJBaseGameLayer) {
             auto *o = objects->at(i);
             if (!o)
                 continue;
-            if (agb::boundaryObject(o) && p->getObjectRect().intersectsRect(o->getObjectRect()))
-                agb::sim.boundary = true;
+            if (agb::boundaryObject(o) &&
+                (!agb::sim.localPortals || !agb::isLocalPhysicsPortal(o))) {
+                if (p->getObjectRect().intersectsRect(o->getObjectRect()))
+                    agb::sim.boundary = true;
+                continue;
+            }
             if (agb::physicsObject(o)) {
                 agb::sim.save(o);
                 filtered.push_back(o);
             }
         }
         GJBaseGameLayer::collisionCheckObjects(p, &filtered, int(filtered.size()), dt);
+    }
+    void playerWillSwitchMode(PlayerObject *p, GameObject *o) {
+        if (agb::sim.isClone(p)) {
+            agb::sim.currentPortal = o;
+            ++agb::sim.portalSerial;
+        }
+        GJBaseGameLayer::playerWillSwitchMode(p, o);
+        if (agb::sim.isClone(p) && m_gameState.m_isFreeMode)
+            agb::sim.boundary = true;
+    }
+    void updateDualGround(PlayerObject *p, int mode, bool instant, float duration) {
+        if (!agb::sim.isClone(p)) {
+            GJBaseGameLayer::updateDualGround(p, mode, instant, duration);
+            return;
+        }
+        // Native contact and mode selection have already happened. Replace
+        // shared ground-sprite animation with the measured normal-frame band;
+        // never move live ground nodes during a hypothetical trajectory.
+        if (m_gameState.m_isFreeMode || !agb::sim.localPortals) {
+            agb::sim.boundary = true;
+            return;
+        }
+        const float height = getGroundHeight(p, mode);
+        if (height != 270.f || mode == int(GameObjectType::SpiderPortal)) {
+            if (agb::sim.currentPortal)
+                agb::sim.band = agb::portalBand(agb::sim.currentPortal->getPositionY(), height);
+        }
+    }
+    float getMinPortalY() {
+        if (agb::sim.active && agb::sim.band.active) return agb::sim.band.floor;
+        return GJBaseGameLayer::getMinPortalY();
+    }
+    float getMaxPortalY() {
+        if (agb::sim.active && agb::sim.band.active) return agb::sim.band.ceiling;
+        return GJBaseGameLayer::getMaxPortalY();
     }
     void bumpPlayer(PlayerObject *p, EffectGameObject *o) {
         if (o && agb::sim.isClone(p)) agb::sim.save(o);
