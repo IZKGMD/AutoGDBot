@@ -46,6 +46,7 @@ struct Evaluation {
     int buttonChanges = -1;
     bool firstActionVerified = true;
     bool boundary = false;
+    bool decisionPoint = false; // native state where the live controller can safely replan
     bool requiresLanding = false, landingVerified = false;
     std::array<std::vector<Point>, 2> traces;
     Plan realized;
@@ -58,6 +59,7 @@ struct Evaluation {
 struct Config {
     int horizon = 144, candidates = 48;
     double budgetMs = 1.0;
+    double tickSeconds = 1.0 / 240.0;
     bool forceRelease = false;
     bool cubePulsePlanning = false;
     bool immediateOrb = false; // touching or within the certified pre-contact orb window
@@ -72,7 +74,8 @@ struct Config {
 struct Decision {
     bool down = false, hasValidatedInput = false, exhausted = false;
     bool completeContinuation = false;
-    int candidates = 0, predictedTicks = 0, rejectedUnsafe = 0;
+    bool recedingCertificate = false;
+    int candidates = 0, predictedTicks = 0, certificateTicks = 0, rejectedUnsafe = 0;
     int bestRejectedTicks = 0, landingRejects = 0, deaths = 0, interruptions = 0;
     double elapsedMs = 0;
     Plan plan;
@@ -103,6 +106,13 @@ class Controller {
         cfg.candidates = std::clamp(cfg.candidates, 4, MaxCandidates);
         std::vector<Plan> plans;
         plans.reserve(cfg.candidates);
+        const double tickSeconds =
+            std::clamp(cfg.tickSeconds, 1.0 / 1000.0, 1.0 / 30.0);
+        auto T = [&](int base240Ticks) {
+            return std::clamp(
+                int(std::lround((base240Ticks / 240.0) / tickSeconds)),
+                1, cfg.horizon - 1);
+        };
         auto add = [&](Plan p) {
             if (int(plans.size()) >= cfg.candidates)
                 return;
