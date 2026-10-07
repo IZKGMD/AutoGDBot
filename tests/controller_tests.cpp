@@ -38,6 +38,13 @@ int main() {
     require(flight.verified(), "stable landing certifies a completed flight");
     flight.observe(true, false, true);
     require(!flight.verified(), "second takeoff invalidates the first landing certificate");
+
+    require(!landingDecisionSafe(8, 24, false, false),
+            "touchdown directly before a wall cannot terminate the rollout");
+    require(!landingDecisionSafe(40, 24, true, false),
+            "side collision cannot be treated as a safe landing decision");
+    require(landingDecisionSafe(40, 24, false, false),
+            "stable landing with reaction runway is a valid replanning point");
     FlightCertificate airborne(false);
     require(!airborne.verified(), "initial airborne state also requires a landing");
     PhysicsOrder order;
