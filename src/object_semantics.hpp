@@ -46,6 +46,10 @@ inline bool isLegacyOrbId(int id) {
     case 84:   // blue/gravity orb
     case 141:  // pink orb
     case 1022: // green orb
+    case 1330: // drop/black orb
+    case 1333: // red/black ring family
+    case 1704: // dash orb
+    case 1751: // gravity dash orb
         return true;
     default:
         return false;
@@ -56,6 +60,7 @@ inline bool isLegacyPadId(int id) {
     case 35:   // yellow pad
     case 67:   // blue/gravity pad
     case 140:  // pink pad
+    case 1332: // red pad
         return true;
     default:
         return false;
