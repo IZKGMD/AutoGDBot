@@ -451,8 +451,11 @@ class Runtime {
         const bool cubeRollout = cubePulseMode(clones[0], clones[1], dual);
         const int limit = cubeRollout ? MaxHorizon : plan.length;
         out.clearance = 120;
+        out.nearClearance = 120;
         out.landingMargin = 0;
         out.robustness = 1.f;
+        const int nearClearanceTicks =
+            std::clamp(int(std::ceil(.15 / std::max(0.001f, dt))), 8, 64);
         auto addOrbAction = [&](int tick) {
             if (tick < 0 || tick >= plan.length)
                 return;
@@ -564,7 +567,10 @@ class Runtime {
                         auto r = o->getObjectRect();
                         float dxr = std::max({r.getMinX() - pr.getMaxX(), pr.getMinX() - r.getMaxX(), 0.f});
                         float dyr = std::max({r.getMinY() - pr.getMaxY(), pr.getMinY() - r.getMaxY(), 0.f});
-                        out.clearance = std::min(out.clearance, std::sqrt(dxr * dxr + dyr * dyr));
+                        const float margin = std::sqrt(dxr * dxr + dyr * dyr);
+                        out.clearance = std::min(out.clearance, margin);
+                        if (t < nearClearanceTicks)
+                            out.nearClearance = std::min(out.nearClearance, margin);
                         ++seen;
                     }
                 }
