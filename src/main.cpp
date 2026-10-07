@@ -399,7 +399,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.11.0.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.11.1.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -518,6 +518,7 @@ class Runtime {
                     layer->checkCollisions(p, physicsDt, false);
                 if (sim.dead[i] || p->m_isDead) {
                     out.died = true;
+                    out.nativeDeath = true;
                     break;
                 }
                 p->update(physicsDt);
@@ -540,6 +541,7 @@ class Runtime {
                 }
                 if (sim.dead[i] || p->m_isDead) {
                     out.died = true;
+                    out.nativeDeath = true;
                     out.traces[i].push_back({p->getPositionX(), p->getPositionY()});
                     break;
                 }
@@ -551,6 +553,7 @@ class Runtime {
                     if (hazardGuard.hit(bounds(rectBefore), bounds(rectAfter))) {
                         ++geometryRejects;
                         out.died = true;
+                        out.guardDeath = true;
                         out.traces[i].push_back({p->getPositionX(), p->getPositionY()});
                         break;
                     }
@@ -1292,13 +1295,13 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.11.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
+                "AutoGDBot 0.11.1 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={}\n"
                 "error={:.2f} | guard={} | light={} | reflex={} | forecast={} | landing={}\n"
                 "route: mode={} jumps={} orbs={} touch={} gap={} handoff={} | rejected={} | order={}{}\n"
-                "failure: best={} deaths={} landing={} timeout={} | landings={}\n"
+                "failure: best={} deaths={} guard={} native={} landing={} timeout={} | landings={}\n"
                 "native: U={}/{} C={} saw={} mismatch={}\n{}",
                 message, plannerStage, decision.elapsedMs, totalMs, decision.candidates,
                 decision.predictedTicks, decision.certificateTicks,
@@ -1328,7 +1331,8 @@ class Runtime {
                 decision.rejectedUnsafe,
                 physicsOrder.collisionFirst ? "C-U" : "U-C",
                 physicsOrder.measured ? "*" : "?", decision.bestRejectedTicks,
-                decision.deaths, decision.landingRejects, decision.interruptions,
+                decision.deaths, decision.guardDeaths, decision.nativeDeaths,
+                decision.landingRejects, decision.interruptions,
                 decision.selected.landingCount, nativeUpdates, nativeUpdatesInside, nativeCollisions,
                 nativeSawDown ? "DOWN" : "UP", inputPhaseMismatches, lastAttempt)
                 .c_str());
