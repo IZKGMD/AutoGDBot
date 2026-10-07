@@ -467,15 +467,49 @@ class Controller {
         result.down = cfg.forceRelease ? false : held;
         float bestScore = -std::numeric_limits<float>::infinity();
         std::array<bool, 2> immediateOrbEvaluated{};
+        const double safeTickSeconds =
+            std::clamp(cfg.tickSeconds, 1.0 / 1000.0, 1.0 / 30.0);
+        auto secondsToTicks = [&](double seconds) {
+            return std::clamp(int(std::ceil(seconds / safeTickSeconds)), 4, cfg.horizon);
+        };
+        double certificateSeconds = .12;
+        switch (cfg.plannerMode) {
+        case PlannerMode::Ship:
+        case PlannerMode::Wave:
+        case PlannerMode::Swing:
+            certificateSeconds = .10;
+            break;
+        case PlannerMode::Ufo:
+        case PlannerMode::Robot:
+            certificateSeconds = .12;
+            break;
+        case PlannerMode::Ball:
+        case PlannerMode::Spider:
+            certificateSeconds = .14;
+            break;
+        default:
+            certificateSeconds = .12;
+            break;
+        }
+        const int minCertificateTicks = secondsToTicks(certificateSeconds);
+
         auto consider = [&](Plan const &plan, Evaluation e) {
             const bool complete = !e.died && !e.interrupted &&
                 (e.boundary || e.survived >= cfg.horizon);
-            // A short probe does not certify a jump or its landing. Never rank
-            // a known death, even if it survives longer than another prefix.
-            // Continuous modes may use a checked prefix; cube decisions need
-            // a complete trajectory with all landings checked by the evaluator.
-            if (e.survived <= 0 || !e.firstActionVerified || e.died ||
-                (cfg.cubePulsePlanning && !complete)) {
+            const bool eventCertified =
+                !e.died && e.firstActionVerified && e.decisionPoint;
+            // Continuous/re-responsive modes do not need to prove the whole
+            // 0.8-1.0 s future every frame. A collision-free prefix long
+            // enough for the next live replanning cycle is a valid MPC
+            // certificate. Cube still requires a native decision point
+            // (landing/orb/portal) because its airborne path is not freely
+            // steerable.
+            const bool prefixCertified =
+                !cfg.cubePulsePlanning && e.firstActionVerified &&
+                e.survived >= minCertificateTicks;
+            const bool certified = complete || eventCertified || prefixCertified;
+
+            if (e.survived <= 0 || !e.firstActionVerified || !certified) {
                 ++result.rejectedUnsafe;
                 result.bestRejectedTicks = std::max(result.bestRejectedTicks, e.survived);
                 result.landingRejects += !e.firstActionVerified;
@@ -483,6 +517,7 @@ class Controller {
                 result.interruptions += e.interrupted;
                 return false;
             }
+
             int changes = e.buttonChanges;
             if (changes < 0) {
                 changes = 0;
@@ -500,10 +535,8 @@ class Controller {
             const float safeClearance = std::clamp(e.clearance, 0.f, 120.f);
             const float safeLanding = std::clamp(e.landingMargin, 0.f, 80.f);
             const float robust = std::clamp(e.robustness, 0.f, 1.f);
-            // Clearance is meaningful only when the runtime rollout populated the
-            // robustness metric from the whole trajectory. This prevents an endpoint
-            // or synthetic clearance value from causing an unnecessary jump on open ground.
             const float marginWeight = robust > 0.f ? 1.f : 0.f;
+
             float score = std::min(e.survived, cfg.horizon) * 10000.f -
                           std::max(0, e.survived - cfg.horizon) * 10.f +
                           safeClearance * 85.f * marginWeight +
@@ -513,28 +546,36 @@ class Controller {
                 score += 1200.f;
             if (complete)
                 score += 3000000.f;
-            if (complete && e.landingVerified)
+            else if (eventCertified)
+                score += 1900000.f;
+            else if (!e.died)
+                score += 650000.f;
+            else
+                score -= 1200000.f; // known later death: usable only as last-resort prefix
+            if ((complete || eventCertified) && e.landingVerified)
                 score += 60000.f;
             if (plan.at(0) == held || (cfg.forceRelease && !plan.at(0)))
                 score += 100.f;
             if (cfg.immediateOrb) {
                 const bool realizedPress = e.hasRealized ? e.realized.at(0) : plan.at(0);
                 if (realizedPress)
-                    score += 4000.f; // tie-break toward using a safe contacted orb
+                    score += 4000.f;
             }
+
             if (score > bestScore) {
                 bestScore = score;
                 result.down = e.hasRealized ? e.realized.at(0) : plan.at(0);
                 result.predictedTicks = e.survived;
+                result.certificateTicks =
+                    complete ? cfg.horizon
+                             : (eventCertified ? e.survived : minCertificateTicks);
                 result.hasValidatedInput = true;
                 result.completeContinuation = complete;
+                result.recedingCertificate = !complete;
                 result.plan = e.hasRealized ? e.realized : plan;
                 result.selected = std::move(e);
             }
-            // Once a route has been validated, do not stop on a different
-            // merely-safe timing. Re-test the warm route and keep it unless a
-            // materially better continuation wins. This removes frame-to-frame
-            // takeoff jitter near double/triple spikes.
+
             bool warmCompatible = warm_.length <= 0;
             if (!warmCompatible) {
                 const int n = std::min({24, warm_.length, plan.length});
@@ -542,22 +583,17 @@ class Controller {
                 for (int k = 0; k < n && warmCompatible; ++k)
                     warmCompatible = plan.at(k) == warm_.at(k);
             }
-            // Never stop at the first merely-surviving geometry route. Without a
-            // previously verified warm route, compare the protected timing neighborhood
-            // so a wide-margin takeoff can beat a spike-grazing one. With a warm route,
-            // early-stop is allowed only when that route itself has meaningful margin.
             const bool currentRobust = robust >= .55f || safeClearance >= 18.f;
             const bool geometrySensitive = cfg.jumpEventCount > 0 || cfg.orbEventCount > 0 ||
                                            cfg.landingEventCount > 0;
-            // Open ground keeps the cheap three-evaluation fast path. Around hazards,
-            // orbs and landing chains we compare the protected timing neighborhood unless
-            // an already-verified robust warm route can be reused safely.
             const bool comparedImmediateOrb =
                 !cfg.immediateOrb || (immediateOrbEvaluated[0] && immediateOrbEvaluated[1]);
             const bool mayEarlyStop =
                 comparedImmediateOrb &&
                 (!geometrySensitive ||
                  (warm_.length > 0 && currentRobust && warmCompatible));
+            // Receding certificates are intentionally compared against more
+            // candidates. Only a full continuation may short-circuit search.
             return complete && mayEarlyStop && result.plan.at(0) == plan.at(0) &&
                    (plan.at(0) == held || (cfg.forceRelease && !plan.at(0)));
         };
