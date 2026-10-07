@@ -149,6 +149,100 @@ int main() {
     cfg.horizon = 48;
     cfg.candidates = 48;
     cfg.budgetMs = 8;
+    // Multi-mode proposal coverage: every gameplay mode gets a deterministic
+    // control basis rather than a pseudo-random mutation tail.
+    Controller modePlanner;
+
+    Config shipCfg;
+    shipCfg.horizon = 120;
+    shipCfg.candidates = 96;
+    shipCfg.plannerMode = PlannerMode::Ship;
+    addOrbEvent(shipCfg, 30);
+    auto shipPlans = modePlanner.propose(shipCfg, false);
+    bool shipHasTwoSwitch = false, shipHasOrbEdge = false;
+    for (auto const &p : shipPlans) {
+        int changes = 0;
+        bool old = false;
+        for (int t = 0; t < p.length; ++t) {
+            changes += p.at(t) != old;
+            old = p.at(t);
+        }
+        shipHasTwoSwitch |= changes >= 2;
+        shipHasOrbEdge |= !p.at(29) && p.at(30);
+    }
+    require(shipHasTwoSwitch,
+            "ship planner must include multi-correction trajectories");
+    require(shipHasOrbEdge,
+            "ship planner must expose a rising edge at a ring contact");
+
+    modePlanner.reset();
+    auto shipPlansAgain = modePlanner.propose(shipCfg, false);
+    require(shipPlans.size() == shipPlansAgain.size(),
+            "ship candidate count must be deterministic");
+    for (size_t i = 0; i < shipPlans.size(); ++i)
+        require(shipPlans[i].buttons == shipPlansAgain[i].buttons,
+                "ship proposals must be deterministic after reset");
+
+    Config ufoCfg;
+    ufoCfg.horizon = 120;
+    ufoCfg.candidates = 96;
+    ufoCfg.plannerMode = PlannerMode::Ufo;
+    auto ufoPlans = modePlanner.propose(ufoCfg, false);
+    bool ufoTrain = false;
+    for (auto const &p : ufoPlans) {
+        int pulses = 0;
+        for (int t = 0; t < p.length; ++t)
+            pulses += p.at(t);
+        ufoTrain |= pulses >= 4;
+    }
+    require(ufoTrain, "UFO planner must include repeated pulse trains");
+
+    Config ballCfg = ufoCfg;
+    ballCfg.plannerMode = PlannerMode::Ball;
+    auto ballPlans = modePlanner.propose(ballCfg, false);
+    bool ballPulse = false;
+    for (auto const &p : ballPlans) {
+        for (int t = 1; t + 1 < p.length; ++t)
+            ballPulse |= !p.at(t - 1) && p.at(t) && !p.at(t + 1);
+    }
+    require(ballPulse, "ball planner must use edge-triggered gravity-flip pulses");
+
+    Config spiderCfg = ufoCfg;
+    spiderCfg.plannerMode = PlannerMode::Spider;
+    auto spiderPlans = modePlanner.propose(spiderCfg, false);
+    require(!spiderPlans.empty(), "spider planner must generate pulse candidates");
+
+    Config robotCfg;
+    robotCfg.horizon = 120;
+    robotCfg.candidates = 96;
+    robotCfg.plannerMode = PlannerMode::Robot;
+    auto robotPlans = modePlanner.propose(robotCfg, false);
+    bool shortRobotHold = false, longRobotHold = false;
+    for (auto const &p : robotPlans) {
+        int prefix = 0;
+        while (prefix < p.length && p.at(prefix))
+            ++prefix;
+        shortRobotHold |= prefix >= 2 && prefix <= 8;
+        longRobotHold |= prefix >= 24 && prefix < p.length;
+    }
+    require(shortRobotHold && longRobotHold,
+            "robot planner must search both short and long hold durations");
+
+    Config waveCfg = shipCfg;
+    waveCfg.plannerMode = PlannerMode::Wave;
+    auto wavePlans = modePlanner.propose(waveCfg, true);
+    bool wavePWM = false;
+    for (auto const &p : wavePlans) {
+        int changes = 0;
+        bool old = p.at(0);
+        for (int t = 1; t < p.length; ++t) {
+            changes += p.at(t) != old;
+            old = p.at(t);
+        }
+        wavePWM |= changes >= 6;
+    }
+    require(wavePWM, "wave planner must include high-frequency correction patterns");
+
     Config ledgeCfg;
     ledgeCfg.budgetMs = 8;
     ledgeCfg.candidates = 8;
