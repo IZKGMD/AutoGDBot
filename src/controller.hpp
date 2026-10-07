@@ -16,6 +16,18 @@ using Clock = std::chrono::steady_clock;
 struct Point {
     float x{}, y{};
 };
+
+enum class PlannerMode : uint8_t {
+    Cube = 0,
+    Ship = 1,
+    Ball = 2,
+    Ufo = 3,
+    Wave = 4,
+    Robot = 5,
+    Spider = 6,
+    Swing = 7,
+    Generic = 255
+};
 struct Plan {
     std::array<uint8_t, MaxHorizon> buttons{};
     int length = 0;
@@ -49,6 +61,7 @@ struct Config {
     bool forceRelease = false;
     bool cubePulsePlanning = false;
     bool immediateOrb = false; // touching or within the certified pre-contact orb window
+    PlannerMode plannerMode = PlannerMode::Generic;
     std::array<int, 32> jumpEvents{};
     int jumpEventCount = 0;
     std::array<int, 32> orbEvents{};
@@ -71,18 +84,10 @@ struct Decision {
 // state even when interrupted. Ranking cannot turn an untested plan into input.
 class Controller {
     Plan warm_;
-    uint64_t random_ = 0x913851f75b72cd09ULL;
-    uint32_t nextRandom() {
-        random_ ^= random_ << 13;
-        random_ ^= random_ >> 7;
-        random_ ^= random_ << 17;
-        return static_cast<uint32_t>(random_ >> 16);
-    }
 
   public:
     void reset() {
         warm_ = {};
-        random_ = 0x913851f75b72cd09ULL;
     }
     void advance(int ticks = 1) {
         if (warm_.length <= 0)
@@ -123,8 +128,11 @@ class Controller {
 
         Plan warm = warm_;
         int known = std::min(warm_.length, cfg.horizon);
+        const bool discretePulseMode =
+            cfg.cubePulsePlanning || cfg.plannerMode == PlannerMode::Ball ||
+            cfg.plannerMode == PlannerMode::Ufo || cfg.plannerMode == PlannerMode::Spider;
         std::fill(warm.buttons.begin() + known, warm.buttons.end(),
-                  cfg.cubePulsePlanning ? false : held);
+                  discretePulseMode ? false : held);
         warm.length = cfg.horizon;
 
         auto pulseAt = [&](int t) {
@@ -271,36 +279,150 @@ class Controller {
                     pulseAt(t);
             }
         } else {
-            for (bool down : {held, !held}) {
+            const int orbCount = std::clamp(cfg.orbEventCount, 0, int(cfg.orbEvents.size()));
+
+            auto constant = [&](bool down) {
                 Plan p;
                 p.buttons.fill(down);
                 add(p);
-            }
-            add(warm);
-            Plan flipped = warm;
-            flipped.buttons[0] = !warm.at(0);
-            add(flipped);
-            for (int t : {1, 2, 3, 4, 6, 8, 12, 18, 24, 36, 48, 72, 96}) {
-                if (t >= cfg.horizon)
-                    continue;
-                for (bool first : {held, !held}) {
-                    Plan p;
-                    for (int k = 0; k < cfg.horizon; ++k)
-                        p.buttons[k] = k < t ? first : !first;
-                    add(p);
-                }
-            }
-            for (int attempts = 0;
-                 int(plans.size()) < cfg.candidates && attempts < cfg.candidates * 16;
-                 ++attempts) {
-                Plan p = warm;
-                int from = nextRandom() % cfg.horizon;
-                int to = std::min(cfg.horizon, from + 1 + int(nextRandom() % 36));
-                for (int k = from; k < to; ++k)
-                    p.buttons[k] ^= 1;
-                if (attempts & 1)
-                    p.buttons[0] = !held;
+            };
+            auto switchAt = [&](int t, bool first) {
+                if (t < 0 || t >= cfg.horizon)
+                    return;
+                Plan p;
+                for (int k = 0; k < cfg.horizon; ++k)
+                    p.buttons[k] = k < t ? first : !first;
                 add(p);
+            };
+            auto window = [&](int startTick, int duration) {
+                if (startTick >= cfg.horizon || duration <= 0)
+                    return;
+                Plan p;
+                for (int k = std::max(0, startTick);
+                     k < std::min(cfg.horizon, startTick + duration); ++k)
+                    p.buttons[k] = true;
+                add(p);
+            };
+            auto edgePulse = [&](int t, bool baseline) {
+                if (t < 0 || t >= cfg.horizon)
+                    return;
+                Plan p;
+                p.buttons.fill(baseline);
+                if (t > 0)
+                    p.buttons[t - 1] = false;
+                p.buttons[t] = true;
+                if (t + 1 < cfg.horizon)
+                    p.buttons[t + 1] = baseline;
+                add(p);
+            };
+            auto pulseTrain = [&](int period, int phase = 0) {
+                if (period < 2)
+                    return;
+                Plan p;
+                for (int t = std::max(0, phase); t < cfg.horizon; t += period)
+                    p.buttons[t] = true;
+                add(p);
+            };
+            auto pwm = [&](int period, int duty, int phase) {
+                if (period < 2 || duty <= 0 || duty >= period)
+                    return;
+                Plan p;
+                for (int t = 0; t < cfg.horizon; ++t) {
+                    int q = (t + phase) % period;
+                    p.buttons[t] = q < duty;
+                }
+                add(p);
+            };
+
+            // Real ring contacts are timing-critical in every game mode, not
+            // only cube. Seed an explicit rising edge at the native contact
+            // window before filling the rest of the mode-specific candidates.
+            for (int i = 0; i < orbCount && i < 12; ++i) {
+                edgePulse(cfg.orbEvents[i], false);
+                edgePulse(cfg.orbEvents[i], held);
+            }
+
+            switch (cfg.plannerMode) {
+            case PlannerMode::Ball:
+            case PlannerMode::Ufo:
+            case PlannerMode::Spider: {
+                // These modes are edge-triggered. One-tick pulses and compact
+                // pulse trains explore gravity flips / UFO hops / spider snaps
+                // without ever relying on a long held state.
+                constant(false);
+                edgePulse(0, false);
+                for (int t : {1, 2, 3, 4, 6, 8, 12, 18, 24, 32, 40, 48, 64, 80, 96, 120, 144})
+                    edgePulse(t, false);
+                for (int period : {6, 8, 10, 12, 16, 20, 24, 32, 40, 48}) {
+                    pulseTrain(period, 0);
+                    pulseTrain(period, period / 2);
+                }
+                break;
+            }
+
+            case PlannerMode::Robot: {
+                // Robot jump height is hold-duration controlled. Search a
+                // deterministic lattice of short/medium/long holds plus delayed
+                // windows for landing and obstacle timing.
+                constant(false);
+                constant(true);
+                for (int duration : {1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64})
+                    window(0, duration);
+                for (int startTick : {2, 4, 6, 8, 12, 18, 24, 32, 48})
+                    for (int duration : {2, 4, 8, 16, 24})
+                        window(startTick, duration);
+                break;
+            }
+
+            case PlannerMode::Ship:
+            case PlannerMode::Wave:
+            case PlannerMode::Swing: {
+                // Continuous modes need controlled switch times, short
+                // corrections and periodic duty cycles. This deterministic
+                // basis replaces the old pseudo-random mutation tail.
+                constant(held);
+                constant(!held);
+                add(warm);
+                Plan flipped = warm;
+                flipped.buttons[0] = !warm.at(0);
+                add(flipped);
+
+                for (int t : {1, 2, 3, 4, 6, 8, 12, 18, 24, 32, 40, 48, 64, 80, 96, 120, 144, 180})
+                    for (bool first : {held, !held})
+                        switchAt(t, first);
+
+                for (int firstSwitch : {4, 8, 12, 18, 24, 32}) {
+                    for (int width : {4, 8, 12, 18, 24, 32}) {
+                        Plan p;
+                        p.buttons.fill(held);
+                        for (int k = firstSwitch;
+                             k < std::min(cfg.horizon, firstSwitch + width); ++k)
+                            p.buttons[k] = !held;
+                        add(p);
+                    }
+                }
+
+                for (int period : {4, 6, 8, 12, 16, 24, 32}) {
+                    pwm(period, std::max(1, period / 3), 0);
+                    pwm(period, std::max(1, period / 2), period / 4);
+                    pwm(period, std::max(1, (period * 2) / 3), period / 2);
+                }
+                break;
+            }
+
+            default: {
+                // Generic fallback is deterministic as well. Identical states
+                // now always produce the same candidate set in every mode.
+                constant(held);
+                constant(!held);
+                add(warm);
+                for (int t : {1, 2, 3, 4, 6, 8, 12, 18, 24, 36, 48, 72, 96, 120, 144})
+                    for (bool first : {held, !held})
+                        switchAt(t, first);
+                for (int period : {8, 12, 16, 24, 32})
+                    pwm(period, period / 2, 0);
+                break;
+            }
             }
         }
         return plans;

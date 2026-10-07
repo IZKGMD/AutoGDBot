@@ -6,11 +6,11 @@
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v0.8.1",
+  "version": "v0.9.0",
   "developers": [
     "AutoGDBot"
   ],
-  "description": "Realtime native-physics controller with unified orb semantics, pre-contact arming and resilient portal-handoff safety.",
+  "description": "Multi-mode realtime native-physics MPC with deterministic ship/wave/ball/UFO/robot/spider/swing control, universal orb events and certified trajectories.",
   "tags": [
     "gameplay",
     "utility",
