@@ -12,6 +12,7 @@
 #include "hazard_guard.hpp"
 #include "planning_hints.hpp"
 #include "semantic_map.hpp"
+#include "object_semantics.hpp"
 #include "flight_certificate.hpp"
 #include "landing_schedule.hpp"
 #include <fstream>
@@ -134,85 +135,16 @@ struct SimulationContext {
 static SimulationContext sim;
 static bool injected = false;
 static bool physicsObject(GameObjectType t) {
-    switch (t) {
-    case GameObjectType::Solid:
-    case GameObjectType::Hazard:
-    case GameObjectType::AnimatedHazard:
-    case GameObjectType::Slope:
-    case GameObjectType::YellowJumpPad:
-    case GameObjectType::PinkJumpPad:
-    case GameObjectType::GravityPad:
-    case GameObjectType::RedJumpPad:
-    case GameObjectType::YellowJumpRing:
-    case GameObjectType::PinkJumpRing:
-    case GameObjectType::GravityRing:
-    case GameObjectType::GreenRing:
-    case GameObjectType::DropRing:
-    case GameObjectType::RedJumpRing:
-    case GameObjectType::SpiderOrb:
-    case GameObjectType::SpiderPad:
-    case GameObjectType::DashRing:
-    case GameObjectType::GravityDashRing:
-        return true;
-    default:
-        return false;
-    }
+    return isClonePhysicsType(t);
 }
 static bool padObject(GameObjectType t) {
-    switch (t) {
-    case GameObjectType::YellowJumpPad:
-    case GameObjectType::PinkJumpPad:
-    case GameObjectType::GravityPad:
-    case GameObjectType::RedJumpPad:
-    case GameObjectType::SpiderPad:
-        return true;
-    default:
-        return false;
-    }
+    return isPadType(t);
 }
 static bool orbObject(GameObjectType t) {
-    switch (t) {
-    case GameObjectType::YellowJumpRing:
-    case GameObjectType::PinkJumpRing:
-    case GameObjectType::GravityRing:
-    case GameObjectType::GreenRing:
-    case GameObjectType::DropRing:
-    case GameObjectType::RedJumpRing:
-    case GameObjectType::SpiderOrb:
-    case GameObjectType::DashRing:
-    case GameObjectType::GravityDashRing:
-    case GameObjectType::CustomRing:
-    case GameObjectType::TeleportOrb:
-        return true;
-    default:
-        return false;
-    }
+    return isOrbType(t);
 }
 static bool boundaryObject(GameObject *o) {
-    switch (o->m_objectType) {
-    case GameObjectType::InverseGravityPortal:
-    case GameObjectType::NormalGravityPortal:
-    case GameObjectType::ShipPortal:
-    case GameObjectType::CubePortal:
-    case GameObjectType::BallPortal:
-    case GameObjectType::RegularSizePortal:
-    case GameObjectType::MiniSizePortal:
-    case GameObjectType::UfoPortal:
-    case GameObjectType::DualPortal:
-    case GameObjectType::SoloPortal:
-    case GameObjectType::WavePortal:
-    case GameObjectType::RobotPortal:
-    case GameObjectType::TeleportPortal:
-    case GameObjectType::SpiderPortal:
-    case GameObjectType::SwingPortal:
-    case GameObjectType::GravityTogglePortal:
-    case GameObjectType::CustomRing:
-    case GameObjectType::TeleportOrb:
-        return true;
-    default:
-        return o->m_objectID == 200 || o->m_objectID == 201 || o->m_objectID == 202 ||
-               o->m_objectID == 203 || o->m_objectID == 1334;
-    }
+    return isForecastBoundary(o);
 }
 static int mode(PlayerObject *p) {
     return p->m_isShip     ? 1
