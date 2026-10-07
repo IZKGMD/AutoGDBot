@@ -84,18 +84,10 @@ struct Decision {
 // state even when interrupted. Ranking cannot turn an untested plan into input.
 class Controller {
     Plan warm_;
-    uint64_t random_ = 0x913851f75b72cd09ULL;
-    uint32_t nextRandom() {
-        random_ ^= random_ << 13;
-        random_ ^= random_ >> 7;
-        random_ ^= random_ << 17;
-        return static_cast<uint32_t>(random_ >> 16);
-    }
 
   public:
     void reset() {
         warm_ = {};
-        random_ = 0x913851f75b72cd09ULL;
     }
     void advance(int ticks = 1) {
         if (warm_.length <= 0)
