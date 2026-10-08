@@ -1,1 +1,1 @@
-{"version":1,"session":"a7174c7813f3d6b32a06eea9ad0a569e","seq":7,"expires_at":"2026-10-08T03:49:24.450Z","op":"key","args":{"key":"ESC","hold_ms":80,"capture":true,"after_ms":1000}}
+{"version":1,"session":"a7174c7813f3d6b32a06eea9ad0a569e","seq":8,"expires_at":"2026-10-08T03:49:57.661Z","op":"click","args":{"x":0.698,"y":0.858,"capture":true,"after_ms":900}}
