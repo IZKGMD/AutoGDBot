@@ -1,8 +1,1 @@
-{
-  "version": 1,
-  "session": null,
-  "seq": 0,
-  "expires_at": null,
-  "op": "status",
-  "args": {}
-}
+{"version":1,"session":"a7174c7813f3d6b32a06eea9ad0a569e","seq":1,"expires_at":"2026-10-08T03:41:52.732Z","op":"launch","args":{"capture":true}}
