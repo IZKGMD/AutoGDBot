@@ -1,83 +1,75 @@
-name: Build AutoGDBot Realtime
+name: Build AutoGDBot Verified Android64
 
 on:
-  workflow_dispatch:
   push:
-    branches: [main, "dev/**"]
-  pull_request:
-    branches: [main]
+    branches: ["dev/verified-solver-v1.0.0-alpha.1"]
+  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  tests:
+  android64:
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
-      - name: Configure controller tests
-        run: cmake -S . -B build-tests -DAUTOGDBOT_BUILD_MOD=OFF -DAUTOGDBOT_BUILD_TESTS=ON
-      - name: Build controller tests
-        run: cmake --build build-tests --config Release --parallel
-      - name: Run controller tests
-        run: ctest --test-dir build-tests -C Release --output-on-failure
-
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build Windows x64 Geode mod
+      - name: Check out the pinned native verifier and solver
+        uses: actions/checkout@v4
+        with:
+          repository: gdsolver/gdsolver
+          ref: 8e8d69ada86a315c71d05cc8b8fe4d369d883aa2
+          path: newgen/engine
+          persist-credentials: false
+      - name: Test cache isolation and frame budget
+        run: |
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror newgen/cache_tests.cpp -o /tmp/cache-tests
+          /tmp/cache-tests
+      - name: Apply the Android profile
+        run: python3 newgen/prepare.py newgen/engine
+      - name: Test solver boundary rules
+        run: |
+          cmake -S newgen/engine -B build-core -DGDSOLVER_BUILD_MOD=OFF -DGDSOLVER_BUILD_DP=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-core --target dptest --parallel 2
+          ./build-core/dp/dptest
+      - name: Build the real Android64 Geode mod
         id: build
-        uses: geode-sdk/build-geode-mod@main
+        uses: geode-sdk/build-geode-mod@a0f7676e6fcd1a584f6d0c1c800239008412defc
         with:
           sdk: given
-          target: Win64
+          cli: v3.9.0
+          target: Android64
+          path: newgen/engine
+          bindings-ref: f8aec5d1f3df76d840dfd2609f02cef30dc6efdf
+          android-ndk-version: 29.0.14206865
           build-config: Release
-          bindings-ref: f050fd74ad531b0827377c97510cb807903ff1b3
-      - name: Upload Windows artifact
+          build-args: --parallel 2
+          configure-args: -DGDSOLVER_BUILD_DP=OFF
+          use-lto: false
+      - name: Verify and package the compiled binary
+        shell: bash
+        env:
+          OUTPUT_DIRECTORY: ${{ steps.build.outputs.build-output }}
+        run: |
+          package_path=$(find "$OUTPUT_DIRECTORY" -name '*.geode' -type f -print -quit)
+          test -n "$package_path"
+          python3 newgen/export_package.py "$package_path" newgen/engine dist-verified
+      - name: Upload the installable package
         uses: actions/upload-artifact@v4
         with:
-          name: AutoGDBot-Realtime-Windows
-          path: ${{ steps.build.outputs.build-output }}
-
-  build-android64:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build Android64 Geode mod
-        id: build
-        uses: geode-sdk/build-geode-mod@main
-        with:
-          sdk: given
-          target: Android64
-          build-config: Release
-          bindings-ref: f050fd74ad531b0827377c97510cb807903ff1b3
-      - name: Verify Android libc++ ABI
+          name: AutoGDBot-Verified-Android64
+          path: dist-verified/*.geode
+      - name: Retain exact build bytes for authenticated retrieval
         shell: bash
         run: |
-          GEODE_FILE="$(find "${{ steps.build.outputs.build-output }}" -type f -name '*.geode' -print -quit)"
-          test -n "$GEODE_FILE"
-          unzip -p "$GEODE_FILE" autogdbot.realtime.android64.so > /tmp/autogdbot.realtime.android64.so
-          test -s /tmp/autogdbot.realtime.android64.so
-          if readelf -Ws /tmp/autogdbot.realtime.android64.so | grep -E 'UND[[:space:]]+_ZNSt6__ndk113__hash_memoryEPKvm'; then
-            echo "Android build still depends on private libc++ __hash_memory"
-            exit 1
-          fi
-          readelf -Ws /tmp/autogdbot.realtime.android64.so | grep '_ZNSt6__ndk113__hash_memoryEPKvm'
-      - name: Upload Android64 artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: AutoGDBot-Realtime-Android64
-          path: ${{ steps.build.outputs.build-output }}
-
-  source:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Archive exact source
-        run: git archive --format=zip --output=AutoGDBot-Realtime-v0.22.0-source.zip HEAD
-      - uses: actions/upload-artifact@v4
-        with:
-          name: AutoGDBot-Realtime-source
-          path: AutoGDBot-Realtime-v0.22.0-source.zip
-
+          artifact_directory=$(mktemp -d)
+          cp dist-verified/package.json dist-verified/package.b64.part* "$artifact_directory/"
+          git config user.name 'AutoGDBot build'
+          git config user.email 'build@users.noreply.github.com'
+          git switch --orphan build-output/verified-v1.0.0-alpha.1
+          git rm -rf --ignore-unmatch .
+          mkdir -p artifacts
+          cp "$artifact_directory/"* artifacts/
+          git add artifacts
+          git commit -m 'Retain validated Android64 build bytes'
+          git push origin HEAD:refs/heads/build-output/verified-v1.0.0-alpha.1
