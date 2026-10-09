@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Validate and retain the actual Android build, with byte-for-byte retrieval chunks."""
-import argparse,base64,hashlib,json,os,shutil,struct,subprocess,zipfile
+import argparse,base64,hashlib,json,os,struct,subprocess,tempfile,zipfile
 from pathlib import Path
 
 def export(package,engine,destination):
@@ -14,6 +14,11 @@ def export(package,engine,destination):
         binary=source.read('autogdbot.realtime.android64.so')
         if binary[:5]!=b'\x7fELF\x02' or binary[5]!=1 or struct.unpack_from('<H',binary,18)[0]!=183:raise RuntimeError('Not little-endian Android AArch64 ELF')
         if b'geodeImplicitEntry' not in binary:raise RuntimeError('Geode entrypoint missing')
+        with tempfile.NamedTemporaryFile(suffix='.so') as native:
+            native.write(binary);native.flush()
+            symbols=subprocess.check_output(['readelf','--dyn-syms','--wide',native.name],text=True)
+        if not any('geodeImplicitEntry' in line and ' UND ' not in line for line in symbols.splitlines()):raise RuntimeError('Geode entrypoint is not exported')
+        if any('_ZNSt6__ndk113__hash_memoryEPKvm' in line and ' UND ' in line for line in symbols.splitlines()):raise RuntimeError('Unresolved private libc++ hash helper')
         # Rewrite instead of appending duplicate ZIP names. Original entries retain their metadata.
         extras={'GDSOLVER-LICENSE.txt':(engine/'LICENSE').read_bytes(),'BUILD_PROVENANCE.json':(engine/'BUILD_PROVENANCE.json').read_bytes()}
         with zipfile.ZipFile(output,'w') as target:

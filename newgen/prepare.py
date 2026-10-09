@@ -29,6 +29,7 @@ def prepare(engine,check_revision=True):
     (engine/'src/mod/autogd_cache_runtime.hpp').write_text('''#pragma once
 #include "mod/config.hpp"
 #include "mod/autogd_cache_identity.hpp"
+#include <map>
 namespace p1 {
 inline std::map<int,std::string> g_autogdLevelKeys;
 inline bool hasCacheIdentity(int id) { return g_autogdLevelKeys.count(id) != 0; }
@@ -37,8 +38,9 @@ inline void bindCacheIdentity(int id,int kind,const std::string& data) {
     if(key.empty())g_autogdLevelKeys.erase(id);else g_autogdLevelKeys[id]=key;
 }
 inline std::string cachedPath(int id,bool coins,const char* category) {
+    resolveDataDir();
     const auto it=g_autogdLevelKeys.find(id);
-    if(it==g_autogdLevelKeys.end())return std::string(DATA_DIR)+"/identity-unavailable";
+    if(it==g_autogdLevelKeys.end())return {};
     return std::string(DATA_DIR)+"/"+category+"_"+it->second+(coins?"_coins.txt":"_plain.txt");
 }
 }
@@ -47,6 +49,7 @@ inline std::string cachedPath(int id,bool coins,const char* category) {
     replace(engine,'src/mod/session.hpp','return std::string(DATA_DIR) + "/solution_lv" + std::to_string(levelId)\n           + (coins ? "_coins.txt" : "_dp.txt");','return cachedPath(levelId,coins,"solution");')
     replace(engine,'src/mod/session.hpp','inline bool uiConfigureSession(int levelId) {','inline bool uiConfigureSession(int levelId) {\n    if(!hasCacheIdentity(levelId)){log::warn("AutoGDBot: level identity unavailable; automatic session refused"); return false;}')
     replace(engine,'src/mod/session.hpp','g_cfg.frameBudgetMs = 100.0;','g_cfg.frameBudgetMs = autogd::frameBudget(Mod::get()->getSettingValue<double>("verification-budget-ms"));')
+    replace(engine,'src/mod/session.hpp','// ...but never more than 100 ms of them: the window has to keep answering on a heavy\n        // level, where 1,800 calls took 8-18 s (Config::frameBudgetMs).','// Yield between game updates when the Android verification budget is spent.\n        // One update is indivisible and may exceed that budget on a heavy level.')
     replace(engine,'src/mod/repair.hpp','constexpr const char* kThreads = "8";','constexpr const char* kThreads = "2"; // Mobile profile: leave CPU headroom for GD and touch input.')
     # Bind the decompressed level, before the popup considers any stored solution.
     replace(engine,'src/mod/hooks_playmenu.cpp','if (s.empty()) {','bindCacheIdentity(level->m_levelID.value(), static_cast<int>(level->m_levelType), s);\n    if (s.empty()) {')
@@ -66,6 +69,33 @@ inline std::string cachedPath(int id,bool coins,const char* category) {
              g_cfg.coinFiles ? "/itermap_lv%d_coins.txt" : "/itermap_lv%d.txt", levelId);
     return std::string(DATA_DIR) + name;'''
     replace(engine,'src/mod/itermap.hpp',old,'return cachedPath(levelId,g_cfg.coinFiles,"itermap");')
+    # The pinned regression fixture predates the measured Move-does-not-spawn rule in
+    # triggers.hpp. Fix its stale assertion; leave the actual trigger model unchanged.
+    replace(engine,'dp/src/dptest_main.cpp',
+        '''    check(nested != ev.end() && nested->second.size() == 1 && nested->second[0].on == 1
+              && nested->second[0].delay == 120.0,
+          "a Toggle a crossing spawns switches after the spawn's delay (0.5 s = 120 ticks)");''',
+        '''    check(nested == ev.end(),
+          "an x-crossing Move does not spawn the Toggle in its target group");
+    bool movedTarget = false;
+    bool movedThroughToggle = false;
+    for (const auto& at : autos) for (const auto& ctl : at.ctl) {
+        if (at.uid == 900 && ctl.uid == 500 && ctl.dx == 30.0f) movedTarget = true;
+        if (at.uid == 900 && ctl.uid == 600) movedThroughToggle = true;
+    }
+    check(movedTarget && !movedThroughToggle,
+          "the Move offsets its own objects without carrying motion through the Toggle");
+    // Exercise delayed event resolution independently of that non-spawning Move fixture.
+    dp::AutoTrig delayed;
+    delayed.fireT = 20;
+    delayed.tog.push_back({600, 1, 120.0});
+    const std::vector<dp::AutoTrig> delayedAutos{delayed};
+    const auto delayedEv = dp::autoOnEvents(delayedAutos).at(600);
+    dp::g_autoTrig = delayedAutos;
+    check(!dp::resolveOn(false, delayedEv.data(), delayedEv.size(), dp::TouchMask{}, nullptr, 139)
+              && dp::resolveOn(false, delayedEv.data(), delayedEv.size(), dp::TouchMask{}, nullptr, 140),
+          "a delayed autonomous on-event takes effect at fire tick plus delay, not before");
+    dp::g_autoTrig.clear();''')
     # Keep authorship and permission alongside the produced mod package.
     shutil.copy2(engine/'LICENSE',engine/'GDSOLVER-LICENSE.txt')
     (engine/'about.md').write_text((ROOT/'ABOUT.md').read_text())

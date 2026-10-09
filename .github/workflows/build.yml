@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: autogdbot-verified-android64
+  cancel-in-progress: false
+
 jobs:
   android64:
     runs-on: ubuntu-latest
@@ -36,7 +40,7 @@ jobs:
         id: build
         uses: geode-sdk/build-geode-mod@a0f7676e6fcd1a584f6d0c1c800239008412defc
         with:
-          sdk: given
+          sdk: 5.10.1
           cli: v3.9.0
           target: Android64
           path: newgen/engine
@@ -44,7 +48,7 @@ jobs:
           android-ndk-version: 29.0.14206865
           build-config: Release
           build-args: --parallel 2
-          configure-args: -DGDSOLVER_BUILD_DP=OFF
+          configure-args: -DGDSOLVER_BUILD_DP=OFF -DCMAKE_JOB_POOLS=compile=2 -DCMAKE_JOB_POOL_COMPILE=compile
           use-lto: false
       - name: Verify and package the compiled binary
         shell: bash
@@ -66,7 +70,12 @@ jobs:
           cp dist-verified/package.json dist-verified/package.b64.part* "$artifact_directory/"
           git config user.name 'AutoGDBot build'
           git config user.email 'build@users.noreply.github.com'
-          git switch --orphan build-output/verified-v1.0.0-alpha.1
+          if git ls-remote --exit-code --heads origin build-output/verified-v1.0.0-alpha.1; then
+            git fetch origin build-output/verified-v1.0.0-alpha.1
+            git switch -c build-output/verified-v1.0.0-alpha.1 FETCH_HEAD
+          else
+            git switch --orphan build-output/verified-v1.0.0-alpha.1
+          fi
           git rm -rf --ignore-unmatch .
           mkdir -p artifacts
           cp "$artifact_directory/"* artifacts/
