@@ -3,6 +3,7 @@
 #include "flight_certificate.hpp"
 #include "landing_schedule.hpp"
 #include "planning_hints.hpp"
+#include "realtime_search.hpp"
 #include <iostream>
 #include <stdexcept>
 
@@ -45,27 +46,41 @@ struct Scene {
         return !guard.hit({old.x-5.25f,old.y-5.25f,old.x+5.25f,old.y+5.25f},
                          {b.x-5.25f,b.y-5.25f,b.x+5.25f,b.y+5.25f});
     }
-    Evaluation evaluate(Body b, CubePulse pulse, Plan const &plan, Clock::time_point deadline) const {
+    Evaluation evaluate(Body b, CubePulse pulse, Plan const &plan, Clock::time_point deadline, bool prefix = false) const {
         Evaluation e; e.hasRealized = true;
+        ModeState state; state.mode = PlannerMode::Cube;
+        auto sample = [&] {
+            e.traces[0].push_back({b.x,b.y});
+            e.modeTraces[0].push_back(state);
+            MotionSample m; m.velocity=b.vy; m.canJump=m.grounded=b.ground;
+            e.motions[0].push_back(m);
+        };
+        sample();
         LandingSchedule schedule(plan.landingDelay, b.ground);
         FlightCertificate certificate(b.ground);
         for (int t=0; t<MaxHorizon; ++t) {
             if (Clock::now() >= deadline) { e.interrupted=true; break; }
             bool grounded = b.ground;
-            if (grounded && !pulse.mustRelease()) e.groundedActions.push_back(t);
+            if (grounded && !pulse.mustRelease()) {
+                e.groundedActions.push_back(t);
+                e.controlActions.push_back({t,PlannerMode::Cube});
+            }
             bool request = schedule.request(t<plan.length && plan.at(t),grounded,
                                             pulse.mustRelease(),t<plan.length);
             bool down = pulse.command(request,true,grounded);
             schedule.sent(down,grounded); e.realized.buttons[t]=down;
             if (!step(b,down)) { e.died=true; break; }
             certificate.observe(grounded,b.ground,down);
+            if (!down && grounded && b.ground && e.groundedPrefixTicks==t) ++e.groundedPrefixTicks;
+            if (grounded && !b.ground && !down && e.supportLossTick<0) e.supportLossTick=t;
             if (!grounded && b.ground) {
                 if (e.firstLandingTick<0) e.firstLandingTick=t;
                 ++e.landingCount;
             }
             ++e.survived; e.realized.length=e.survived;
-            e.traces[0].push_back({b.x,b.y});
-            if (e.survived>=plan.length && certificate.verified()) break;
+            sample();
+            e.endpointClearance=e.nearClearance=e.clearance=guard.clearance({b.x-5.25f,b.y-5.25f,b.x+5.25f,b.y+5.25f});
+            if (e.survived>=plan.length && (prefix || certificate.verified())) break;
         }
         e.requiresLanding=certificate.required;
         e.landingVerified=certificate.required && certificate.verified();
@@ -109,5 +124,26 @@ int main() {
         }
         check(live.x>=850 && presses>=6,"closed-loop controller must reach the final stair");
     }
-    std::cout << "PASS: repeated touchdown pulses, completed horizon tail, five staircase runs\n";
+    for (float start : {40.f,50.f,60.f}) {
+        RealtimeSearch realtime; Body live; live.x=start; CubePulse livePulse;
+        struct PrefixOracle {
+            Scene const *scene; Body body; CubePulse pulse;
+            Evaluation prefix(Plan const &p, Clock::time_point end, bool) {
+                return scene->evaluate(body,pulse,p,end,true);
+            }
+        };
+        int presses=0;
+        for (int tick=0; live.x<850 && tick<700; ++tick) {
+            Config cfg; cfg.horizon=216; cfg.candidates=96; cfg.budgetMs=8;
+            cfg.plannerMode=PlannerMode::Cube; cfg.cubePulsePlanning=true;
+            cfg.forceRelease=livePulse.mustRelease() || !live.ground;
+            auto d=realtime.decide(cfg,false,PrefixOracle{&scene,live,livePulse});
+            check(d.hasValidatedInput || d.recoveryInput, "realtime beam lost both checked stair actions");
+            bool down=livePulse.command(d.down,true,live.ground); presses+=down;
+            check(scene.step(live,down),"realtime beam died in staircase fixture");
+            realtime.advance();
+        }
+        check(live.x>=850 && presses>=6,"realtime beam did not finish the staircase");
+    }
+    std::cout << "PASS: repeated touchdown pulses, five legacy and three realtime staircase runs\n";
 }

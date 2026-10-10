@@ -6,11 +6,11 @@
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v0.22.0",
+  "version": "v1.0.0-beta.1",
   "developers": [
     "AutoGDBot"
   ],
-  "description": "Native physics route planning with checked input timelines, support-loss branches and independent cache replay.",
+  "description": "Realtime native beam search with state-matched input queues and independent prefix replay. No level-wide pre-solve.",
   "tags": [
     "gameplay",
     "utility",
@@ -27,7 +27,7 @@
     "budget-ms": {
       "type": "float",
       "name": "Search time budget (ms)",
-      "default": 1.0,
+      "default": 2.0,
       "min": 0.2,
       "max": 8.0,
       "description": "Adaptive native search budget, limited by the current physics step. Individual game calls can exceed it."
@@ -35,14 +35,14 @@
     "horizon": {
       "type": "int",
       "name": "Lookahead in physics ticks",
-      "default": 180,
+      "default": 144,
       "min": 24,
       "max": 384
     },
     "candidates": {
       "type": "int",
       "name": "Maximum candidates per tick",
-      "default": 48,
+      "default": 96,
       "min": 4,
       "max": 96
     },

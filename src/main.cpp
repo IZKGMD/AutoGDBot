@@ -18,7 +18,8 @@
 #include "interaction_state.hpp"
 #include "verified_input_queue.hpp"
 #include "portal_continuation.hpp"
-#include "online_planner.hpp"
+#include "realtime_search.hpp"
+#include "game_state_snapshot.hpp"
 #include "prefix_cache.hpp"
 #include <fstream>
 #include <unordered_set>
@@ -46,6 +47,12 @@ struct PlayerSeed {
     decltype(PlayerObject::m_potentialSlopeMap) slopes;
     decltype(PlayerObject::m_rotateObjectsRelated) rotated;
     decltype(PlayerObject::m_holdingButtons) buttons;
+    struct CollisionEntry {
+        intptr_t key = 0;
+        std::string text;
+        Ref<CCObject> value;
+    };
+    std::array<std::vector<CollisionEntry>, 4> collisionLogs;
     std::vector<CCObject *> touching;
     PlayerObject *source = nullptr;
     CCPoint nodePosition;
@@ -72,6 +79,14 @@ struct PlayerSeed {
         slopes = p->m_potentialSlopeMap;
         rotated = p->m_rotateObjectsRelated;
         buttons = p->m_holdingButtons;
+        std::array<CCDictionary *, 4> dictionaries{p->m_collisionLogTop, p->m_collisionLogBottom,
+            p->m_collisionLogLeft, p->m_collisionLogRight};
+        for (size_t i = 0; i < dictionaries.size(); ++i) {
+            collisionLogs[i].clear();
+            if (!dictionaries[i]) continue;
+            for (auto *e = dictionaries[i]->m_pElements; e; e = static_cast<CCDictElement *>(e->hh.next))
+                collisionLogs[i].push_back({e->m_iKey, e->m_szKey, Ref<CCObject>(e->m_pObject)});
+        }
         touching.clear();
         if (p->m_touchingRings)
             for (unsigned i = 0; i < p->m_touchingRings->count(); ++i)
@@ -107,10 +122,17 @@ struct PlayerSeed {
         p->m_collidingWithRight = saved_m_collidingWithRight;
         p->m_lastActivatedPortal = saved_m_lastActivatedPortal;
         p->m_dashRing = saved_m_dashRing;
-        for (auto *dict : {p->m_collisionLogTop, p->m_collisionLogBottom, p->m_collisionLogLeft,
-                           p->m_collisionLogRight})
-            if (dict)
-                dict->removeAllObjects();
+        std::array<CCDictionary *, 4> dictionaries{p->m_collisionLogTop, p->m_collisionLogBottom,
+            p->m_collisionLogLeft, p->m_collisionLogRight};
+        for (size_t i = 0; i < dictionaries.size(); ++i) {
+            auto *dict = dictionaries[i];
+            if (!dict) continue;
+            dict->removeAllObjects();
+            for (auto const &e : collisionLogs[i]) {
+                if (e.text.empty()) dict->setObject(e.value, e.key);
+                else dict->setObject(e.value, gd::string(e.text.c_str()));
+            }
+        }
         if (p->m_touchingRings) {
             p->m_touchingRings->removeAllObjects();
             for (auto *o : touching)
@@ -154,7 +176,7 @@ struct SimulationContext {
 static SimulationContext sim;
 struct ForecastFrame {
     std::array<PlayerSeed,2> players;
-    GJGameState world;
+    GameStateSnapshot world;
     Evaluation prefix;
     CubePulse pulse;
     LandingSchedule schedule{-1,true};
@@ -266,10 +288,12 @@ class Runtime {
     PlayLayer *layer = nullptr;
     std::array<Ref<PlayerObject>, 2> clones;
     std::array<PlayerSeed, 2> seeds;
-    OnlinePlanner controller;
-    PrefixCache<ForecastFrame> forecastCache;
+    RealtimeSearch controller;
+    PrefixCache<ForecastFrame, 64> forecastCache;
     uint64_t worldSignature=0;
     bool worldSignatureValid=false;
+    float worldAnchorX = 0;
+    bool activeWorldMotion = false;
     PhysicsTiming timing;
     PhysicsOrder physicsOrder;
     CubePulse cubePulse;
@@ -512,7 +536,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.22.0.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v1.0.0-realtime.1.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -528,7 +552,7 @@ class Runtime {
         csv.clear();
     }
     Evaluation evaluate(Plan const &plan, Clock::time_point deadline, float dt,
-                        int cubeTailCap = MaxHorizon,bool allowCache=true) {
+                        int cubeTailCap = MaxHorizon, bool allowCache=true, bool settleFlight=true) {
         Evaluation out;
         CubePulse pulse = cubePulse;
         bool previousButton = botHeld;
@@ -541,14 +565,14 @@ class Runtime {
         const float physicsDt = timing.nativeStep(dt);
         bool dual = layer->m_gameState.m_isDualMode;
         const int players = dual ? 2 : 1;
-        const auto gameState = layer->m_gameState;
+        const GameStateSnapshot gameState(layer->m_gameState);
         struct Scope {
             PlayLayer *l;
-            GJGameState state;
+            GameStateSnapshot state;
             PlayerObject *p1, *p2;
             float height, targetHeight, width, unzoomedHeight;
             bool calculateHeight, freezeCamera, groundShadows;
-            Scope(PlayLayer *p, GJGameState const &s)
+            Scope(PlayLayer *p, GameStateSnapshot const &s)
                 : l(p), state(s), p1(p->m_player1), p2(p->m_player2),
                   height(p->m_cameraHeightOffset), targetHeight(p->m_targetCameraHeightOffset),
                   width(p->m_cameraWidthOffset), unzoomedHeight(p->m_cameraUnzoomedHeightOffset),
@@ -567,7 +591,7 @@ class Runtime {
             }
             ~Scope() {
                 sim.restoreFlags();
-                l->m_gameState = state;
+                state.restore(l->m_gameState);
                 l->m_player1 = p1;
                 l->m_player2 = p2;
                 l->m_cameraHeightOffset = height;
@@ -607,7 +631,7 @@ class Runtime {
             (dual && modePolicy(modeState(clones[1]).mode).mustLand);
         std::array<bool, 2> safeLanding{};
         int limit =
-            landingRollout ? std::clamp(std::max(plan.length, cubeTailCap), plan.length, MaxHorizon)
+            settleFlight && landingRollout ? std::clamp(std::max(plan.length, cubeTailCap), plan.length, MaxHorizon)
                         : plan.length;
         out.clearance = 120;
         out.nearClearance = 120;
@@ -641,7 +665,7 @@ class Runtime {
         auto *frame=allowCache?forecastCache.find(plan,resume):nullptr;
         if(frame){
             for(auto const &flags:frame->interactions){sim.save(flags.object);flags.restore();}
-            layer->m_gameState=frame->world;
+            frame->world.restore(layer->m_gameState);
             for(int i=0;i<players;++i)frame->players[i].restore(clones[i]);
             out=frame->prefix;pulse=frame->pulse;schedule=frame->schedule;
             portalProof=frame->portalProof;flights=frame->flights;safeLanding=frame->safeLanding;
@@ -743,9 +767,9 @@ class Runtime {
                         safeLanding[i] = false;
                     }
                     previousModes[i] = currentMode;
-                    limit = std::max(limit, std::min(MaxHorizon,
+                    if (settleFlight) limit = std::max(limit, std::min(MaxHorizon,
                         t + 2 + int(std::ceil(.18 / std::max(.001f, dt)))));
-                    if (modePolicy(currentMode.controlMode()).mustLand && !p->m_isOnGround)
+                    if (settleFlight && modePolicy(currentMode.controlMode()).mustLand && !p->m_isOnGround)
                         limit = MaxHorizon;
                 }
                 // Input is injected before collision processing. If a no-press
@@ -767,17 +791,9 @@ class Runtime {
                     auto bounds = [](CCRect r) {
                         return Bounds{r.getMinX(), r.getMinY(), r.getMaxX(), r.getMaxY()};
                     };
-                    // Spider/teleport movement is discontinuous: only the
-                    // destination is occupied. Sweeping across the intervening
-                    // wall rejects every otherwise legal spider snap.
-                    if (hazardGuard.hit(bounds(p->m_wasTeleported ? rectAfter : rectBefore),
-                                        bounds(rectAfter))) {
-                        ++geometryRejects;
-                        out.died = true;
-                        out.guardDeath = true;
-                        out.traces[i].push_back({p->getPositionX(), p->getPositionY()});
-                        break;
-                    }
+                    // Native collision is the death oracle. Coarse object
+                    // rectangles are used only to rank room, not to kill legal
+                    // near-corner spike/saw paths or discontinuous teleports.
                 }
                 if (!std::isfinite(p->getPositionX()) || !std::isfinite(p->getPositionY())) {
                     out.died = true;
@@ -791,6 +807,7 @@ class Runtime {
                     auto pr = p->getObjectRect(.35f, .35f);
                     const float margin = hazardGuard.clearance(
                         {pr.getMinX(), pr.getMinY(), pr.getMaxX(), pr.getMaxY()});
+                    out.endpointClearance = i == 0 ? margin : std::min(out.endpointClearance, margin);
                     out.clearance = std::min(out.clearance, margin);
                     if (t < nearClearanceTicks) out.nearClearance = std::min(out.nearClearance, margin);
                 }
@@ -836,17 +853,12 @@ class Runtime {
             const bool afterPortalSafe = portalProof.verified(out.survived, dt);
             out.decisionPoint = safeHandoff && (anyFlight ||
                 (portalProof.required() && afterPortalSafe));
-            if (routeWindowFinished(out.survived,plan.length,!landingRollout||safeHandoff,afterPortalSafe))
-                break;
-            // Complex/unsupported frame transitions require a live re-anchor.
-            if (sim.boundary)
-                break;
             layer->m_gameState.m_levelTime += dt;
             // Store exact native prefixes only within this live command. A
             // sibling resumes before its first different request, including
             // pulse state, consumed rings, portal band and landing obligation.
-            if(allowCache&&(t+1)%16==0&&t+1<plan.length&&Clock::now()<deadline){
-                ForecastFrame frame;frame.prefix=out;frame.world=layer->m_gameState;
+            if(allowCache&&((t+1)%16==0||t+1==plan.length)&&t+1<=plan.length&&!sim.boundary&&Clock::now()<deadline){
+                ForecastFrame frame;frame.prefix=out;frame.world.capture(layer->m_gameState);
                 for(int i=0;i<players;++i)frame.players[i].capture(clones[i]);
                 frame.pulse=pulse;frame.schedule=schedule;frame.portalProof=portalProof;
                 frame.flights=flights;frame.safeLanding=safeLanding;frame.previousModes=previousModes;
@@ -859,6 +871,8 @@ class Runtime {
                 frame.groundShadows=layer->m_updateGroundShadows;
                 forecastCache.save(plan,t+1,std::move(frame));
             }
+            if ((!settleFlight && out.survived >= plan.length) ||
+                routeWindowFinished(out.survived, plan.length, !landingRollout || safeHandoff, afterPortalSafe) || sim.boundary) break;
         }
         out.boundary = sim.boundary && !out.died;
         out.postPortalTicks = portalProof.after(out.survived);
@@ -895,9 +909,7 @@ class Runtime {
             settings.read();
         if (!settings.enabled) {
             if (wasEnabled) {
-                injected = true;
-                layer->handleButton(false, 1, true);
-                injected = false;
+                releaseLiveInput();
                 controller.reset();
                 cubePulse.reset();
                 inputQueue.reset();
@@ -996,10 +1008,22 @@ class Runtime {
         if (liveDual && layer->m_player2)
             livePositions[1] = {layer->m_player2->getPositionX(), layer->m_player2->getPositionY()};
         std::array<MotionSample, 2> liveMotion{motionSample(p), motionSample(layer->m_player2)};
-        const auto signature=semantic.signature(p->getPositionX());
+        // Keep the witness's membership fixed for the queued route. Scrolling
+        // the hash window itself is not a world change.
+        if (!worldSignatureValid || inputQueue.remaining() == 0) worldAnchorX = p->getPositionX();
+        const auto signature=semantic.signature(worldAnchorX);
         const bool worldChanged=worldSignatureValid&&signature!=worldSignature;
         worldSignature=signature;worldSignatureValid=true;
         if(worldChanged){inputQueue.reset();controller.reset();}
+        auto const &world = layer->m_gameState;
+        activeWorldMotion = !world.m_dynamicMoveActions.empty() || !world.m_dynamicRotateActions.empty() ||
+            !world.m_advanceFollowInstances.empty() || !world.m_gameObjectPhysics.empty() ||
+            !world.m_moveEffectInstances.empty() || !world.m_rotateEffectInstances.empty() ||
+            !world.m_scaleEffectInstances.empty();
+        // The local oracle does not integrate the trigger/action manager.
+        // Active motion must be reobserved on every command; a frozen-world
+        // forecast cannot authorize a long queue through it.
+        if (activeWorldMotion) inputQueue.reset();
         const bool queueReady = inputQueue.matches(livePositions, liveModes, liveDual, dt, &liveMotion);
         if (!queueReady) inputQueue.reset();
         // Commit a previously verified critical click before another search
@@ -1320,17 +1344,30 @@ class Runtime {
         const double tickMs = std::clamp(double(dt) * 1000.0, 2.0, 20.0);
         const bool overloaded = totalMs > tickMs * .70;
         const double hardPlannerCap = tickMs * (nearAction ? .85 : overloaded ? .42 : .62);
-        searchConfig.sharedDeadline = Clock::now() +
+        searchConfig.sharedDeadline = start +
             std::chrono::duration_cast<Clock::duration>(
                 std::chrono::duration<double, std::milli>(hardPlannerCap));
 
         // One frontier replaces independently ranked FAST/RESCUE/EMERGENCY
         // plans. The native prefix cache shares work inside this command only.
         searchConfig.budgetMs=std::min(searchConfig.budgetMs,hardPlannerCap);
-        decision=controller.decide(searchConfig,botHeld,[&](Plan const &plan,auto deadline,bool memo=true){
-            return evaluate(plan,deadline,dt,MaxHorizon,memo);
-        });
-        plannerStage="FRONTIER";
+        struct Oracle {
+            Runtime *runtime; float dt;
+            Evaluation prefix(Plan const &plan, Clock::time_point deadline, bool memo) {
+                return runtime->evaluate(plan, deadline, dt, plan.length, memo, false);
+            }
+        };
+        decision = controller.decide(searchConfig, botHeld, Oracle{this, dt});
+        plannerStage = "REALTIME-BEAM";
+        if (activeWorldMotion && decision.hasValidatedInput) {
+            decision.hasValidatedInput = false;
+            decision.completeContinuation = decision.recedingCertificate = false;
+            decision.recoveryInput = true; decision.recoveryTicks = 1;
+            decision.certificateTicks = 0;
+            trimProof(decision.selected, 1); decision.plan = decision.selected.realized;
+            decision.selected.firstActionVerified = false;
+            plannerStage = "LIVE-WORLD";
+        }
         if(!decision.hasValidatedInput&&queueReady){
             auto queued=inputQueue.continuation();retainSearchDiagnostics(queued,decision);
             decision=std::move(queued);usingQueuedInput=true;plannerStage="CHECKED-KEPT";
@@ -1339,7 +1376,7 @@ class Runtime {
 
         if (decision.hasValidatedInput || decision.recoveryInput || searchConfig.forceRelease) {
             inputPending = true;
-            message = decision.recoveryInput            ? "BOT | recovery: landing unproved"
+            message = decision.recoveryInput            ? "BOT | local control / landing unproved"
                       : !decision.hasValidatedInput     ? "BOT | forced release"
                       : decision.completeContinuation   ? "BOT | online"
                       : decision.recedingCertificate   ? "BOT | receding certificate"
@@ -1406,6 +1443,14 @@ class Runtime {
         bool down =
             cubePulse.command(decision.down, pulseMode, canPress, imminentOrb, orbContact);
         decision.down = down;
+        if (down != botHeld) {
+            // Feed the normal command path too, so real button game events
+            // and triggers run in the live step. The physics boundary below
+            // only enforces the resulting button state.
+            injected = true;
+            layer->handleButton(down, 1, true);
+            injected = false;
+        }
         const int players = layer->m_gameState.m_isDualMode ? 2 : 1;
         for (int i = 0; i < players; ++i) {
             auto *p = i == 0 ? layer->m_player1 : layer->m_player2;
@@ -1425,6 +1470,19 @@ class Runtime {
         if (actualMatches) inputQueue.consume(down);
         else inputQueue.reset();
     }
+    void enforceInputAtPhysics(PlayerObject *p) {
+        if (!nativeCommandActive || !controlling || !settings.enabled || !p || p->m_isDead)
+            return;
+        if (p != layer->m_player1 && p != layer->m_player2) return;
+        // processCommands can drain a queued UI/reset release after the
+        // planner's command. Reassert the SAME command at the physics boundary,
+        // without consuming the queue or advancing the cube pulse twice.
+        if (p->m_holdingButtons[1] != decision.down) ++inputPhaseMismatches;
+        if (applyJumpState(decision.down, [&] { return p->m_holdingButtons[1]; },
+                [&] { p->pushButton(PlayerButton::Jump); },
+                [&] { p->releaseButton(PlayerButton::Jump); }) && decision.down)
+            refreshPressedJumpSnapshot(*p);
+    }
     void render() {
         if (!draw || !label)
             return;
@@ -1434,7 +1492,7 @@ class Runtime {
         redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
         label->setString(
             fmt::format(
-                "AutoGDBot 0.22.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
+                "AutoGDBot 1.0 RT | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={} | tested={}/{}\n"
@@ -1685,6 +1743,8 @@ class $modify(AGBBaseLayer, GJBaseGameLayer) {
         GJBaseGameLayer::handleButton(down, button, p1);
     }
     int checkCollisions(PlayerObject *p, float dt, bool ignoreDamage) {
+        if (agb::active && !agb::sim.active)
+            agb::active->enforceInputAtPhysics(p);
         if (agb::active && !agb::sim.active && p == agb::active->layer->m_player1) {
             agb::active->physicsOrder.collision();
             agb::active->timing.observeNative(dt);
@@ -1705,7 +1765,7 @@ class $modify(AGBBaseLayer, GJBaseGameLayer) {
             if (!o)
                 continue;
             if (agb::boundaryObject(o) &&
-                (!agb::sim.localPortals || !agb::isLocalPhysicsPortal(o))) {
+                ((!agb::sim.localPortals && !agb::isIsolatedStatePortal(o)) || !agb::isLocalPhysicsPortal(o))) {
                 if (p->getObjectRect().intersectsRect(o->getObjectRect()))
                     agb::sim.boundary = true;
                 continue;
@@ -1832,6 +1892,8 @@ class $modify(AGBPlayer, PlayerObject) {
         }
     }
     void update(float dt) {
+        if (agb::active && !agb::sim.active)
+            agb::active->enforceInputAtPhysics(this);
         if (agb::active && !agb::sim.active && this == agb::active->layer->m_player1) {
             agb::active->timing.observeNative(dt);
             agb::active->physicsOrder.update();

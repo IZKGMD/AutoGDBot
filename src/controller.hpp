@@ -51,6 +51,7 @@ struct Evaluation {
     bool interrupted = false;
     float clearance = 0;
     float nearClearance = 0; // minimum hazard margin in the immediate control window
+    float endpointClearance = 0; // room at the frontier, rather than at the live root
     float landingMargin = 0;
     int landingRunwayTicks = 0;
     float robustness = 0;

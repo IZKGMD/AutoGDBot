@@ -127,6 +127,19 @@ inline bool isLocalPhysicsPortal(GameObject const *o) {
     }
 }
 
+inline bool isIsolatedStatePortal(GameObject const *o) {
+    if (!o) return false;
+    switch (o->m_objectType) {
+    case GameObjectType::InverseGravityPortal:
+    case GameObjectType::NormalGravityPortal:
+    case GameObjectType::GravityTogglePortal:
+    case GameObjectType::RegularSizePortal:
+    case GameObjectType::MiniSizePortal:
+        return true;
+    default: return isSpeedPortalObject(o);
+    }
+}
+
 // Objects allowed through clone collision filtering. Every semantic orb must
 // reach native collision code; otherwise the planner can see a ring that the
 // clone can never activate.
