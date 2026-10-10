@@ -51,6 +51,26 @@ inline std::string cachedPath(int id,bool coins,const char* category) {
     replace(engine,'src/mod/session.hpp','g_cfg.frameBudgetMs = 100.0;','g_cfg.frameBudgetMs = autogd::frameBudget(Mod::get()->getSettingValue<double>("verification-budget-ms"));')
     replace(engine,'src/mod/session.hpp','// ...but never more than 100 ms of them: the window has to keep answering on a heavy\n        // level, where 1,800 calls took 8-18 s (Config::frameBudgetMs).','// Yield between game updates when the Android verification budget is spent.\n        // One update is indivisible and may exceed that budget on a heavy level.')
     replace(engine,'src/mod/repair.hpp','constexpr const char* kThreads = "8";','constexpr const char* kThreads = "2"; // Mobile profile: leave CPU headroom for GD and touch input.')
+    # The pinned bindings generate a CCPoint rename union, which deletes the compiler's
+    # GJGameState assignment. Android GD exports its own copy assignment (confirmed in
+    # the pinned SDK's libcocos2dcpp.so). Use that ABI instead of copying container bytes.
+    replace(engine,'src/solver/psnap.hpp',
+        '''// Android: GD's maps are Geode's GNU STL copies, whose swap does not compile against the NDK's
+// libc++ (and whose iterators std::next does not accept). The plain member-wise assignment
+// gives the same keys and values in the same order, only with new nodes and more time.
+inline void assignState(GJGameState& dst, GJGameState& src) {
+    if (&dst == &src) return;
+    dst = src;
+}''',
+        '''// Android GD owns the GNU STL containers. Its exported copy-assignment preserves
+// their ownership and copies every state field, including renamed CCPoint union members
+// that make the bindings' implicit assignment unavailable under Clang.
+extern "C" __attribute__((visibility("default")))
+GJGameState& autogdNativeAssignState(GJGameState* dst, const GJGameState* src)
+    asm("_ZN11GJGameStateaSERKS_");
+inline void assignState(GJGameState& dst, GJGameState& src) {
+    if (&dst != &src) autogdNativeAssignState(&dst, &src);
+}''')
     # Bind the decompressed level, before the popup considers any stored solution.
     replace(engine,'src/mod/hooks_playmenu.cpp','if (s.empty()) {','bindCacheIdentity(level->m_levelID.value(), static_cast<int>(level->m_levelType), s);\n    if (s.empty()) {')
     replace(engine,'src/mod/hooks_playmenu.cpp','this->setTitle("GD Solver");','this->setTitle("AutoGDBot Verified");')
@@ -104,3 +124,4 @@ inline std::string cachedPath(int id,bool coins,const char* category) {
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('engine',type=Path);args=parser.parse_args();prepare(args.engine)
+
