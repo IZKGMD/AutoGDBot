@@ -26,6 +26,21 @@ def prepare(engine,check_revision=True):
     (engine/'mod.json').write_text(json.dumps(manifest,indent=2)+'\n')
     shutil.copy2(ROOT/'cache_identity.hpp',engine/'src/mod/autogd_cache_identity.hpp')
     shutil.copy2(ROOT/'android_libcpp_compat.cpp',engine/'src/android_libcpp_compat.cpp')
+    shutil.copy2(ROOT/'game_state_members.inc',engine/'src/solver/autogd_game_state_members.inc')
+    replace(engine,'src/solver/psnap.hpp',
+        '''inline void assignState(GJGameState& dst, GJGameState& src) {
+    if (&dst == &src) return;
+    dst = src;
+}''',
+        '''inline void assignState(GJGameState& dst, GJGameState& src) {
+    if (&dst == &src) return;
+    // Codegen emits anonymous unions for renamed CCPoint fields. Those unions delete
+    // implicit class assignment on Clang, so assign canonical members explicitly.
+    // GNU STL containers retain their own copy semantics and own their new nodes.
+#define AGB_STATE_MEMBER(name) dst.name = src.name;
+#include "solver/autogd_game_state_members.inc"
+#undef AGB_STATE_MEMBER
+}''')
     (engine/'src/mod/autogd_cache_runtime.hpp').write_text('''#pragma once
 #include "mod/config.hpp"
 #include "mod/autogd_cache_identity.hpp"

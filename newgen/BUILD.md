@@ -19,6 +19,19 @@ python3 newgen/export_package.py newgen/engine/build/autogdbot.realtime.geode ne
 
 `ANDROID_NDK_ROOT` must be the actual NDK directory. The compiler toolchain comes from the NDK; a host desktop compiler cannot produce this Android package.
 
+The local builder validates the exact engine, SDK and bindings commits, the NDK and CLI versions, and coverage of all 162 snapshot state members. It runs the host acceptance checks, applies the profile once, and builds/packages the actual Android shared library. Start with a clean pinned engine checkout:
+
+```sh
+python3 newgen/build_android.py \
+  --engine newgen/engine --sdk "$GEODE_SDK" --ndk "$ANDROID_NDK_ROOT" \
+  --bindings "$GEODE_BINDINGS_REPO_PATH" --cli "$(command -v geode)" \
+  --output dist-verified
+```
+
+Without a configured CLI game profile, download the official `geode-v5.10.1-android64.zip` release and place its `Geode.android64.so` in `bin/5.10.1/` of the SDK checkout. Packaging itself does not need a game profile. Leave `GEODE_DONT_UPDATE_INDEX=OFF`: CLI 3.9.0 does not accept `--dont-update-index` for `project check`. The local builder strips release debug information at link time and never installs into a game automatically.
+
+The current code generator exposes renamed camera points as anonymous unions, so Clang deletes `GJGameState`'s implicit copy assignment. The Android adaptation assigns every canonical field explicitly from the pinned bindings; containers still deep-copy their own nodes. It does not copy container storage with `memcpy` or change physics constants. `check_snapshot_schema.py` rejects missing, duplicate or reordered state members.
+
 GitHub Actions uses the same process and records the package bytes and SHA-256 on a separate build-output branch after successful compilation. A failed run with no steps and no artifact has **not** built a `.geode`.
 
 Standalone acceptance checks:
