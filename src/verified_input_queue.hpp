@@ -8,6 +8,9 @@ namespace agb {
 class VerifiedInputQueue {
     Plan plan_;
     Evaluation evaluation_;
+    Plan forecastPlan_;
+    Evaluation forecast_;
+    int jumpWindowTicks_ = 0;
     std::array<ModeState, 2> states_{};
     int cursor_ = 0, checked_ = 0;
     double dt_ = 0;
@@ -35,6 +38,9 @@ class VerifiedInputQueue {
         if (!modeProof_ && !d.selected.transitions.empty()) { reset(); return false; }
         plan_ = d.plan;
         evaluation_ = d.selected;
+        forecastPlan_ = d.forecastPlan;
+        forecast_ = d.forecast;
+        jumpWindowTicks_ = d.jumpWindowTicks;
         proofKind_ = d.proofKind;
         forecastDied_ = d.forecastDied;
         forecastInterrupted_ = d.forecastInterrupted;
@@ -50,7 +56,7 @@ class VerifiedInputQueue {
                 return false;
             auto expected = evaluation_.traces[i][cursor_];
             if (!std::isfinite(real[i].x) || !std::isfinite(real[i].y) ||
-                std::hypot(real[i].x - expected.x, real[i].y - expected.y) > .25f) return false;
+                std::hypot(real[i].x - expected.x, real[i].y - expected.y) > .075f) return false;
             if (motionProof_ && (!motion || !evaluation_.motions[i][cursor_].matches((*motion)[i])))
                 return false;
         }
@@ -87,6 +93,13 @@ class VerifiedInputQueue {
         for (auto &m : d.selected.modeTraces)
             if (m.size() > size_t(remaining() + 1)) m.resize(remaining() + 1);
         d.selected.routeId = routeFingerprint(d.plan);
+        if (forecast_.survived > cursor_) {
+            d.forecast = forecast_; advanceEvaluation(d.forecast, cursor_);
+            d.forecastPlan = forecastPlan_; d.forecastPlan.length = std::max(0, forecastPlan_.length - cursor_);
+            for (int t = 0; t < d.forecastPlan.length; ++t) d.forecastPlan.buttons[t] = forecastPlan_.at(cursor_ + t);
+            std::fill(d.forecastPlan.buttons.begin() + d.forecastPlan.length, d.forecastPlan.buttons.end(), false);
+            d.forecastTicks = d.forecast.survived; d.jumpWindowTicks = jumpWindowTicks_;
+        }
         // Contact/repair indices belong to the old timeline, not this suffix.
         d.selected.orbActions.clear(); d.selected.dashActions.clear();
         d.selected.groundedActions.clear(); d.selected.controlActions.clear();

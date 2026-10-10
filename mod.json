@@ -6,11 +6,11 @@
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v1.0.0-beta.1",
+  "version": "v1.0.0-beta.2",
   "developers": [
     "AutoGDBot"
   ],
-  "description": "Realtime native beam search with state-matched input queues and independent prefix replay. No level-wide pre-solve.",
+  "description": "Realtime long-horizon native rollouts, coordinate-based takeoff timing and independently replayed control prefixes.",
   "tags": [
     "gameplay",
     "utility",
@@ -30,14 +30,14 @@
       "default": 2.0,
       "min": 0.2,
       "max": 8.0,
-      "description": "Adaptive native search budget, limited by the current physics step. Individual game calls can exceed it."
+      "description": "Native work is limited to at most 2 ms per physics command; individual native calls cannot be interrupted."
     },
     "horizon": {
       "type": "int",
       "name": "Lookahead in physics ticks",
-      "default": 144,
+      "default": 768,
       "min": 24,
-      "max": 384
+      "max": 768
     },
     "candidates": {
       "type": "int",
@@ -45,13 +45,6 @@
       "default": 96,
       "min": 4,
       "max": 96
-    },
-    "trace-hz": {
-      "type": "int",
-      "name": "Trace redraw rate",
-      "default": 20,
-      "min": 5,
-      "max": 60
     },
     "telemetry": {
       "type": "bool",
@@ -62,8 +55,24 @@
     "debug-traces": {
       "type": "bool",
       "name": "Show candidate traces",
-      "description": "Show UP (red) and DOWN (blue) diagnostic alternatives alongside the selected route.",
+      "description": "Show diagnostic alternatives, geometry boxes and expanded telemetry.",
       "default": false
+    },
+    "lookahead-seconds": {
+      "type": "float",
+      "name": "Lookahead time (seconds)",
+      "default": 3.2,
+      "min": 0.4,
+      "max": 4.0,
+      "description": "Target forecast distance. Actual native depth depends on geometry and the per-step time budget."
+    },
+    "trace-fps": {
+      "type": "int",
+      "name": "Trace refresh rate",
+      "default": 240,
+      "min": 20,
+      "max": 240,
+      "description": "Refreshes exact native path samples at the render frame rate, up to this limit."
     }
   },
   "resources": {

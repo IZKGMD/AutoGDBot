@@ -10,8 +10,8 @@
 #include "mode_policy.hpp"
 
 namespace agb {
-constexpr int MaxPlanningHorizon = 384;
-constexpr int MaxHorizon = 512; // bounded tail for completing a flight beyond lookahead
+constexpr int MaxPlanningHorizon = 768;
+constexpr int MaxHorizon = 1024; // bounded tail for completing a flight beyond lookahead
 constexpr int MaxCandidates = 96;
 using Clock = std::chrono::steady_clock;
 struct Point {
@@ -21,11 +21,21 @@ struct MotionSample {
     double velocity = 0;
     bool canJump = false, grounded = false, buffered = false, ringUnused = false;
     uint64_t usedInteractions = 0;
+    bool nativeDetails = false;
+    double xVelocity = 0, gravity = 0, gravityMod = 0;
+    float rotation = 0;
+    Point force;
+    uint32_t contactFlags = 0;
     bool matches(MotionSample const &other) const {
         return std::isfinite(velocity) && std::isfinite(other.velocity) &&
             std::abs(velocity - other.velocity) <= .02 && canJump == other.canJump &&
             grounded == other.grounded && buffered == other.buffered && ringUnused == other.ringUnused &&
-            usedInteractions == other.usedInteractions;
+            usedInteractions == other.usedInteractions && nativeDetails == other.nativeDetails &&
+            (!nativeDetails || (std::abs(xVelocity - other.xVelocity) <= .002 &&
+                std::abs(gravity - other.gravity) <= .0001 && std::abs(gravityMod - other.gravityMod) <= .0001 &&
+                std::abs(std::remainder(rotation - other.rotation, 360.f)) <= .1f &&
+                std::hypot(force.x - other.force.x, force.y - other.force.y) <= .001f &&
+                contactFlags == other.contactFlags));
     }
 };
 struct OrbWindow { int begin = 0, end = 0; };
@@ -144,6 +154,11 @@ struct Decision {
     std::array<int, 2> firstActionCandidates{};
     Plan plan;
     Evaluation selected;
+    // A long native forecast is a proposal. Only selected/certificateTicks
+    // authorize the input queue after independent replay.
+    Plan forecastPlan;
+    Evaluation forecast;
+    int forecastTicks = 0, jumpWindowTicks = 0;
     std::array<Evaluation, 2> alternatives;
     std::vector<Plan> proposals;
 };

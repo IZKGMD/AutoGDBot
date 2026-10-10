@@ -14,6 +14,16 @@ static Evaluation flight(Plan const &p, bool fatal) {
     return e;
 }
 int main() {
+    {
+        MotionSample predicted, real; predicted.nativeDetails = real.nativeDetails = true;
+        check(predicted.matches(real), "equal native force/contact state must match");
+        real.force.x = .02f;
+        check(!predicted.matches(real), "same velocity cannot hide a different applied native force");
+        real = predicted; real.contactFlags = 1;
+        check(!predicted.matches(real), "same position cannot hide a different slope or input latch");
+        real = predicted; real.rotation = 90;
+        check(!predicted.matches(real), "rotated collider cannot reuse an unchanged contact proof");
+    }
     Config c; c.horizon=180; c.candidates=16; c.budgetMs=8;
     c.cubePulsePlanning=true; c.plannerMode=PlannerMode::Cube;
     c.compareFirstActions=true; c.allowFlightRecovery=true;

@@ -138,6 +138,11 @@ int main() {
             cfg.plannerMode=PlannerMode::Cube; cfg.cubePulsePlanning=true;
             cfg.forceRelease=livePulse.mustRelease() || !live.ground;
             auto d=realtime.decide(cfg,false,PrefixOracle{&scene,live,livePulse});
+            if (!d.hasValidatedInput && !d.recoveryInput)
+                std::cerr << "stair fail start=" << start << " tick=" << tick << " x=" << live.x
+                          << " y=" << live.y << " ground=" << live.ground << " release=" << cfg.forceRelease
+                          << " candidates=" << d.candidates << " deaths=" << d.deaths << " cold=" << d.coldVerificationTicks
+                          << " rejected=" << d.bestRejectedTicks << " mismatch=" << d.cacheMismatches << '\n';
             check(d.hasValidatedInput || d.recoveryInput, "realtime beam lost both checked stair actions");
             bool down=livePulse.command(d.down,true,live.ground); presses+=down;
             check(scene.step(live,down),"realtime beam died in staircase fixture");

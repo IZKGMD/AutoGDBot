@@ -21,6 +21,7 @@
 #include "realtime_search.hpp"
 #include "game_state_snapshot.hpp"
 #include "prefix_cache.hpp"
+#include "trace_geometry.hpp"
 #include <fstream>
 #include <unordered_set>
 
@@ -230,6 +231,13 @@ static MotionSample motionSample(PlayerObject *p) {
     for (auto id : p->m_ringRelatedSet) m.usedInteractions ^= (uint64_t(id) + 1) * 0x9e3779b185ebca87ull;
     for (auto const &[id, used] : p->m_jumpPadRelated)
         m.usedInteractions ^= ((uint64_t(id) + 1) * 2 + used) * 0xc2b2ae3d27d4eb4full;
+    m.nativeDetails = true;
+    m.xVelocity = p->getCurrentXVelocity(); m.gravity = p->m_gravity; m.gravityMod = p->m_gravityMod;
+    m.rotation = p->getRotation(); m.force = {p->m_stateForceVector.x, p->m_stateForceVector.y};
+    m.contactFlags = uint32_t(p->m_isOnSlope) | (uint32_t(p->m_isCollidingWithSlope) << 1) |
+        (uint32_t(p->m_collidingWithLeft != nullptr) << 2) | (uint32_t(p->m_collidingWithRight != nullptr) << 3) |
+        (uint32_t(p->m_holdingButtons[1]) << 4) | (uint32_t(p->m_controlsDisabled) << 5) |
+        (uint32_t(p->m_inputsLocked) << 6) | (uint32_t(p->m_stateNoAutoJump) << 7);
     return m;
 }
 static bool landingMode(PlayerObject *p) {
@@ -257,14 +265,16 @@ static bool cubeCanPress(PlayerObject *p) {
 }
 struct Settings {
     bool enabled = false, telemetry = false, debugTraces = false;
-    int traceHz = 30;
+    int traceHz = 120;
+    double lookaheadSeconds = 3.2;
     Config config;
     void read() {
         auto *m = Mod::get();
         enabled = m->getSettingValue<bool>("enabled");
         telemetry = m->getSettingValue<bool>("telemetry");
         debugTraces = m->getSettingValue<bool>("debug-traces");
-        traceHz = int(m->getSettingValue<int64_t>("trace-hz"));
+        traceHz = int(m->getSettingValue<int64_t>("trace-fps"));
+        lookaheadSeconds = m->getSettingValue<double>("lookahead-seconds");
         config.horizon = int(m->getSettingValue<int64_t>("horizon"));
         config.candidates = int(m->getSettingValue<int64_t>("candidates"));
         config.budgetMs = m->getSettingValue<double>("budget-ms");
@@ -290,6 +300,7 @@ class Runtime {
     std::array<PlayerSeed, 2> seeds;
     RealtimeSearch controller;
     PrefixCache<ForecastFrame, 64> forecastCache;
+    GameStateSnapshot simulationRoot;
     uint64_t worldSignature=0;
     bool worldSignatureValid=false;
     float worldAnchorX = 0;
@@ -338,6 +349,7 @@ class Runtime {
     double totalMs = 0;
     bool telemetryPending = false;
     Clock::time_point redraw = Clock::now();
+    Clock::time_point hudRedraw = Clock::now();
     std::string message = "Autopilot off";
     std::string plannerStage = "IDLE";
     std::vector<std::string> csv;
@@ -536,7 +548,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v1.0.0-realtime.1.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v1.0.0-realtime.2.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -545,7 +557,7 @@ class Runtime {
                      "requested_down,actual_down,deadline_hit,selected_died,selected_interrupted,"
                      "first_action_verified,requires_landing,landing_verified,boundary,position_"
                      "error,light_ticks,reflex_jumps,route_id,mode_transitions,post_portal_ticks,"
-                     "portal_verified,queue_ticks,repairs_created,repairs_tested,proof_kind,forecast_died,forecast_interrupted,support_loss_tick,memo_hits,memo_skipped_ticks,cold_ticks,cache_mismatches\n";
+                     "portal_verified,queue_ticks,repairs_created,repairs_tested,proof_kind,forecast_died,forecast_interrupted,support_loss_tick,memo_hits,memo_skipped_ticks,cold_ticks,cache_mismatches,forecast_ticks,jump_window_ticks\n";
             for (auto const &row : csv)
                 f << row << '\n';
         }
@@ -565,10 +577,10 @@ class Runtime {
         const float physicsDt = timing.nativeStep(dt);
         bool dual = layer->m_gameState.m_isDualMode;
         const int players = dual ? 2 : 1;
-        const GameStateSnapshot gameState(layer->m_gameState);
+        auto const &gameState = simulationRoot;
         struct Scope {
             PlayLayer *l;
-            GameStateSnapshot state;
+            GameStateSnapshot const &state;
             PlayerObject *p1, *p2;
             float height, targetHeight, width, unzoomedHeight;
             bool calculateHeight, freezeCamera, groundShadows;
@@ -606,18 +618,20 @@ class Runtime {
                 sim.clones = {};
             }
         } scope(layer, gameState);
+        int resume = 0;
+        auto *frame = allowCache ? forecastCache.find(plan, resume) : nullptr;
         for (int i = 0; i < 2; ++i) {
             sim.clones[i] = clones[i];
             if (i < players) {
-                seeds[i].restore(clones[i]);
+                if (!frame) seeds[i].restore(clones[i]);
                 flights[i] = FlightCertificate(clones[i]->m_isOnGround);
-                out.traces[i].reserve(MaxHorizon + 1);
-                out.motions[i].reserve(MaxHorizon + 1);
-                out.modeTraces[i].reserve(MaxHorizon + 1);
+                out.traces[i].reserve(plan.length + 1);
+                out.motions[i].reserve(plan.length + 1);
+                out.modeTraces[i].reserve(plan.length + 1);
                 out.traces[i].push_back({clones[i]->getPositionX(), clones[i]->getPositionY()});
                 out.motions[i].push_back(motionSample(clones[i]));
                 previousModes[i] = modeState(clones[i]);
-                rootVelocity[i] = std::abs(clones[i]->getCurrentXVelocity());
+                rootVelocity[i] = std::abs(seeds[i].source->getCurrentXVelocity());
                 out.modeTraces[i].push_back(previousModes[i]);
             }
         }
@@ -635,7 +649,7 @@ class Runtime {
                         : plan.length;
         out.clearance = 120;
         out.nearClearance = 120;
-        out.landingMargin = 0;
+        out.landingMargin = 120;
         out.robustness = 1.f;
         const int nearClearanceTicks =
             std::clamp(int(std::ceil(.15 / std::max(0.001f, dt))), 8, 64);
@@ -661,8 +675,6 @@ class Runtime {
                 }
             }
         };
-        int resume=0;
-        auto *frame=allowCache?forecastCache.find(plan,resume):nullptr;
         if(frame){
             for(auto const &flags:frame->interactions){sim.save(flags.object);flags.restore();}
             frame->world.restore(layer->m_gameState);
@@ -804,12 +816,14 @@ class Runtime {
                 out.modeTraces[i].push_back(currentMode);
                 if (p->m_wasTeleported) out.discontinuities[i].push_back(t + 1);
                 {
-                    auto pr = p->getObjectRect(.35f, .35f);
+                    auto pr = p->getObjectRect();
                     const float margin = hazardGuard.clearance(
                         {pr.getMinX(), pr.getMinY(), pr.getMaxX(), pr.getMaxY()});
                     out.endpointClearance = i == 0 ? margin : std::min(out.endpointClearance, margin);
                     out.clearance = std::min(out.clearance, margin);
                     if (t < nearClearanceTicks) out.nearClearance = std::min(out.nearClearance, margin);
+                    if (landingMode(p) && !p->m_isOnGround)
+                        out.landingMargin = std::min(out.landingMargin, margin);
                 }
                 if (landingMode(p)) {
                     if(groundedBefore[i]&&!p->m_isOnGround&&!down&&out.supportLossTick<0)
@@ -857,7 +871,7 @@ class Runtime {
             // Store exact native prefixes only within this live command. A
             // sibling resumes before its first different request, including
             // pulse state, consumed rings, portal band and landing obligation.
-            if(allowCache&&((t+1)%16==0||t+1==plan.length)&&t+1<=plan.length&&!sim.boundary&&Clock::now()<deadline){
+            if(allowCache&&((t+1)%48==0||t+1==plan.length)&&t+1<=plan.length&&!sim.boundary&&Clock::now()<deadline){
                 ForecastFrame frame;frame.prefix=out;frame.world.capture(layer->m_gameState);
                 for(int i=0;i<players;++i)frame.players[i].capture(clones[i]);
                 frame.pulse=pulse;frame.schedule=schedule;frame.portalProof=portalProof;
@@ -1011,7 +1025,8 @@ class Runtime {
         // Keep the witness's membership fixed for the queued route. Scrolling
         // the hash window itself is not a world change.
         if (!worldSignatureValid || inputQueue.remaining() == 0) worldAnchorX = p->getPositionX();
-        const auto signature=semantic.signature(worldAnchorX);
+        const float witnessRange = std::max(1200.f, MaxHorizon * std::max(std::abs(travelSteps[0].x), std::abs(travelSteps[0].y)) + 256.f);
+        const auto signature=semantic.signature(worldAnchorX, witnessRange);
         const bool worldChanged=worldSignatureValid&&signature!=worldSignature;
         worldSignature=signature;worldSignatureValid=true;
         if(worldChanged){inputQueue.reset();controller.reset();}
@@ -1159,6 +1174,8 @@ class Runtime {
         predictionError = error;
         forecastCache.reset();
         Config searchConfig = settings.config;
+        searchConfig.horizon = std::clamp(std::max(searchConfig.horizon,
+            int(std::ceil(settings.lookaheadSeconds / std::max(.001f, dt)))), 24, MaxPlanningHorizon);
         searchConfig.tickSeconds = dt;
         const int liveMode = mode(p);
         const bool orbOpportunity = touchingOrb || imminentOrb || cubePulse.orbArmed();
@@ -1343,7 +1360,7 @@ class Runtime {
         nearAction |= routeGap.found || routeHandoff.found;
         const double tickMs = std::clamp(double(dt) * 1000.0, 2.0, 20.0);
         const bool overloaded = totalMs > tickMs * .70;
-        const double hardPlannerCap = tickMs * (nearAction ? .85 : overloaded ? .42 : .62);
+        const double hardPlannerCap = std::min(2.0, tickMs * (nearAction ? .48 : overloaded ? .28 : .36));
         searchConfig.sharedDeadline = start +
             std::chrono::duration_cast<Clock::duration>(
                 std::chrono::duration<double, std::milli>(hardPlannerCap));
@@ -1351,6 +1368,7 @@ class Runtime {
         // One frontier replaces independently ranked FAST/RESCUE/EMERGENCY
         // plans. The native prefix cache shares work inside this command only.
         searchConfig.budgetMs=std::min(searchConfig.budgetMs,hardPlannerCap);
+        simulationRoot.capture(layer->m_gameState);
         struct Oracle {
             Runtime *runtime; float dt;
             Evaluation prefix(Plan const &plan, Clock::time_point deadline, bool memo) {
@@ -1358,7 +1376,7 @@ class Runtime {
             }
         };
         decision = controller.decide(searchConfig, botHeld, Oracle{this, dt});
-        plannerStage = "REALTIME-BEAM";
+        plannerStage = "LONG-REPAIR";
         if (activeWorldMotion && decision.hasValidatedInput) {
             decision.hasValidatedInput = false;
             decision.completeContinuation = decision.recedingCertificate = false;
@@ -1372,7 +1390,8 @@ class Runtime {
             auto queued=inputQueue.continuation();retainSearchDiagnostics(queued,decision);
             decision=std::move(queued);usingQueuedInput=true;plannerStage="CHECKED-KEPT";
         }
-        if(decision.hasValidatedInput)controller.seedVerifiedPrefix(decision.plan,decision.certificateTicks);
+        if (usingQueuedInput && decision.forecastTicks > 0)
+            controller.seedVerifiedPrefix(decision.forecastPlan, decision.forecastTicks);
 
         if (decision.hasValidatedInput || decision.recoveryInput || searchConfig.forceRelease) {
             inputPending = true;
@@ -1422,7 +1441,8 @@ class Runtime {
                 e.postPortalTicks, e.portalVerified, inputQueue.remaining()))
             .append(fmt::format(",{},{},{},{},{},{},{},{},{},{}", decision.repairsCreated, decision.repairsTested,
                 decision.proofKind, decision.forecastDied, decision.forecastInterrupted, e.supportLossTick,
-                forecastCache.hits, forecastCache.skippedTicks, decision.coldVerificationTicks, decision.cacheMismatches)));
+                forecastCache.hits, forecastCache.skippedTicks, decision.coldVerificationTicks, decision.cacheMismatches))
+            .append(fmt::format(",{},{}", decision.forecastTicks, decision.jumpWindowTicks)));
         if (csv.size() >= 256)
             flush();
     }
@@ -1487,9 +1507,26 @@ class Runtime {
         if (!draw || !label)
             return;
         settings.read();
-        if (Clock::now() < redraw)
+        const auto now = Clock::now();
+        if (now < redraw)
             return;
-        redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
+        redraw = now + std::chrono::microseconds(1000000 / std::max(20, settings.traceHz));
+        if (now >= hudRedraw) {
+        hudRedraw = now + std::chrono::milliseconds(125);
+        if (!settings.debugTraces) {
+            std::string jump = "";
+            for (int t = 0; t < decision.forecastPlan.length &&
+                    t < int(decision.forecast.traces[0].size()); ++t) {
+                if (decision.forecastPlan.at(t) && decision.forecast.motions[0].size() > size_t(t) &&
+                    (decision.forecast.motions[0][t].canJump || decision.forecast.motions[0][t].grounded)) {
+                    jump = fmt::format(" | jump x={:.1f} samples={}", decision.forecast.traces[0][t].x,
+                                       decision.jumpWindowTicks);
+                    break;
+                }
+            }
+            label->setString(fmt::format("AutoGDBot 1.0 RT2 | {}\nlookahead={:.2f}s checked={} | {:.2f}ms{}",
+                message, decision.forecastTicks * previousDt, decision.certificateTicks, totalMs, jump).c_str());
+        } else {
         label->setString(
             fmt::format(
                 "AutoGDBot 1.0 RT | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
@@ -1548,8 +1585,10 @@ class Runtime {
                     decision.proofKind,decision.forecastDied,forecastCache.hits,forecastCache.skippedTicks,
                     decision.coldVerificationTicks,decision.cacheMismatches))
                 .c_str());
+        }
         label->setColor(decision.hasValidatedInput ? ccColor3B{120, 255, 170}
                                                    : ccColor3B{255, 180, 100});
+        }
         draw->clear();
         if (!settings.enabled)
             return;
@@ -1566,21 +1605,15 @@ class Runtime {
                          ccColor4F color, float width) {
             // Keep the visual trajectory cheap on mobile. The old fixed stride
             // could emit ~170 draw calls for a 512-tick cube tail.
-            const size_t stride =
-                std::max<size_t>(3, points.size() > 48 ? points.size() / 48 : 3);
-            for (size_t i = stride; i < points.size(); i += stride) {
-                const bool discontinuous = std::any_of(breaks.begin(), breaks.end(),
-                    [&](int t) { return t > int(i - stride) && t <= int(i); });
-                if (!discontinuous)
-                    draw->drawSegment({points[i - stride].x, points[i - stride].y},
-                                      {points[i].x, points[i].y}, width, color);
+            size_t first = points.size() > 2 ? 1 : 0;
+            size_t last = points.size();
+            if (layer->m_player1) {
+                float x = layer->m_player1->getPositionX(), y = layer->m_player1->getPositionY();
+                for (size_t t = first; t < points.size(); ++t)
+                    if (std::abs(points[t].x - x) > 1250 || std::abs(points[t].y - y) > 850) { last = t; break; }
             }
-            if (!points.empty()) {
-                auto q = points.back();
-                std::array<CCPoint, 4> v = {CCPoint{q.x - 7, q.y - 7}, CCPoint{q.x - 7, q.y + 7},
-                                            CCPoint{q.x + 7, q.y + 7}, CCPoint{q.x + 7, q.y - 7}};
-                draw->drawPolygon(v.data(), 4, {0, 0, 0, 0}, .5f, color);
-            }
+            for (auto const &s : traceSegments(points, breaks, .18f, first, last))
+                draw->drawSegment({s.a.x, s.a.y}, {s.b.x, s.b.y}, width, color);
         };
         if (settings.debugTraces) {
             trace(decision.alternatives[0].traces[0], decision.alternatives[0].discontinuities[0],
@@ -1593,7 +1626,23 @@ class Runtime {
                            : decision.selected.boundary ? ccColor4F{.3f, .8f, 1, .9f}
                            : complete                   ? ccColor4F{.2f, 1, .45f, .9f}
                                                         : ccColor4F{1, .65f, .1f, .9f};
+        if (decision.hasValidatedInput || decision.recoveryInput) {
+            // Amber is the uncommitted native forecast; green/orange above
+            // represents only the independently replayed control segment.
+            for (int i = 0; i < (layer->m_gameState.m_isDualMode ? 2 : 1); ++i)
+                trace(decision.forecast.traces[i], decision.forecast.discontinuities[i], {1.f, .72f, .25f, .35f}, .65f);
+        }
         trace(stableTrace, decision.selected.discontinuities[0], chosen, .85f);
+        if (layer->m_gameState.m_isDualMode)
+            trace(decision.selected.traces[1], decision.selected.discontinuities[1], {.2f, .8f, 1.f, .8f}, .85f);
+        for (int t = 0; t < decision.forecastPlan.length && t < int(decision.forecast.traces[0].size()); ++t) {
+            if (!decision.forecastPlan.at(t) || decision.forecast.motions[0].size() <= size_t(t) ||
+                !(decision.forecast.motions[0][t].canJump || decision.forecast.motions[0][t].grounded)) continue;
+            auto q = decision.forecast.traces[0][t];
+            draw->drawSegment({q.x, q.y - 8}, {q.x, q.y + 16}, .7f, {.25f, .9f, 1.f, .75f});
+            break;
+        }
+        if (!settings.debugTraces) return;
         if (layer->m_player1) {
             float x = layer->m_player1->getPositionX();
             int shown = 0;
