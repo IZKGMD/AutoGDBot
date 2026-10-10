@@ -65,7 +65,7 @@ inline void assignState(GJGameState& dst, GJGameState& src) {
         '''// Android GD owns the GNU STL containers. Its exported copy-assignment preserves
 // their ownership and copies every state field, including renamed CCPoint union members
 // that make the bindings' implicit assignment unavailable under Clang.
-extern "C" __attribute__((visibility("default")))
+__attribute__((visibility("default")))
 GJGameState& autogdNativeAssignState(GJGameState* dst, const GJGameState* src)
     asm("_ZN11GJGameStateaSERKS_");
 inline void assignState(GJGameState& dst, GJGameState& src) {
