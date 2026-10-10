@@ -84,7 +84,7 @@ class RealtimeSearch {
         auto start = Clock::now();
         auto end = std::min(c.sharedDeadline, start + std::chrono::duration_cast<Clock::duration>(
             std::chrono::duration<double, std::milli>(std::clamp(c.budgetMs, .2, 8.))));
-        auto searchEnd = start + (end - start) * 2 / 3;
+        auto searchEnd = start + (end - start) * (c.priorityControl ? 4 : 2) / (c.priorityControl ? 5 : 3);
         Decision result; result.down = c.forceRelease ? false : held;
         if (start >= end) { result.exhausted = true; return result; }
         const int slice = std::clamp(int(std::lround(.05 / c.tickSeconds)), 4, 16);
@@ -93,6 +93,9 @@ class RealtimeSearch {
         std::vector<Plan> seen;
         Node bestProof, bestRecovery;
         RouteProof bestCertificate;
+        Node checkedControl;
+        RouteProof checkedControlProof;
+        auto checkedControlRank = std::tuple{-1, -1, -100000, -100000, -1};
         auto bestProofRank = std::tuple{-1, -1, -1, -1, -100000, -100000};
         auto inspect = [&](Node const &n) {
             auto const &e = n.state;
@@ -124,16 +127,17 @@ class RealtimeSearch {
             if (e.survived > 0 && traceCovers(e, e.survived, c.dual) &&
                 (bestRecovery.state.survived == 0 || rank(n) > rank(bestRecovery))) bestRecovery = n;
         };
-        auto run = [&](Plan p, bool repair = false) -> Node {
+        auto run = [&](Plan p, bool repair = false, bool memo = true) -> Node {
             p.length = std::clamp(p.length, 1, MaxHorizon);
             if (c.forceRelease) p.buttons[0] = false;
             Node n; n.plan = p;
             if (Clock::now() >= searchEnd || result.candidates >= c.candidates) return n;
             for (auto const &s : seen)
-                if (s.length == p.length && s.landingDelay == p.landingDelay && std::equal(s.buttons.begin(), s.buttons.begin() + p.length,
+                if (s.length == p.length && s.landingDelay == p.landingDelay && s.stopAtLanding == p.stopAtLanding && std::equal(s.buttons.begin(), s.buttons.begin() + p.length,
                                                      p.buttons.begin())) return n;
             seen.push_back(p);
-            n.state = oracle.prefix(p, searchEnd, true);
+            n.state = oracle.prefix(p, searchEnd, memo);
+            if (!memo) result.coldVerificationTicks += n.state.survived;
             ++result.candidates; result.repairsTested += repair;
             ++result.firstActionCandidates[p.at(0)];
             result.deaths += n.state.died; result.guardDeaths += n.state.guardDeath;
@@ -170,6 +174,78 @@ class RealtimeSearch {
             ++result.coldVerificationTicks;
             if (sameTimeline(fallback->state, cold, 1, c.dual)) {
                 checkedRoot = *fallback; rootReplay = std::move(cold);
+            }
+        }
+        if (c.priorityControl && c.cubePulsePlanning) {
+            // Fresh native probes start at the live root with cache reads
+            // disabled. The first command must also agree with the separate
+            // one-step root simulation above. Keep this complete local proof
+            // BEFORE a distant rollout can exhaust the remaining work.
+            auto priority = [&](Plan p) {
+                auto n = run(p, false, false);
+                auto proof = proveRoute(c, n.plan, n.state);
+                if (proof.kind == ProofKind::Horizon && n.plan.length < c.horizon)
+                    proof = {ProofKind::GroundWait, n.state.groundedPrefixTicks};
+                auto root = std::find_if(frontier.begin(), frontier.end(), [&](auto const &r) {
+                    return r.plan.length == 1 && r.plan.at(0) == n.plan.at(0);
+                });
+                if (proof && !n.state.died && !n.state.interrupted && !n.state.boundary &&
+                    root != frontier.end() && sameTimeline(root->state, n.state, 1, c.dual) &&
+                    (proof.kind != ProofKind::GroundWait || proof.ticks >= minimum)) {
+                    const bool flight = proof.kind == ProofKind::LandedRoute;
+                    int takeoff = 0;
+                    for (; takeoff < n.plan.length && !n.plan.at(takeoff); ++takeoff) {}
+                    // Later takeoffs naturally end their local flight later.
+                    // That is not a safety advantage. Rank the flight margin
+                    // before duration, and prefer earlier equally safe input.
+                    float margin = flight ? n.state.landingMargin : n.state.clearance;
+                    auto score = std::tuple{flight ? 2 : 1,
+                        int(std::clamp(margin, 0.f, 120.f) / 4),
+                        flight ? -takeoff : 0, -n.state.buttonChanges, proof.ticks};
+                    if (!checkedControlProof || score > checkedControlRank) {
+                        checkedControl = n; checkedControlProof = proof;
+                        checkedControlRank = score;
+                    }
+                }
+                return n;
+            };
+            const int localLength = std::min(c.horizon, reactionTicks(c.tickSeconds, .9));
+            if (warm_.length > 0) {
+                Plan p = warm_; p.length = std::min(warm_.length, localLength);
+                // Check only the next planned launch and its landing here.
+                // Later launches remain in the distant proposal below.
+                int first = -1;
+                for (int t = 0; t < p.length; ++t) if (p.at(t)) { first = t; break; }
+                if (first >= 0) {
+                    std::fill(p.buttons.begin() + first + 1, p.buttons.end(), false);
+                    p.length = std::min(MaxHorizon, first + localLength);
+                    p.landingDelay = -1; p.stopAtLanding = true;
+                    priority(p);
+                }
+            }
+            Plan localCoast; localCoast.length = std::min(c.horizon, reactionTicks(c.tickSeconds, .18));
+            auto waiting = priority(localCoast);
+            if (!c.forceRelease) {
+                std::vector<int> takeoffs;
+                if (c.immediateOrb) takeoffs.push_back(0);
+                if (waiting.state.died || waiting.state.supportLossTick >= 0) {
+                    const int failure = waiting.state.supportLossTick >= 0
+                        ? waiting.state.supportLossTick : waiting.state.survived;
+                    for (double lead : {.16, .12, .08, .04})
+                        takeoffs.push_back(std::max(0, failure - reactionTicks(c.tickSeconds, lead)));
+                }
+                for (int i = 0; i < c.jumpEventCount && takeoffs.size() < 8; ++i)
+                    if (c.jumpEvents[i] <= reactionTicks(c.tickSeconds, .3)) takeoffs.push_back(c.jumpEvents[i]);
+                if (takeoffs.empty() && waiting.state.died) takeoffs.push_back(0);
+                std::vector<int> tried;
+                for (int at : takeoffs) {
+                    if (at < 0 || std::find(tried.begin(), tried.end(), at) != tried.end()) continue;
+                    tried.push_back(at);
+                    Plan p; p.length = std::min(MaxHorizon, at + localLength);
+                    p.buttons[at] = true; p.stopAtLanding = true;
+                    priority(p);
+                    if (Clock::now() >= searchEnd || result.candidates >= c.candidates) break;
+                }
             }
         }
         std::vector<Node> probes;
@@ -443,6 +519,29 @@ class RealtimeSearch {
                 if (!recover(bestProof, std::move(cold))) ++result.cacheMismatches;
             }
         }
+        if (!certified && checkedControlProof) {
+            // Optional distant work must not erase a launch whose entire
+            // flight was already simulated from a fresh root and landed.
+            result.hasValidatedInput = certified = true;
+            result.plan = checkedControl.state.hasRealized ? checkedControl.state.realized : checkedControl.plan;
+            result.plan.length = checkedControlProof.ticks;
+            result.down = result.plan.at(0);
+            result.selected = checkedControl.state;
+            trimProof(result.selected, result.plan.length);
+            result.selected.firstActionVerified = true;
+            result.certificateTicks = result.predictedTicks = result.plan.length;
+            result.proofKind = int(checkedControlProof.kind);
+            result.completeContinuation = checkedControlProof.kind == ProofKind::LandedRoute;
+            result.recedingCertificate = !result.completeContinuation;
+            auto const &future = bestProof.state.survived >= checkedControlProof.ticks &&
+                sameTimeline(checkedControl.state, bestProof.state, checkedControlProof.ticks, c.dual)
+                ? bestProof : checkedControl;
+            warm_ = future.state.hasRealized ? future.state.realized : future.plan;
+            warm_.length = future.state.survived;
+            result.forecast = future.state; result.forecastPlan = warm_;
+            result.forecastTicks = future.state.survived;
+            trimProof(result.forecast, result.forecastTicks);
+        }
         if (!certified && !result.recoveryInput && rootReplay.survived == 1) {
             if (bestCertificate && bestProof.plan.at(0) == checkedRoot.plan.at(0))
                 recover(bestProof, rootReplay);
@@ -460,7 +559,15 @@ class RealtimeSearch {
                 if (!recover(bestRecovery, std::move(cold))) ++result.cacheMismatches;
             }
         }
-        if (!certified && !result.recoveryInput) reset();
+        if (!certified && !result.recoveryInput) {
+            // Show the actual failed/interrupted native proposal as such;
+            // an absent input certificate must not hide every diagnostic path.
+            result.forecast = bestRecovery.state;
+            result.forecastPlan = bestRecovery.state.hasRealized ? bestRecovery.state.realized : bestRecovery.plan;
+            result.forecastTicks = bestRecovery.state.survived;
+            trimProof(result.forecast, result.forecastTicks);
+            reset();
+        }
         result.exhausted |= Clock::now() >= end;
         result.elapsedMs = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
         return result;

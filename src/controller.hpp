@@ -45,6 +45,7 @@ struct Plan {
     std::array<uint8_t, MaxHorizon> buttons{};
     int length = 0;
     int landingDelay = -1; // -1: fixed timeline; >=0: native-grounded policy
+    bool stopAtLanding = false; // local control probe; native safe handoff only
     bool at(int tick) const {
         return buttons[std::clamp(tick, 0, MaxHorizon - 1)] != 0;
     }
@@ -128,6 +129,7 @@ struct Config {
     bool dual = false;
     bool compareFirstActions = false;
     bool allowFlightRecovery = false;
+    bool priorityControl = false; // prove the next action before distant work
     std::array<int, 32> jumpEvents{};
     int jumpEventCount = 0;
     std::array<int, 32> orbEvents{};

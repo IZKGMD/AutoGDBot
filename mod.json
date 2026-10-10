@@ -6,11 +6,11 @@
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v1.0.0-beta.2",
+  "version": "v1.0.0-beta.3",
   "developers": [
     "AutoGDBot"
   ],
-  "description": "Realtime long-horizon native rollouts, coordinate-based takeoff timing and independently replayed control prefixes.",
+  "description": "Realtime native control with priority landing checks, bounded far lookahead and visible path/hitbox overlays.",
   "tags": [
     "gameplay",
     "utility",
@@ -30,7 +30,7 @@
       "default": 2.0,
       "min": 0.2,
       "max": 8.0,
-      "description": "Native work is limited to at most 2 ms per physics command; individual native calls cannot be interrupted."
+      "description": "Native rollout work is scheduled within at most 2 ms per command. Preparation and individual native calls add to total cost shown in the HUD."
     },
     "horizon": {
       "type": "int",
@@ -69,10 +69,22 @@
     "trace-fps": {
       "type": "int",
       "name": "Trace refresh rate",
-      "default": 240,
+      "default": 120,
       "min": 20,
       "max": 240,
       "description": "Refreshes exact native path samples at the render frame rate, up to this limit."
+    },
+    "show-hitboxes": {
+      "type": "bool",
+      "name": "Show hitboxes",
+      "default": true,
+      "description": "Show nearby hazards, blocks, orbs and player boxes independently of debug telemetry."
+    },
+    "show-trace": {
+      "type": "bool",
+      "name": "Show native paths",
+      "default": true,
+      "description": "Draw checked controls and labelled native forecast proposals on render frames."
     }
   },
   "resources": {

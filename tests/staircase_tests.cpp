@@ -80,6 +80,8 @@ struct Scene {
             ++e.survived; e.realized.length=e.survived;
             sample();
             e.endpointClearance=e.nearClearance=e.clearance=guard.clearance({b.x-5.25f,b.y-5.25f,b.x+5.25f,b.y+5.25f});
+            if (plan.stopAtLanding && certificate.required && certificate.verified() &&
+                t >= lastRequestedTick(plan)) break;
             if (e.survived>=plan.length && (prefix || certificate.verified())) break;
         }
         e.requiresLanding=certificate.required;
@@ -136,7 +138,9 @@ int main() {
         for (int tick=0; live.x<850 && tick<700; ++tick) {
             Config cfg; cfg.horizon=216; cfg.candidates=96; cfg.budgetMs=8;
             cfg.plannerMode=PlannerMode::Cube; cfg.cubePulsePlanning=true;
+            cfg.priorityControl=true;
             cfg.forceRelease=livePulse.mustRelease() || !live.ground;
+            if (live.ground) seedCubeEvents(cfg,live.x,live.y-15,1.3f,scene.solids,scene.hazards);
             auto d=realtime.decide(cfg,false,PrefixOracle{&scene,live,livePulse});
             if (!d.hasValidatedInput && !d.recoveryInput)
                 std::cerr << "stair fail start=" << start << " tick=" << tick << " x=" << live.x
@@ -150,5 +154,5 @@ int main() {
         }
         check(live.x>=850 && presses>=6,"realtime beam did not finish the staircase");
     }
-    std::cout << "PASS: repeated touchdown pulses, five legacy and three realtime staircase runs\n";
+    std::cout << "PASS: repeated touchdown pulses, five legacy and three priority-control realtime staircase runs\n";
 }

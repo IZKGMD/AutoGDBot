@@ -144,6 +144,76 @@ struct JumpOracle {
 };
 int main() {
     {
+        struct BudgetOracle {
+            Oracle body;
+            Clock::time_point hardEnd;
+            bool sawColdLanding = false, sawLong = false;
+            Evaluation prefix(Plan const &p, Clock::time_point end, bool memo) {
+                if (p.length > 400 && !p.stopAtLanding) {
+                    sawLong = true;
+                    // Optional work can overrun its call boundary. A finished
+                    // local native proof must remain available afterwards.
+                    while (Clock::now() < hardEnd) {}
+                    Evaluation e; e.interrupted = true; return e;
+                }
+                auto e = body.prefix(p, end, memo);
+                sawColdLanding |= !memo && e.requiresLanding && e.landingVerified && !e.died;
+                return e;
+            }
+        } oracle;
+        oracle.body.cube = true; oracle.body.root.x = 10;
+        RealtimeSearch search; auto c = config(true);
+        c.tickSeconds = 1. / 240; c.horizon = 768; c.budgetMs = 8; c.priorityControl = true;
+        c.sharedDeadline = oracle.hardEnd = Clock::now() + std::chrono::milliseconds(8);
+        auto d = search.decide(c, false, oracle);
+        require(oracle.sawColdLanding && oracle.sawLong, "fixture did not exercise checked landing followed by expired long work");
+        require(d.hasValidatedInput && d.down && d.selected.landingVerified,
+                "optional long forecast erased the already checked immediate pit jump");
+        require(!d.selected.died && !d.selected.interrupted && d.certificateTicks > 1,
+                "priority control bypassed native flight/landing checks");
+        VerifiedInputQueue queue; std::array<ModeState, 2> modes{d.selected.modeTraces[0][0], {}};
+        require(queue.seed(d, modes, false, c.tickSeconds), "priority landing could not seed live controls");
+        Body replay = oracle.body.root;
+        for (int t = 0; t < d.plan.length; ++t)
+            require(oracle.body.step(replay, d.plan.at(t)), "priority route dies during independent fixture replay");
+        require(replay.ground && replay.x >= 22, "priority launch lacks a completed landing");
+        std::cout << "PASS: checked immediate jump survives an expired optional long forecast\n";
+    }
+    {
+        struct CoordinateBudgetOracle {
+            JumpOracle body;
+            Clock::time_point hardEnd;
+            Evaluation prefix(Plan const &p, Clock::time_point end, bool memo) {
+                if (p.length > 400 && !p.stopAtLanding) {
+                    while (Clock::now() < hardEnd) {}
+                    Evaluation e; e.interrupted = true; return e;
+                }
+                return body.prefix(p, end, memo);
+            }
+        } oracle;
+        RealtimeSearch search; auto c = config(true);
+        c.tickSeconds = 1. / 240; c.horizon = 768; c.priorityControl = true;
+        c.jumpEventCount = 6; c.jumpEvents = {68, 60, 52, 44, 36, 28};
+        c.sharedDeadline = oracle.hardEnd = Clock::now() + std::chrono::milliseconds(8);
+        auto d = search.decide(c, false, oracle);
+        int at = -1;
+        for (int t = 0; t < d.plan.length; ++t) if (d.plan.at(t)) { at = t; break; }
+        require(d.hasValidatedInput && d.selected.landingVerified && at >= 35 && at <= 60 &&
+                d.selected.landingMargin > 8,
+                "priority fallback rewarded a late takeoff over a wider native flight margin");
+        std::cout << "PASS: priority fallback keeps a roomy takeoff coordinate after long work expires\n";
+    }
+    {
+        RealtimeSearch search; Oracle oracle; oracle.cube = true; oracle.root.x = 10;
+        oracle.corruptCold = true;
+        auto c = config(true); c.horizon = 768; c.priorityControl = true;
+        auto d = search.decide(c, false, oracle);
+        require(!d.hasValidatedInput && !d.recoveryInput,
+                "priority flight bypassed divergence from its independent root check");
+        require(d.forecastTicks > 1 && d.forecast.traces[0].size() > 2,
+                "failed native proof hid every forecast diagnostic");
+    }
+    {
         RealtimeSearch search; Oracle oracle; oracle.corridorWidth = 10000;
         auto c = config(); c.horizon = 768; c.candidates = 16;
         auto d = search.decide(c, false, oracle);

@@ -261,10 +261,11 @@ static bool touchingUsableOrb(PlayerObject *p) {
     return false;
 }
 static bool cubeCanPress(PlayerObject *p) {
-    return p && (p->m_isOnGround || touchingUsableOrb(p));
+    return p && (p->m_isOnGround || p->m_isOnGround2 || touchingUsableOrb(p));
 }
 struct Settings {
     bool enabled = false, telemetry = false, debugTraces = false;
+    bool showHitboxes = true, showTrace = true;
     int traceHz = 120;
     double lookaheadSeconds = 3.2;
     Config config;
@@ -273,6 +274,8 @@ struct Settings {
         enabled = m->getSettingValue<bool>("enabled");
         telemetry = m->getSettingValue<bool>("telemetry");
         debugTraces = m->getSettingValue<bool>("debug-traces");
+        showHitboxes = m->getSettingValue<bool>("show-hitboxes");
+        showTrace = m->getSettingValue<bool>("show-trace");
         traceHz = int(m->getSettingValue<int64_t>("trace-fps"));
         lookaheadSeconds = m->getSettingValue<double>("lookahead-seconds");
         config.horizon = int(m->getSettingValue<int64_t>("horizon"));
@@ -330,7 +333,7 @@ class Runtime {
     std::vector<Point> stableTrace;
     uint64_t stableTraceTick = 0;
     uint64_t ticks = 0;
-    bool botHeld = false, wasEnabled = false, controlling = false;
+    bool botHeld = false, wasEnabled = false, controlling = false, ownsInput = false;
     std::array<ModeState, 2> lastModes{};
     bool modeStateValid = false, lastDual = false;
     CCPoint lastPosition;
@@ -364,6 +367,7 @@ class Runtime {
     void init(PlayLayer *pl) {
         layer = pl;
         settings.read();
+        message = settings.enabled ? "Waiting for physics" : "Autopilot off";
         refreshSemantic();
         for (int i = 0; i < 2; ++i) {
             auto *p = PlayerObject::create(1, 1, pl, pl, true);
@@ -388,7 +392,7 @@ class Runtime {
             draw->setID("autogdbot-traces");
             pl->m_objectLayer->addChild(draw, 10000);
         }
-        label = CCLabelBMFont::create("AutoGDBot | experimental", "bigFont.fnt");
+        label = CCLabelBMFont::create("AutoGDBot RT3 | loading", "bigFont.fnt");
         if (label) {
             auto size = CCDirector::sharedDirector()->getWinSize();
             label->setScale(.22f);
@@ -488,6 +492,7 @@ class Runtime {
                 p->releaseButton(PlayerButton::Jump);
         }
         botHeld = false;
+        ownsInput = false;
     }
     void reset() {
         if (ticks > 0) {
@@ -548,7 +553,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v1.0.0-realtime.2.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v1.0.0-realtime.3.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -865,13 +870,15 @@ class Runtime {
                 safeHandoff &= flights[i].verified() && (!flights[i].required || safeLanding[i]);
             }
             const bool afterPortalSafe = portalProof.verified(out.survived, dt);
+            const bool localHandoff = plan.stopAtLanding && landingRollout && anyFlight &&
+                safeHandoff && afterPortalSafe && t >= lastRequestedTick(plan);
             out.decisionPoint = safeHandoff && (anyFlight ||
                 (portalProof.required() && afterPortalSafe));
             layer->m_gameState.m_levelTime += dt;
             // Store exact native prefixes only within this live command. A
             // sibling resumes before its first different request, including
             // pulse state, consumed rings, portal band and landing obligation.
-            if(allowCache&&((t+1)%48==0||t+1==plan.length)&&t+1<=plan.length&&!sim.boundary&&Clock::now()<deadline){
+            if(allowCache&&t+1>=16&&((t+1)%48==0||t+1==plan.length||localHandoff)&&t+1<=plan.length&&!sim.boundary&&Clock::now()<deadline){
                 ForecastFrame frame;frame.prefix=out;frame.world.capture(layer->m_gameState);
                 for(int i=0;i<players;++i)frame.players[i].capture(clones[i]);
                 frame.pulse=pulse;frame.schedule=schedule;frame.portalProof=portalProof;
@@ -885,7 +892,7 @@ class Runtime {
                 frame.groundShadows=layer->m_updateGroundShadows;
                 forecastCache.save(plan,t+1,std::move(frame));
             }
-            if ((!settleFlight && out.survived >= plan.length) ||
+            if (localHandoff || (!settleFlight && out.survived >= plan.length) ||
                 routeWindowFinished(out.survived, plan.length, !landingRollout || safeHandoff, afterPortalSafe) || sim.boundary) break;
         }
         out.boundary = sim.boundary && !out.died;
@@ -948,7 +955,7 @@ class Runtime {
             return;
         }
         controlling = true;
-        if (!semanticReady || ticks == 0)
+        if (!semanticReady)
             refreshSemantic();
         else if ((ticks & 3) == 0 && semantic.refreshPositions()) {
             hintObjects = semantic.hazards(); hintSolids = semantic.solids();
@@ -1189,6 +1196,7 @@ class Runtime {
             (nearAction && canPress && !searchConfig.forceRelease);
         searchConfig.immediateOrb =
             orbOpportunity && (!pulseMode || !cubePulse.mustRelease());
+        searchConfig.priorityControl = pulseMode && (nearAction || searchConfig.immediateOrb);
         if (liveMode == 0) {
             // Keep planning while the cube is still on safe ground. The longer
             // rolling horizon sees the edge/gap/orb before the takeoff is urgent.
@@ -1361,14 +1369,19 @@ class Runtime {
         const double tickMs = std::clamp(double(dt) * 1000.0, 2.0, 20.0);
         const bool overloaded = totalMs > tickMs * .70;
         const double hardPlannerCap = std::min(2.0, tickMs * (nearAction ? .48 : overloaded ? .28 : .36));
-        searchConfig.sharedDeadline = start +
+        // Scene capture and geometry preparation precede native rollout work.
+        // Beta.2 charged all preparation against the rollout deadline, which
+        // could leave ZERO oracle calls on a phone. Give the next-action phase
+        // its bounded work allowance, and expose total cost separately.
+        simulationRoot.capture(layer->m_gameState);
+        const auto rolloutStart = Clock::now();
+        searchConfig.sharedDeadline = rolloutStart +
             std::chrono::duration_cast<Clock::duration>(
                 std::chrono::duration<double, std::milli>(hardPlannerCap));
 
         // One frontier replaces independently ranked FAST/RESCUE/EMERGENCY
         // plans. The native prefix cache shares work inside this command only.
         searchConfig.budgetMs=std::min(searchConfig.budgetMs,hardPlannerCap);
-        simulationRoot.capture(layer->m_gameState);
         struct Oracle {
             Runtime *runtime; float dt;
             Evaluation prefix(Plan const &plan, Clock::time_point deadline, bool memo) {
@@ -1405,10 +1418,10 @@ class Runtime {
             message = "BOT | no surviving candidate";
         // If neither a verified route nor a checked recovery prefix exists,
         // release and expose the failure in the HUD.
-        if (!decision.hasValidatedInput && !decision.recoveryInput && pulseMode) {
-            decision.down = false;
-            inputPending = true;
-            message = "BOT | NO VERIFIED ROUTE";
+        if (!decision.hasValidatedInput && !decision.recoveryInput) {
+            if (ownsInput) releaseLiveInput();
+            inputPending = false;
+            message = "BOT | NO VERIFIED ROUTE / manual input";
             stableTrace.clear();
         }
         if (!usingQueuedInput) {
@@ -1451,6 +1464,7 @@ class Runtime {
             !layer->m_player1 || layer->m_player1->m_isDead)
             return;
         inputPending = false;
+        ownsInput = true;
         bool dual = layer->m_gameState.m_isDualMode;
         bool pulseMode = cubePulseMode(layer->m_player1, layer->m_player2, dual);
         const bool orbContact =
@@ -1491,7 +1505,7 @@ class Runtime {
         else inputQueue.reset();
     }
     void enforceInputAtPhysics(PlayerObject *p) {
-        if (!nativeCommandActive || !controlling || !settings.enabled || !p || p->m_isDead)
+        if (!nativeCommandActive || !controlling || !ownsInput || !settings.enabled || !p || p->m_isDead)
             return;
         if (p != layer->m_player1 && p != layer->m_player2) return;
         // processCommands can drain a queued UI/reset release after the
@@ -1504,14 +1518,14 @@ class Runtime {
             refreshPressedJumpSnapshot(*p);
     }
     void render() {
-        if (!draw || !label)
+        if (!draw || !layer || sim.active)
             return;
         settings.read();
         const auto now = Clock::now();
         if (now < redraw)
             return;
         redraw = now + std::chrono::microseconds(1000000 / std::max(20, settings.traceHz));
-        if (now >= hudRedraw) {
+        if (label && now >= hudRedraw) {
         hudRedraw = now + std::chrono::milliseconds(125);
         if (!settings.debugTraces) {
             std::string jump = "";
@@ -1524,8 +1538,10 @@ class Runtime {
                     break;
                 }
             }
-            label->setString(fmt::format("AutoGDBot 1.0 RT2 | {}\nlookahead={:.2f}s checked={} | {:.2f}ms{}",
-                message, decision.forecastTicks * previousDt, decision.certificateTicks, totalMs, jump).c_str());
+            label->setString(fmt::format("AutoGDBot RT3 | {}\nstep={} native={}/{} candidates={} | forecast={:.2f}s checked={}\nsearch={:.2f}ms total={:.2f}ms{}",
+                message, ticks, nativeUpdates, nativeCollisions, decision.candidates,
+                decision.forecastTicks * previousDt, decision.certificateTicks,
+                decision.elapsedMs, totalMs, jump).c_str());
         } else {
         label->setString(
             fmt::format(
@@ -1615,7 +1631,7 @@ class Runtime {
             for (auto const &s : traceSegments(points, breaks, .18f, first, last))
                 draw->drawSegment({s.a.x, s.a.y}, {s.b.x, s.b.y}, width, color);
         };
-        if (settings.debugTraces) {
+        if (settings.showTrace && (settings.debugTraces || decision.forecastTicks <= 1)) {
             trace(decision.alternatives[0].traces[0], decision.alternatives[0].discontinuities[0],
                 {1, .25f, .3f, .25f}, .3f);
             trace(decision.alternatives[1].traces[0], decision.alternatives[1].discontinuities[0],
@@ -1626,23 +1642,25 @@ class Runtime {
                            : decision.selected.boundary ? ccColor4F{.3f, .8f, 1, .9f}
                            : complete                   ? ccColor4F{.2f, 1, .45f, .9f}
                                                         : ccColor4F{1, .65f, .1f, .9f};
-        if (decision.hasValidatedInput || decision.recoveryInput) {
+        if (settings.showTrace && decision.forecastTicks > 0) {
             // Amber is the uncommitted native forecast; green/orange above
             // represents only the independently replayed control segment.
             for (int i = 0; i < (layer->m_gameState.m_isDualMode ? 2 : 1); ++i)
-                trace(decision.forecast.traces[i], decision.forecast.discontinuities[i], {1.f, .72f, .25f, .35f}, .65f);
+                trace(decision.forecast.traces[i], decision.forecast.discontinuities[i],
+                    decision.hasValidatedInput || decision.recoveryInput
+                        ? ccColor4F{1.f, .72f, .25f, .55f} : ccColor4F{1.f, .25f, .25f, .55f}, .8f);
         }
-        trace(stableTrace, decision.selected.discontinuities[0], chosen, .85f);
-        if (layer->m_gameState.m_isDualMode)
+        if (settings.showTrace) trace(stableTrace, decision.selected.discontinuities[0], chosen, 1.f);
+        if (settings.showTrace && layer->m_gameState.m_isDualMode)
             trace(decision.selected.traces[1], decision.selected.discontinuities[1], {.2f, .8f, 1.f, .8f}, .85f);
-        for (int t = 0; t < decision.forecastPlan.length && t < int(decision.forecast.traces[0].size()); ++t) {
+        for (int t = 0; settings.showTrace && t < decision.forecastPlan.length && t < int(decision.forecast.traces[0].size()); ++t) {
             if (!decision.forecastPlan.at(t) || decision.forecast.motions[0].size() <= size_t(t) ||
                 !(decision.forecast.motions[0][t].canJump || decision.forecast.motions[0][t].grounded)) continue;
             auto q = decision.forecast.traces[0][t];
             draw->drawSegment({q.x, q.y - 8}, {q.x, q.y + 16}, .7f, {.25f, .9f, 1.f, .75f});
             break;
         }
-        if (!settings.debugTraces) return;
+        if (!settings.showHitboxes) return;
         if (layer->m_player1) {
             float x = layer->m_player1->getPositionX();
             int shown = 0;
@@ -1657,7 +1675,23 @@ class Runtime {
                 std::array<CCPoint, 4> v = {
                     CCPoint{r.getMinX(), r.getMinY()}, CCPoint{r.getMinX(), r.getMaxY()},
                     CCPoint{r.getMaxX(), r.getMaxY()}, CCPoint{r.getMaxX(), r.getMinY()}};
-                draw->drawPolygon(v.data(), 4, {0, 0, 0, 0}, .25f, {1, .3f, .3f, .18f});
+                draw->drawPolygon(v.data(), 4, {0, 0, 0, 0}, .6f, {1, .3f, .3f, .6f});
+                ++shown;
+            }
+        }
+
+        if (layer->m_player1) {
+            const float x = layer->m_player1->getPositionX();
+            int shown = 0;
+            auto first = std::lower_bound(hintSolids.begin(), hintSolids.end(), x - 120,
+                [](auto const &a, float q) { return a.first < q; });
+            for (auto it = first; it != hintSolids.end() && it->first <= x + 700 && shown < 96; ++it) {
+                auto *o = it->second;
+                if (!o || o->m_isDisabled || o->m_isDisabled2) continue;
+                auto r = o->getObjectRect();
+                std::array<CCPoint, 4> v{{{r.getMinX(), r.getMinY()}, {r.getMinX(), r.getMaxY()},
+                    {r.getMaxX(), r.getMaxY()}, {r.getMaxX(), r.getMinY()}}};
+                draw->drawPolygon(v.data(), 4, {0, 0, 0, 0}, .5f, {.3f, .8f, 1.f, .5f});
                 ++shown;
             }
         }
@@ -1765,6 +1799,15 @@ class $modify(AGBPlayLayer, PlayLayer) {
     }
 };
 class $modify(AGBBaseLayer, GJBaseGameLayer) {
+    void update(float dt) {
+        GJBaseGameLayer::update(dt);
+        // Keep the overlay on the render-frame entry point too. Rendering
+        // must not depend on obtaining an input certificate or on the
+        // PlayLayer-specific postUpdate hook being the last override.
+        if (agb::active && !agb::sim.active &&
+            static_cast<GJBaseGameLayer *>(agb::active->layer) == this)
+            agb::active->render();
+    }
     void processCommands(float dt, bool half, bool last) {
         const bool live = agb::active && !agb::sim.active &&
                           static_cast<GJBaseGameLayer *>(agb::active->layer) == this;
@@ -1787,7 +1830,7 @@ class $modify(AGBBaseLayer, GJBaseGameLayer) {
     }
     void handleButton(bool down, int button, bool p1) {
         if (agb::active && static_cast<GJBaseGameLayer *>(agb::active->layer) == this &&
-            agb::active->controlling && !agb::injected && button == 1)
+            agb::active->controlling && agb::active->ownsInput && !agb::injected && button == 1)
             return;
         GJBaseGameLayer::handleButton(down, button, p1);
     }
