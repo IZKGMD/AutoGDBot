@@ -1,0 +1,52 @@
+{
+  "configuration": "release",
+  "scope": "independent host fixtures, not native GD gameplay",
+  "distinct_matrix_cases": 9240,
+  "groups": [
+    {
+      "group": "obstacle_matrix",
+      "cases": 864,
+      "extra": 864
+    },
+    {
+      "group": "obstacle_coverage",
+      "landed_routes": 864,
+      "safe_waits": 0,
+      "margin_over_4": 858,
+      "cleared_obstacles": 864,
+      "both_adjacent_takeoffs_safe": 864,
+      "three_tick_window_available": 864,
+      "selected_in_three_tick_window": 864,
+      "p50_ms": 0.454192,
+      "p95_ms": 1.04691,
+      "max_ms": 1.46472
+    },
+    {
+      "group": "closed_loop_matrix",
+      "cases": 96,
+      "completed": 96,
+      "deaths": 0,
+      "no_checked_input": 0,
+      "commands": 8538
+    },
+    {
+      "group": "queue_matrix",
+      "cases": 1200,
+      "extra": 49571
+    },
+    {
+      "group": "trace_matrix",
+      "cases": 2000,
+      "extra": 154096
+    },
+    {
+      "group": "cache_matrix",
+      "cases": 5000
+    },
+    {
+      "group": "deadline_and_corruption_matrix",
+      "cases": 80
+    }
+  ],
+  "leak_detection": false
+}

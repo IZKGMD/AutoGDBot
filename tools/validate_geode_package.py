@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static beta.3 package checks; cannot validate hook execution on a phone."""
+"""Static package checks; cannot validate hook execution on a phone."""
 import argparse
 import hashlib
 import json
@@ -14,14 +14,17 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('package', type=pathlib.Path)
     p.add_argument('--source-manifest', type=pathlib.Path)
+    p.add_argument('--expected-version', default='v1.0.0-beta.4')
+    p.add_argument('--expected-sha256')
     args = p.parse_args()
     sha = hashlib.sha256(args.package.read_bytes()).hexdigest()
-    assert sha == '58bf8b266afba496b643fa01aa57f409794df96f36d860777cad9429836569e2'
+    if args.expected_sha256:
+        assert sha == args.expected_sha256
     with zipfile.ZipFile(args.package) as z:
         assert z.testzip() is None
         manifest = json.loads(z.read('mod.json'))
         assert manifest['id'] == 'autogdbot.realtime'
-        assert manifest['version'] == 'v1.0.0-beta.3'
+        assert manifest['version'] == args.expected_version
         assert manifest['geode'] == '5.10.1'
         assert manifest['gd']['android'] == '2.2081'
         for key in ['enabled', 'show-hitboxes', 'show-trace']:
@@ -54,6 +57,7 @@ def main():
             assert not any('UND' in s and '__hash_memory' in s for s in symbols.splitlines())
             dynamic = subprocess.check_output(['readelf', '-d', str(so)], text=True)
             assert '[Geode.android64.so]' in dynamic and '[libcocos2dcpp.so]' in dynamic
+            assert '[libc++_shared.so]' in dynamic
     print(json.dumps({'sha256': sha, 'package_bytes': args.package.stat().st_size,
                       'native_bytes': len(native), 'load_alignments': loads,
                       'static_package_validation': 'passed'}, indent=2))

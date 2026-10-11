@@ -1,0 +1,11 @@
+{
+  "sha256": "0214ef6b8a33202049f62b07107468febde6b7e693e3d6710f38e75d19347619",
+  "package_bytes": 368378,
+  "native_bytes": 978120,
+  "load_alignments": [
+    16384,
+    16384,
+    16384
+  ],
+  "static_package_validation": "passed"
+}

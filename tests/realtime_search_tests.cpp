@@ -270,7 +270,17 @@ int main() {
         require(first >= 35 && first <= 60, "selected takeoff is needlessly early or dangerously late");
         require(d.forecast.traces[0][first].x < 61 && d.forecast.landingMargin > 8,
                 "takeoff coordinate lacks clearance before the obstacle");
-        require(d.jumpWindowTicks >= 3, "takeoff did not survive neighbouring native timing samples");
+        // Optional online robustness probes can be skipped when the time
+        // budget expires (especially under sanitizers). Independently check
+        // the actual neighboring inputs without a measurement deadline.
+        for (int shift : {-1, 1}) {
+            auto adjacent = d.forecastPlan;
+            adjacent.buttons[first] = false;
+            adjacent.buttons[first + shift] = true;
+            auto tested = oracle.prefix(adjacent, Clock::time_point::max(), false);
+            require(!tested.died && tested.survived == adjacent.length && tested.landingVerified,
+                    "takeoff did not survive neighboring independent timing replays");
+        }
         auto replay = oracle.prefix(d.forecastPlan, Clock::time_point::max(), false);
         require(!replay.died && replay.survived == d.forecastPlan.length,
                 "coordinate-based obstacle route does not reproduce");

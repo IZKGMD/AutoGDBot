@@ -17,10 +17,16 @@ def run(args, **kwargs):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--sanitize', action='store_true')
+    parser.add_argument('--no-leaks', action='store_true', help='Disable LSan only where /proc/ptrace prevents it')
     parser.add_argument('--jobs', type=int, default=2)
     args = parser.parse_args()
     name = 'sanitize' if args.sanitize else 'release'
     build = ROOT / ('build-' + name)
+    if sys.platform.startswith('linux') and build.exists():
+        for file in build.glob('*_tests'):
+            if file.read_bytes()[:4] != b'\x7fELF':
+                print('Rebuilding invalid executable:', file.name, flush=True)
+                file.unlink()
     flags = ['cmake', '-S', str(ROOT), '-B', str(build), '-G', 'Ninja',
              '-DAUTOGDBOT_BUILD_MOD=OFF', '-DAUTOGDBOT_BUILD_TESTS=ON',
              '-DCMAKE_BUILD_TYPE=' + ('Debug' if args.sanitize else 'Release')]
@@ -35,7 +41,7 @@ def main():
             file.chmod(file.stat().st_mode | 0o111)
     env = os.environ.copy()
     if args.sanitize:
-        env.update(ASAN_OPTIONS='detect_leaks=1:halt_on_error=1',
+        env.update(ASAN_OPTIONS='detect_leaks=' + ('0' if args.no_leaks else '1') + ':halt_on_error=1',
                    UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1')
     run(['ctest', '--test-dir', str(build), '--output-on-failure', '-V',
          '--output-log', str(ROOT / ('validation-' + name + '.log')),
@@ -47,6 +53,7 @@ def main():
             groups.append(json.loads(line[start:]))
     (ROOT / ('validation-' + name + '.json')).write_text(json.dumps({
         'configuration': name,
+        'leak_detection': args.sanitize and not args.no_leaks,
         'scope': 'independent host fixtures, not native GD gameplay',
         'distinct_matrix_cases': sum(g.get('cases', 0) for g in groups),
         'groups': groups,
