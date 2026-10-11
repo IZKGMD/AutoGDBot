@@ -392,7 +392,7 @@ class Runtime {
             draw->setID("autogdbot-traces");
             pl->m_objectLayer->addChild(draw, 10000);
         }
-        label = CCLabelBMFont::create("AutoGDBot RT3 | loading", "bigFont.fnt");
+        label = CCLabelBMFont::create("AutoGDBot RT4 | loading", "bigFont.fnt");
         if (label) {
             auto size = CCDirector::sharedDirector()->getWinSize();
             label->setScale(.22f);
@@ -553,7 +553,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v1.0.0-realtime.3.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v1.0.0-realtime.4.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -1538,7 +1538,7 @@ class Runtime {
                     break;
                 }
             }
-            label->setString(fmt::format("AutoGDBot RT3 | {}\nstep={} native={}/{} candidates={} | forecast={:.2f}s checked={}\nsearch={:.2f}ms total={:.2f}ms{}",
+            label->setString(fmt::format("AutoGDBot RT4 | {}\nstep={} native={}/{} candidates={} | forecast={:.2f}s checked={}\nsearch={:.2f}ms total={:.2f}ms{}",
                 message, ticks, nativeUpdates, nativeCollisions, decision.candidates,
                 decision.forecastTicks * previousDt, decision.certificateTicks,
                 decision.elapsedMs, totalMs, jump).c_str());

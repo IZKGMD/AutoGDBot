@@ -523,6 +523,8 @@ class RealtimeSearch {
             // Optional distant work must not erase a launch whose entire
             // flight was already simulated from a fresh root and landed.
             result.hasValidatedInput = certified = true;
+            result.recoveryInput = false;
+            result.recoveryTicks = 0;
             result.plan = checkedControl.state.hasRealized ? checkedControl.state.realized : checkedControl.plan;
             result.plan.length = checkedControlProof.ticks;
             result.down = result.plan.at(0);
@@ -540,6 +542,8 @@ class RealtimeSearch {
             warm_.length = future.state.survived;
             result.forecast = future.state; result.forecastPlan = warm_;
             result.forecastTicks = future.state.survived;
+            result.forecastDied = future.state.died;
+            result.forecastInterrupted = future.state.interrupted;
             trimProof(result.forecast, result.forecastTicks);
         }
         if (!certified && !result.recoveryInput && rootReplay.survived == 1) {

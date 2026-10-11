@@ -144,6 +144,32 @@ struct JumpOracle {
 };
 int main() {
     {
+        struct PartialFinalOracle {
+            JumpOracle body;
+            bool interruptedFinal = false;
+            Evaluation prefix(Plan const &p, Clock::time_point end, bool memo) {
+                if (!memo && !p.stopAtLanding && p.length > 1) {
+                    Plan shortPlan = p; shortPlan.length = 1;
+                    auto e = body.prefix(shortPlan, end, false);
+                    e.interrupted = true; interruptedFinal = true;
+                    return e;
+                }
+                return body.prefix(p, end, memo);
+            }
+        } oracle;
+        RealtimeSearch search; auto c = config(true);
+        c.tickSeconds = 1. / 240; c.horizon = 768; c.priorityControl = true;
+        c.jumpEventCount = 6; c.jumpEvents = {68, 60, 52, 44, 36, 28};
+        auto d = search.decide(c, false, oracle);
+        require(oracle.interruptedFinal && d.hasValidatedInput && d.selected.landingVerified,
+                "fixture failed to replace partial final replay with a checked local landing");
+        require(!d.recoveryInput && d.recoveryTicks == 0,
+                "checked landing retained the previous one-step recovery classification");
+        require(!d.forecastDied && !d.forecastInterrupted && d.certificateTicks > 1,
+                "checked local path retained stale failed-forecast status");
+        std::cout << "PASS: local landing clears recovery flags after interrupted final replay\n";
+    }
+    {
         struct BudgetOracle {
             Oracle body;
             Clock::time_point hardEnd;

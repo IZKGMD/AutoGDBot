@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Configure controller tests
-        run: cmake -S . -B build-tests -DAUTOGDBOT_BUILD_MOD=OFF -DAUTOGDBOT_BUILD_TESTS=ON
+        run: cmake -S . -B build-tests -DAUTOGDBOT_BUILD_MOD=OFF -DAUTOGDBOT_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
       - name: Build controller tests
         run: cmake --build build-tests --config Release --parallel
       - name: Run controller tests
@@ -33,7 +33,7 @@ jobs:
           sdk: given
           target: Win64
           build-config: Release
-          bindings-ref: f050fd74ad531b0827377c97510cb807903ff1b3
+          bindings-ref: f8aec5d1f3df76d840dfd2609f02cef30dc6efdf
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
@@ -51,7 +51,7 @@ jobs:
           sdk: given
           target: Android64
           build-config: Release
-          bindings-ref: f050fd74ad531b0827377c97510cb807903ff1b3
+          bindings-ref: f8aec5d1f3df76d840dfd2609f02cef30dc6efdf
       - name: Verify Android libc++ ABI
         shell: bash
         run: |
@@ -75,9 +75,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Archive exact source
-        run: git archive --format=zip --output=AutoGDBot-Realtime-v0.22.0-source.zip HEAD
+        run: git archive --format=zip --output=AutoGDBot-Realtime-v1.0.0-beta.4-source.zip HEAD
       - uses: actions/upload-artifact@v4
         with:
           name: AutoGDBot-Realtime-source
-          path: AutoGDBot-Realtime-v0.22.0-source.zip
+          path: AutoGDBot-Realtime-v1.0.0-beta.4-source.zip
+
 
