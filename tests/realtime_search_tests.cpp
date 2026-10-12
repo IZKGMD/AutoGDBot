@@ -144,6 +144,24 @@ struct JumpOracle {
 };
 int main() {
     {
+        // Independent scheduling fault: there is time for only one delayed
+        // flight proposal, but the final chosen timeline can still be replayed.
+        struct OneFlightOracle {
+            JumpOracle body;int proposed=0;
+            Evaluation prefix(Plan const &p,Clock::time_point end,bool memo) {
+                int first=-1;for(int t=0;t<p.length;++t)if(p.at(t)){first=t;break;}
+                if(memo&&first>1&&++proposed>1){Evaluation e;e.interrupted=true;return e;}
+                return body.prefix(p,end,memo);
+            }
+        } oracle;
+        RealtimeSearch search;auto c=config(true);c.tickSeconds=1./240;c.horizon=144;
+        c.jumpEventCount=6;c.jumpEvents={68,60,52,44,36,28};
+        auto d=search.decide(c,false,oracle);
+        require(d.hasValidatedInput&&d.forecast.landingVerified&&d.forecast.landingMargin>8,
+                "one-flight allowance was spent on a grazing timing edge");
+        std::cout<<"PASS: central takeoff retains clearance with only one delayed-flight proposal\n";
+    }
+    {
         struct PartialFinalOracle {
             JumpOracle body;
             bool interruptedFinal = false;
@@ -385,3 +403,4 @@ int main() {
     }
     std::cout << "PASS: cold replay, consumed interactions, dual, releases, caps and boundaries\n";
 }
+

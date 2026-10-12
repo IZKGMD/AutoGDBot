@@ -62,6 +62,18 @@ class RealtimeSearch {
             if (primary == k || secondary == k) return k;
         return primary;
     }
+    static std::vector<int> hintOrder(Config const &c,int cap) {
+        int n=std::min(c.jumpEventCount,cap);std::vector<int> order;
+        if(n<=0)return order;
+        // Geometry emits a central estimate and nearby timing offsets. Test
+        // the median of the first local triplet before an edge of that window;
+        // a short deadline must not spend its only flight on a grazing edge.
+        std::vector<int> first;for(int i=0;i<std::min(3,n);++i)first.push_back(i);
+        std::stable_sort(first.begin(),first.end(),[&](int a,int b){return c.jumpEvents[a]<c.jumpEvents[b];});
+        int center=first[(first.size()-1)/2];order.push_back(center);
+        for(int i=0;i<n;++i)if(i!=center)order.push_back(i);
+        return order;
+    }
   public:
     void reset() { warm_ = {}; bank_.reset(); lastDown_ = false; repairPhase_ = 0; }
     size_t retainedProposals() const { return bank_.size(); }
@@ -249,7 +261,9 @@ class RealtimeSearch {
                     for (double lead : {.16, .12, .08, .04})
                         takeoffs.push_back(std::max(0, failure - reactionTicks(c.tickSeconds, lead)));
                 }
-                for (int i = 0; i < c.jumpEventCount && takeoffs.size() < 8; ++i)
+                for (int i : hintOrder(c,c.jumpEventCount))
+                    if(takeoffs.size()>=8)break;
+                    else
                     if (c.jumpEvents[i] <= reactionTicks(c.tickSeconds, .3)) takeoffs.push_back(c.jumpEvents[i]);
                 if (takeoffs.empty() && waiting.state.died) takeoffs.push_back(0);
                 if (c.landingChain && (!checkedControlProof || checkedControl.state.landingCount<2)) {
@@ -362,7 +376,7 @@ class RealtimeSearch {
                 auto p = longPress; p.landingDelay = delay;
                 if (!c.forceRelease) probe(p);
             }
-            for (int i = 0; i < std::min(c.jumpEventCount, 8); ++i) {
+            for (int i : hintOrder(c,8)) {
                 auto p = longCoast; int at = c.jumpEvents[i];
                 if (at < 0 || at >= p.length || (at == 0 && c.forceRelease)) continue;
                 p.buttons[at] = true; p.landingDelay = 6; probe(p);
