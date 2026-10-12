@@ -1,0 +1,8 @@
+{
+  "test": "staircase_tests",
+  "reason": "execute permission cleared by workspace synchronization",
+  "exit_code": 0,
+  "stdout": "PASS: strict contact-runway chain, landings=8, checked=840, old-order-landings=1\nPASS: repeated touchdown pulses, five legacy and three priority-control realtime staircase runs\n",
+  "program_sha256": "096414e33deba98e6a80c7642d0656a3a045fc725799de0157bdc8c5c9c3241b",
+  "scope": "direct ASan/UBSan invocation; detect_leaks=0, halt_on_error=1"
+}

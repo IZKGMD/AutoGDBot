@@ -1754,7 +1754,7 @@ class Runtime {
                 draw->drawPolygon(v.data(), 4, {0, 0, 0, 0}, .6f, {.2f, .9f, 1.f, .75f});
                 ++shownOrbs;
             }
-            if (routeGap.found) {
+            if (settings.debugTraces && routeGap.found) {
                 float y = layer->m_player1->getPositionY();
                 draw->drawSegment({routeGap.edgeX, y - 80}, {routeGap.edgeX, y + 120}, .7f,
                                   {1.f, .75f, .15f, .8f});
