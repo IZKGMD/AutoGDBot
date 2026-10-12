@@ -1,0 +1,152 @@
+UpdateCTestConfiguration  from :/workspace/scratch/2d98777a0ab0/AutoGDBot/build-release/DartConfiguration.tcl
+Test project /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 1
+      Start  1: gdsolver_frontier_tests
+
+1: Test command: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release/gdsolver_frontier_tests
+1: Working Directory: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release
+1: Test timeout computed to be: 10000000
+1: PASS: 120 Hz phase under jitter, 240-to-120 rate limit and pause recovery
+1: PASS: zero key, 20000 cells, growth and clear
+1: PASS: hi/lo velocity representatives
+1: PASS: independently integrated ceiling route survives roomy dead-end histories
+1: PASS: independent state identity for tick, dual, gravity, interactions and forces
+1: PASS: proposals advance with actually applied command, without certificates
+1: PASS: 180 live 120-TPS steps, resumed=716, cells=360, corrupted replay rejected
+1: All GDSolver native-frontier regressions passed
+ 1/13 Test  #1: gdsolver_frontier_tests ..........   Passed    0.08 sec
+test 2
+      Start  2: realtime_stress_tests
+
+2: Test command: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release/realtime_stress_tests
+2: Working Directory: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release
+2: Test timeout computed to be: 10000000
+2: {"group":"obstacle_matrix","cases":864,"extra":864}
+2: {"group":"obstacle_coverage","landed_routes":864,"safe_waits":0,"margin_over_4":858,"cleared_obstacles":864,"both_adjacent_takeoffs_safe":864,"three_tick_window_available":864,"selected_in_three_tick_window":864,"p50_ms":0.414763,"p95_ms":0.963223,"max_ms":1.45037}
+2: {"group":"closed_loop_matrix","cases":96,"completed":96,"deaths":0,"no_checked_input":0,"commands":8538}
+2: {"group":"queue_matrix","cases":1200,"extra":49571}
+2: {"group":"trace_matrix","cases":2000,"extra":154096}
+2: {"group":"cache_matrix","cases":5000}
+2: {"group":"deadline_and_corruption_matrix","cases":80}
+2: PASS: stress matrices use independent fixtures; no native GD gameplay is claimed
+ 2/13 Test  #2: realtime_stress_tests ............   Passed    3.57 sec
+test 3
+      Start  3: realtime_search_tests
+
+3: Test command: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release/realtime_search_tests
+3: Working Directory: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release
+3: Test timeout computed to be: 10000000
+3: PASS: local landing clears recovery flags after interrupted final replay
+3: PASS: checked immediate jump survives an expired optional long forecast
+3: PASS: priority fallback keeps a roomy takeoff coordinate after long work expires
+3: PASS: 768-tick forecast, short independent control replay and retained queue suffix
+3: PASS: obstacle takeoff coordinate selected well before contact with flight clearance
+3: PASS: smooth native trace preserves corners, short paths, teleports and endpoint
+3: PASS: 80 live commands in a changing wave corridor
+3: PASS: ballistic pit crossing and independent landing replay
+3: PASS: cold replay, consumed interactions, dual, releases, caps and boundaries
+ 3/13 Test  #3: realtime_search_tests ............   Passed    0.04 sec
+test 4
+      Start  4: online_planner_tests
+
+4: Test command: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release/online_planner_tests
+4: Working Directory: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release
+4: Test timeout computed to be: 10000000
+4: PASS: landing does not terminate the planned window
+4: PASS: empty floor stays grounded
+4: PASS: gap branches before the native support loss
+4: PASS: independent cube integration crosses a red kill zone below a pit
+4: PASS: independent wave corridor needs alternating controls
+4: PASS: a falling horizon endpoint cannot become a safe cube route
+4: PASS: ground wait excludes a known fatal tail and keeps takeoff reserve
+4: PASS: all native control modes share the proof pipeline
+4: PASS: portal and following orb stay on one lineage
+4: PASS: cached route requires an independent replay
+4: PASS: candidate cap and expired deadline
+ 4/13 Test  #4: online_planner_tests .............   Passed    0.01 sec
+test 5
+      Start  5: prefix_cache_tests
+
+5: Test command: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release/prefix_cache_tests
+5: Working Directory: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release
+5: Test timeout computed to be: 10000000
+5: PASS: bounded prefix cache, exact lineage keys, policy isolation and cold/resumed numerical agreement
+ 5/13 Test  #5: prefix_cache_tests ...............   Passed    0.00 sec
+test 6
+      Start  6: block_regression_tests
+
+6: Test command: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release/block_regression_tests
+6: Working Directory: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release
+6: Test timeout computed to be: 10000000
+6: PASS: empty floor does not earn a jump
+6: PASS: coast repairs cannot consume all compound-jump slots
+6: PASS: airborne release prioritizes a discovered touchdown
+6: PASS: repair pool cannot exceed the evaluation budget
+6: PASS: late portal control keeps its extended timeline
+ 6/13 Test  #6: block_regression_tests ...........   Passed    0.00 sec
+test 7
+      Start  7: portal_tests
+
+7: Test command: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release/portal_tests
+7: Working Directory: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release
+7: Test timeout computed to be: 10000000
+7: PASS: gap-to-portal branching, post-contact proof, mode transitions, consumed orbs and aligned route traces
+ 7/13 Test  #7: portal_tests .....................   Passed    0.00 sec
+test 8
+      Start  8: controller_tests
+
+8: Test command: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release/controller_tests
+8: Working Directory: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release
+8: Test timeout computed to be: 10000000
+8: PASS: strict fatal/partial cube rejection, flight certificates, physics order, joined/reverse ledge events, delayed takeoff priority, landing verification gate, unique CPU/GPU proposals, safe continuation early exit, cube pulse/live forecast agreement, no flight hold, continuous-mode/dash hold, mandatory release candidates/dead-end fallback, stable first-action tie, hazard landing/clearance/swept/reverse guard, missed native hazard rejection, command/native time units, live timing calibration, grounded jump, detached travel, native travel preservation, sideways/reverse motion, direct input/resynchronization, forward obstacle, first-action coverage, multi-switch route, dead-end fallback, GPU validation gate, interrupted rollout, deterministic reset, deadline (0.201778 ms)
+ 8/13 Test  #8: controller_tests .................   Passed    0.00 sec
+test 9
+      Start  9: staircase_tests
+
+9: Test command: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release/staircase_tests
+9: Working Directory: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release
+9: Test timeout computed to be: 10000000
+9: PASS: repeated touchdown pulses, five legacy and three priority-control realtime staircase runs
+ 9/13 Test  #9: staircase_tests ..................   Passed    1.81 sec
+test 10
+      Start 10: mode_tests
+
+10: Test command: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release/mode_tests
+10: Working Directory: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release
+10: Test timeout computed to be: 10000000
+10: Mode tests passed: 9 action-window routes; flag, transition, dual and landing regressions.
+10/13 Test #10: mode_tests .......................   Passed    0.00 sec
+test 11
+      Start 11: interaction_tests
+
+11: Test command: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release/interaction_tests
+11: Working Directory: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release
+11: Test timeout computed to be: 10000000
+11: Interaction tests passed: 2048 rollback states, live pad/dual ownership, rapid orb input, cache invalidation and ledge runway.
+11/13 Test #11: interaction_tests ................   Passed    0.00 sec
+test 12
+      Start 12: survival_tests
+
+12: Test command: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release/survival_tests
+12: Working Directory: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release
+12: Test timeout computed to be: 10000000
+12: PASS: full orb chains, bounded labelled recovery, dual/input proof, native-motion queue and 400 cached geometry comparisons
+12/13 Test #12: survival_tests ...................   Passed    0.02 sec
+test 13
+      Start 13: accuracy_tests
+
+13: Test command: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release/accuracy_tests
+13: Working Directory: /workspace/scratch/2d98777a0ab0/AutoGDBot/build-release
+13: Test timeout computed to be: 10000000
+13: PASS: fatal/unknown launch rejection, grounded waits, delayed safe takeoffs, fair deadlines and queued airborne edges
+13/13 Test #13: accuracy_tests ...................   Passed    0.00 sec
+
+100% tests passed out of 13
+
+Total Test time (real) =   5.55 sec
