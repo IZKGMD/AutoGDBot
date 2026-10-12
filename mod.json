@@ -6,11 +6,11 @@
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v1.0.0-beta.5",
+  "version": "v1.0.0-beta.6",
   "developers": [
     "AutoGDBot"
   ],
-  "description": "GDSolver-derived native reachability frontier, persistent online proposals, independent path verification and 120 Hz trace/hitbox overlays.",
+  "description": "Native landing-chain verification, contact-edge runway checks, persistent online search and short player-anchored trace branches.",
   "tags": [
     "gameplay",
     "utility",

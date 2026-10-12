@@ -212,7 +212,7 @@ class RealtimeSearch {
                     // That is not a safety advantage. Rank the flight margin
                     // before duration, and prefer earlier equally safe input.
                     float margin = flight ? n.state.landingMargin : n.state.clearance;
-                    auto score = std::tuple{flight ? 2 : 1,
+                    auto score = std::tuple{flight ? (c.landingChain && n.state.landingCount>=2 ? 3 : 2) : 1,
                         int(std::clamp(margin, 0.f, 120.f) / 4),
                         flight ? -takeoff : 0, -n.state.buttonChanges, proof.ticks};
                     if (!checkedControlProof || score > checkedControlRank) {
@@ -224,14 +224,16 @@ class RealtimeSearch {
             };
             const int localLength = std::min(c.horizon, reactionTicks(c.tickSeconds, .9));
             if (warm_.length > 0) {
-                Plan p = warm_; p.length = std::min(warm_.length, localLength);
+                Plan p = warm_; p.length = std::min(warm_.length, c.landingChain ? c.horizon : localLength);
                 // Check only the next planned launch and its landing here.
                 // Later launches remain in the distant proposal below.
                 int first = -1;
                 for (int t = 0; t < p.length; ++t) if (p.at(t)) { first = t; break; }
                 if (first >= 0) {
-                    std::fill(p.buttons.begin() + first + 1, p.buttons.end(), false);
-                    p.length = std::min(MaxHorizon, first + localLength);
+                    if (!c.landingChain) {
+                        std::fill(p.buttons.begin() + first + 1, p.buttons.end(), false);
+                        p.length = std::min(MaxHorizon, first + localLength);
+                    }
                     p.landingDelay = -1; p.stopAtLanding = true;
                     priority(p);
                 }
@@ -250,8 +252,29 @@ class RealtimeSearch {
                 for (int i = 0; i < c.jumpEventCount && takeoffs.size() < 8; ++i)
                     if (c.jumpEvents[i] <= reactionTicks(c.tickSeconds, .3)) takeoffs.push_back(c.jumpEvents[i]);
                 if (takeoffs.empty() && waiting.state.died) takeoffs.push_back(0);
+                if (c.landingChain && (!checkedControlProof || checkedControl.state.landingCount<2)) {
+                    std::vector<int> starts;
+                    for(int at:takeoffs) if(at>=0 && std::find(starts.begin(),starts.end(),at)==starts.end()) {
+                        starts.push_back(at); if(starts.size()==2)break;
+                    }
+                    if(starts.empty())starts.push_back(0);
+                    // Prove a whole native touchdown policy before polishing
+                    // an isolated hop that could land in a dead end.
+                    for(int at:starts) {
+                        for(int delay:{2,0,5}) {
+                            Plan p;p.length=c.horizon;p.buttons[at]=true;
+                            p.landingDelay=delay;p.stopAtLanding=true;
+                            priority(p);
+                            if(checkedControlProof && checkedControl.state.landingCount>=2)break;
+                            if(Clock::now()>=searchEnd || result.candidates>=c.candidates)break;
+                        }
+                        if(checkedControlProof && checkedControl.state.landingCount>=2)break;
+                        if(Clock::now()>=searchEnd || result.candidates>=c.candidates)break;
+                    }
+                }
                 std::vector<int> tried;
                 for (int at : takeoffs) {
+                    if(c.landingChain && checkedControlProof && checkedControl.state.landingCount>=2)break;
                     if (at < 0 || std::find(tried.begin(), tried.end(), at) != tried.end()) continue;
                     tried.push_back(at);
                     Plan p; p.length = std::min(MaxHorizon, at + localLength);
@@ -263,7 +286,7 @@ class RealtimeSearch {
             // Check neighbouring takeoff coordinates in the priority phase,
             // before optional distant work. A cached or solitary lucky launch
             // cannot count as a robust timing window.
-            if (checkedControlProof.kind == ProofKind::LandedRoute) {
+            if (checkedControlProof.kind == ProofKind::LandedRoute && checkedControl.state.landingCount<2) {
                 Node original = checkedControl;
                 int at = -1;
                 for (int t=0;t<original.plan.length;++t) if(original.plan.at(t)) {at=t;break;}
@@ -551,9 +574,11 @@ class RealtimeSearch {
             if (!modePolicy(c.plannerMode).mustLand &&
                 (!c.dual || !modePolicy(c.secondaryMode).mustLand))
                 p.length = std::min(p.length, reactionTicks(c.tickSeconds, .28));
-            else if (bestProof.state.firstLandingTick >= 0 && bestProof.state.requiresLanding)
+            else if (bestProof.state.firstLandingTick >= 0 && bestProof.state.requiresLanding &&
+                     !(c.landingChain && bestProof.state.landingCount>=2))
                 p.length = std::min(p.length, bestProof.state.firstLandingTick + 1 + reactionTicks(c.tickSeconds, .04));
-            if (bestCertificate.kind != ProofKind::GroundWait && bestProof.state.firstLandingTick >= 0) {
+            if (bestCertificate.kind != ProofKind::GroundWait && bestProof.state.firstLandingTick >= 0 &&
+                !(c.landingChain && bestProof.state.landingCount>=2)) {
                 for (int t = bestProof.state.firstLandingTick + 4; t < p.length; ++t) {
                     if (p.at(t) && bestProof.state.motions[0].size() > size_t(t) && (bestProof.state.motions[0][t].canJump || bestProof.state.motions[0][t].grounded)) {
                         p.length = t; break;

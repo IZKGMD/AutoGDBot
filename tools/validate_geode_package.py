@@ -14,7 +14,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('package', type=pathlib.Path)
     p.add_argument('--source-manifest', type=pathlib.Path)
-    p.add_argument('--expected-version', default='v1.0.0-beta.5')
+    p.add_argument('--expected-version', default='v1.0.0-beta.6')
     p.add_argument('--expected-sha256')
     args = p.parse_args()
     sha = hashlib.sha256(args.package.read_bytes()).hexdigest()

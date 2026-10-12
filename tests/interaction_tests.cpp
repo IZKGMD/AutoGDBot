@@ -105,13 +105,14 @@ int main(){
     check(queue.remaining()==0&&!queue.down(),"long plan cannot outlive its short certificate");
 
     std::vector<Bounds> floor{{0,0,150,30}};
-    check(supportRunway({85,30,115,60},1.3f,floor)==35,"full native foot finds platform edge");
-    check(supportRunway({140,30,170,60},1.3f,floor)==0,"overhanging cube has zero runway, not infinity");
-    check(supportRunway({10,30,40,60},-1.3f,floor)==10,"reverse edge runway");
+    check(supportRunway({85,30,115,60},1.3f,floor)==65,"support lasts until the trailing contact edge leaves");
+    check(supportRunway({140,30,170,60},1.3f,floor)==10,"overhanging cube retains finite contact runway");
+    check(supportRunway({10,30,40,60},-1.3f,floor)==40,"reverse trailing edge runway");
     check(!landingDecisionSafe(int(35/1.3f),30,false,false),"short ledge cannot certify delayed takeoff");
-    floor.push_back({150,0,300,30});check(supportRunway({140,30,170,60},1.3f,floor)==130,"joined supports retain continuous runway");
+    floor.push_back({150,0,300,30});check(supportRunway({140,30,170,60},1.3f,floor)==160,"joined supports retain continuous runway");
     auto invFoot=landingFrame({85,-60,115,-30},false,true);
     std::vector<Bounds> ceiling{landingFrame({0,-30,150,0},false,true)};
-    check(supportRunway(invFoot,1.3f,ceiling)==35,"ceiling runway after gravity flip");
+    check(supportRunway(invFoot,1.3f,ceiling)==65,"ceiling runway after gravity flip");
     std::cout<<"Interaction tests passed: 2048 rollback states, live pad/dual ownership, rapid orb input, cache invalidation and ledge runway.\n";
 }
+

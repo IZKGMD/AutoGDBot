@@ -20,6 +20,26 @@ struct WallHint {
     int faceTick = -1;
 };
 
+// A bounded hint for a succession of raised supports. No jump constants or
+// safety verdict come from this geometry; the oracle checks each touchdown.
+inline bool landingChainAhead(float x, float footY, float dx, std::span<Bounds const> solids) {
+    if (!std::isfinite(dx) || std::abs(dx)<.0001f) return false;
+    std::vector<std::pair<float,float>> tops;
+    float dir=dx>0?1.f:-1.f;
+    for(auto b:solids) {
+        float dist=((dx>0?b.minX:b.maxX)-x)*dir;
+        if(dist<-35 || dist>480 || b.maxY<footY-60 || b.maxY>footY+200)continue;
+        tops.emplace_back(dist,b.maxY);
+    }
+    std::sort(tops.begin(),tops.end());
+    for(size_t i=1;i<tops.size();++i) {
+        float rise=tops[i].second-tops[i-1].second;
+        float gap=tops[i].first-tops[i-1].first;
+        if(gap>25 && gap<210 && rise>=8 && rise<=65)return true;
+    }
+    return false;
+}
+
 struct BoundaryHandoffHint {
     bool found = false;
     Bounds gate{};
@@ -457,4 +477,5 @@ inline GapHint seedCubeEvents(Config &cfg, float x, float footY, float dx,
     return gap;
 }
 } // namespace agb
+
 

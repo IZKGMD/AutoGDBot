@@ -130,6 +130,7 @@ struct Config {
     bool compareFirstActions = false;
     bool allowFlightRecovery = false;
     bool priorityControl = false; // prove the next action before distant work
+    bool landingChain = false; // geometry hint only; native replay must prove the whole chain
     std::array<int, 32> jumpEvents{};
     int jumpEventCount = 0;
     std::array<int, 32> orbEvents{};

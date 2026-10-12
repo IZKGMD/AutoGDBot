@@ -26,9 +26,14 @@ inline float supportRunway(Bounds foot, float dx, std::span<Bounds const> solids
     }
     for (auto span : merged) {
         if (foot.maxX < span.first || foot.minX > span.second) continue;
-        const float runway = dx > 0 ? span.second - foot.maxX : foot.minX - span.first;
-        best = std::min(best, std::max(0.f, runway));
+        // Support is lost when the trailing contact edge leaves the surface,
+        // not when the leading edge first overhangs it. Either overlapping
+        // support span can carry the player; use the longer surviving span.
+        const float runway = dx > 0 ? span.second - foot.minX : foot.maxX - span.first;
+        if (!std::isfinite(best)) best = 0;
+        best = std::max(best, std::max(0.f, runway));
     }
     return best;
 }
 }
+

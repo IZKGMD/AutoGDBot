@@ -352,6 +352,9 @@ class Runtime {
     double totalMs = 0;
     bool telemetryPending = false;
     TraceCadence traceCadence;
+    std::array<Evaluation,2> visualPreviews;
+    Clock::time_point previewNext=Clock::time_point::min();
+    unsigned previewParity=0;
     Clock::time_point hudRedraw = Clock::now();
     std::string message = "Autopilot off";
     std::string plannerStage = "IDLE";
@@ -392,7 +395,7 @@ class Runtime {
             draw->setID("autogdbot-traces");
             pl->m_objectLayer->addChild(draw, 10000);
         }
-        label = CCLabelBMFont::create("AutoGDBot GDS RT5 | loading", "bigFont.fnt");
+        label = CCLabelBMFont::create("AutoGDBot RT6 | loading", "bigFont.fnt");
         if (label) {
             auto size = CCDirector::sharedDirector()->getWinSize();
             label->setScale(.22f);
@@ -543,6 +546,8 @@ class Runtime {
         plannerStage = "IDLE";
         stableTrace.clear();
         stableTraceTick = 0;
+        visualPreviews = {};
+        previewNext=Clock::time_point::min();previewParity=0;
         hazardGuard.set({});
         modeStateValid = false;
         decision = {};
@@ -553,7 +558,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v1.0.0-realtime.5.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v1.0.0-realtime.6.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -871,7 +876,8 @@ class Runtime {
             }
             const bool afterPortalSafe = portalProof.verified(out.survived, dt);
             const bool localHandoff = plan.stopAtLanding && landingRollout && anyFlight &&
-                safeHandoff && afterPortalSafe && t >= lastRequestedTick(plan);
+                safeHandoff && afterPortalSafe && (plan.landingDelay>=0
+                    ? out.landingCount>=2 : t >= lastRequestedTick(plan));
             out.decisionPoint = safeHandoff && (anyFlight ||
                 (portalProof.required() && afterPortalSafe));
             layer->m_gameState.m_levelTime += dt;
@@ -1335,6 +1341,9 @@ class Runtime {
                     {pr.getMinX(), pr.getMinY(), pr.getMaxX(), pr.getMaxY()},
                     travelSteps[i].x, orbs);
 
+                if (!real->m_isSideways && !real->m_isUpsideDown)
+                    searchConfig.landingChain |= landingChainAhead(real->getPositionX(),
+                        pr.getMinY(), travelSteps[i].x, solids);
                 if (real->m_isOnGround) {
                     auto gap = seedCubeEvents(searchConfig, real->getPositionX(),
                                               pr.getMinY(), travelSteps[i].x,
@@ -1385,7 +1394,10 @@ class Runtime {
         struct Oracle {
             Runtime *runtime; float dt;
             Evaluation prefix(Plan const &plan, Clock::time_point deadline, bool memo) {
-                return runtime->evaluate(plan, deadline, dt, plan.length, memo, false);
+                // A touchdown policy must finish its final airborne segment
+                // after the active input window. Cutting at that window made
+                // valid short stair chains look like unfinished flights.
+                return runtime->evaluate(plan, deadline, dt, plan.length, memo, plan.landingDelay>=0);
             }
         };
         decision = controller.decide(searchConfig, botHeld, Oracle{this, dt});
@@ -1518,6 +1530,28 @@ class Runtime {
                 [&] { p->releaseButton(PlayerButton::Jump); }) && decision.down)
             refreshPressedJumpSnapshot(*p);
     }
+    void refreshVisualPreviews(Clock::time_point now) {
+        // Use spare queued-control frames. Presentation work cannot starve
+        // a new landing search or issue input; every preview is a fresh native
+        // rollout from the player currently on screen, capped including capture.
+        if(!usingQueuedInput || now<previewNext || previousDt<=0 || totalMs>2.5 ||
+           !layer->m_player1 || layer->m_player1->m_isDead || layer->m_isPaused)return;
+        previewNext=now+std::chrono::milliseconds(17);
+        auto start=Clock::now(),end=start+std::chrono::microseconds(800);
+        simulationRoot.capture(layer->m_gameState);
+        seeds[0].capture(layer->m_player1);
+        if(layer->m_gameState.m_isDualMode)seeds[1].capture(layer->m_player2);
+        for(int j=0;j<2;++j) {
+            int index=(j+previewParity)%2;
+            auto deadline=j==0?start+std::chrono::microseconds(400):end;
+            if(Clock::now()>=deadline)continue;
+            Plan p;p.length=std::min(144,reactionTicks(previousDt,.65));
+            p.buttons.fill(index!=0);
+            auto e=evaluate(p,deadline,previousDt,p.length,false,false);
+            if(e.survived>1)visualPreviews[index]=std::move(e);
+        }
+        ++previewParity;
+    }
     void render() {
         if (!draw || !layer || sim.active)
             return;
@@ -1538,12 +1572,8 @@ class Runtime {
                     break;
                 }
             }
-            label->setString(fmt::format("AutoGDBot GDS RT5 | {}\nstep={} native={}/{} candidates={} | forecast={:.2f}s checked={}\nsearch={:.2f}ms total={:.2f}ms{}",
-                message, ticks, nativeUpdates, nativeCollisions, decision.candidates,
-                decision.forecastTicks * previousDt, decision.certificateTicks,
-                decision.elapsedMs, totalMs, jump)
-                .append(fmt::format("\npaths={} resumed={} cells={}", decision.retainedPlans,
-                    decision.resumedPlans, decision.reachableCells)).c_str());
+            label->setString(fmt::format("AutoGDBot RT6 | {}\nchecked={} forecast={:.2f}s{}",
+                message, decision.certificateTicks, decision.forecastTicks * previousDt, jump).c_str());
         } else {
         label->setString(
             fmt::format(
@@ -1610,6 +1640,7 @@ class Runtime {
         draw->clear();
         if (!settings.enabled)
             return;
+        if(settings.showTrace)refreshVisualPreviews(now);
         // Render only the decision actually used this tick. An older line
         // cannot keep looking approved after a new forecast rejects the route.
         stableTrace.clear();
@@ -1620,29 +1651,36 @@ class Runtime {
         if (decision.recoveryInput && stableTrace.size() > size_t(decision.recoveryTicks + 1))
             stableTrace.resize(decision.recoveryTicks + 1);
         auto trace = [&](std::vector<Point> const &points, std::vector<int> const &breaks,
-                         ccColor4F color, float width) {
-            // Keep the visual trajectory cheap on mobile. The old fixed stride
-            // could emit ~170 draw calls for a 512-tick cube tail.
-            size_t first = points.size() > 2 ? 1 : 0;
-            size_t last = points.size();
-            if (layer->m_player1) {
-                float x = layer->m_player1->getPositionX(), y = layer->m_player1->getPositionY();
-                for (size_t t = first; t < points.size(); ++t)
-                    if (std::abs(points[t].x - x) > 1250 || std::abs(points[t].y - y) > 850) { last = t; break; }
-            }
-            for (auto const &s : traceSegments(points, breaks, .18f, first, last))
+                         ccColor4F color, float width,int player=0,size_t begin=0,bool mark=false) {
+            auto *p=player?layer->m_player2:layer->m_player1;if(!p)return;
+            auto view=traceView(points,breaks,{p->getPositionX(),p->getPositionY()},
+                reactionTicks(previousDt,settings.debugTraces?1.6:.65),
+                reactionTicks(previousDt,.18),begin);
+            for (auto const &s : view.segments)
                 draw->drawSegment({s.a.x, s.a.y}, {s.b.x, s.b.y}, width, color);
+            if(mark && view.visible) {
+                auto q=view.endpoint;std::array<CCPoint,4> box{{{q.x-5,q.y-5},{q.x-5,q.y+5},
+                    {q.x+5,q.y+5},{q.x+5,q.y-5}}};
+                draw->drawPolygon(box.data(),4,{0,0,0,0},.45f,color);
+            }
         };
-        if (settings.showTrace && (settings.debugTraces || decision.forecastTicks <= 1)) {
-            trace(decision.alternatives[0].traces[0], decision.alternatives[0].discontinuities[0],
-                {1, .25f, .3f, .25f}, .3f);
-            trace(decision.alternatives[1].traces[0], decision.alternatives[1].discontinuities[0],
-                {.35f, .6f, 1, .25f}, .3f);
+        if (settings.showTrace) {
+            bool same=visualPreviews[0].traces[0].size()==visualPreviews[1].traces[0].size() &&
+                std::equal(visualPreviews[0].traces[0].begin(),visualPreviews[0].traces[0].end(),
+                    visualPreviews[1].traces[0].begin(),[](Point a,Point b){return std::hypot(a.x-b.x,a.y-b.y)<.12f;});
+            for(int i=0;i<2;++i) {
+                if(i==1&&same)continue;
+                auto const &e=visualPreviews[i];
+                trace(e.traces[0],e.discontinuities[0],e.died?ccColor4F{1,.3f,.3f,.35f}
+                    :ccColor4F{.3f,.75f,1,.35f},.35f,0,0,true);
+            }
+            if(settings.debugTraces)for(auto const &e:decision.alternatives)
+                trace(e.traces[0],e.discontinuities[0],{.6f,.6f,1,.2f},.25f);
         }
         bool complete = decision.completeContinuation;
         ccColor4F chosen = decision.selected.died       ? ccColor4F{1, .15f, .15f, .9f}
                            : decision.selected.boundary ? ccColor4F{.3f, .8f, 1, .9f}
-                           : complete                   ? ccColor4F{.2f, 1, .45f, .9f}
+                           : decision.hasValidatedInput ? ccColor4F{.2f, 1, .45f, .9f}
                                                         : ccColor4F{1, .65f, .1f, .9f};
         if (settings.showTrace && decision.forecastTicks > 0) {
             // Amber is the uncommitted native forecast; green/orange above
@@ -1650,11 +1688,12 @@ class Runtime {
             for (int i = 0; i < (layer->m_gameState.m_isDualMode ? 2 : 1); ++i)
                 trace(decision.forecast.traces[i], decision.forecast.discontinuities[i],
                     decision.hasValidatedInput || decision.recoveryInput
-                        ? ccColor4F{1.f, .72f, .25f, .55f} : ccColor4F{1.f, .25f, .25f, .55f}, .8f);
+                        ? ccColor4F{1.f, .72f, .25f, .55f} : ccColor4F{1.f, .25f, .25f, .55f}, .65f,i,
+                    decision.hasValidatedInput?decision.certificateTicks:decision.recoveryTicks,true);
         }
         if (settings.showTrace) trace(stableTrace, decision.selected.discontinuities[0], chosen, 1.f);
         if (settings.showTrace && layer->m_gameState.m_isDualMode)
-            trace(decision.selected.traces[1], decision.selected.discontinuities[1], {.2f, .8f, 1.f, .8f}, .85f);
+            trace(decision.selected.traces[1], decision.selected.discontinuities[1], {.2f, .8f, 1.f, .8f}, .85f,1);
         for (int t = 0; settings.showTrace && t < decision.forecastPlan.length && t < int(decision.forecast.traces[0].size()); ++t) {
             if (!decision.forecastPlan.at(t) || decision.forecast.motions[0].size() <= size_t(t) ||
                 !(decision.forecast.motions[0][t].canJump || decision.forecast.motions[0][t].grounded)) continue;

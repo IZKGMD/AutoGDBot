@@ -39,6 +39,21 @@ struct WaveOracle {
 };
 int main(){
     {
+        std::vector<Point> p;for(int i=0;i<160;++i)p.push_back({float(i),float(i*i)*.002f});
+        auto v=traceView(p,{},p[23],60);
+        check(v.visible&&std::hypot(v.segments[0].a.x-p[23].x,v.segments[0].a.y-p[23].y)<.001f,
+              "trace did not anchor to the current point on its native route");
+        check(v.endpoint.x<=85,"display leaked the full search horizon");
+        check(!traceView(p,{}, {23,40},60).visible,"stale route snapped to a different live position");
+        auto tail=traceView(p,{},p[23],60,40,60);
+        check(tail.visible&&tail.segments[0].a.x>=60,"forecast was drawn over the checked prefix");
+        std::vector<Point> jump{{0,0},{1,0},{100,100},{101,100},{102,100}};
+        auto tele=traceView(jump,{2},{100,100},4);
+        check(tele.visible,"post-teleport trajectory disappeared");
+        for(auto s:tele.segments)check(std::hypot(s.a.x-s.b.x,s.a.y-s.b.y)<3,"trace bridged a teleport");
+        std::cout<<"PASS: current-root trace, short window, stale-route rejection, checked-tail split and teleport break\n";
+    }
+    {
         TraceCadence c;auto base=Clock::time_point{};int renders=0;
         for(int i=0;i<1200;++i){
             int jitter=i%3==0?-300000:i%3==1?300000:0;

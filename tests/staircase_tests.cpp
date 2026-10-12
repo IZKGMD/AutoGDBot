@@ -4,6 +4,7 @@
 #include "landing_schedule.hpp"
 #include "planning_hints.hpp"
 #include "realtime_search.hpp"
+#include "landing_frame.hpp"
 #include <iostream>
 #include <stdexcept>
 
@@ -14,6 +15,7 @@ void check(bool ok, char const *why) { if (!ok) throw std::runtime_error(why); }
 // It exercises the search/control loop, not the Geometry Dash native engine.
 struct Body { float x = 50, y = 15, vy = 0; bool ground = true; };
 struct Scene {
+    bool strictRunway=false;
     std::vector<Bounds> solids{{170,0,200,30},{295,0,325,60},{420,0,450,90},
                                {545,0,575,120},{670,0,700,150},{795,0,900,180}};
     std::vector<Bounds> hazards{{90,0,110,27},{120,0,140,27},{201,0,294,18},
@@ -80,13 +82,18 @@ struct Scene {
             ++e.survived; e.realized.length=e.survived;
             sample();
             e.endpointClearance=e.nearClearance=e.clearance=guard.clearance({b.x-5.25f,b.y-5.25f,b.x+5.25f,b.y+5.25f});
-            if (plan.stopAtLanding && certificate.required && certificate.verified() &&
-                t >= lastRequestedTick(plan)) break;
-            if (e.survived>=plan.length && (prefix || certificate.verified())) break;
+            float runway=supportRunway({b.x-15,b.y-15,b.x+15,b.y+15},1.3f,solids);
+            bool handoff=certificate.verified() && (!strictRunway || runway>=26*1.3f);
+            if (plan.stopAtLanding && certificate.required && handoff &&
+                (strictRunway && plan.landingDelay>=0?e.landingCount>=2:t>=lastRequestedTick(plan))) break;
+            if (e.survived>=plan.length && ((prefix&&(!strictRunway||plan.landingDelay<0)) || handoff)) break;
         }
         e.requiresLanding=certificate.required;
-        e.landingVerified=certificate.required && certificate.verified();
-        e.firstActionVerified=certificate.verified();
+        float runway=supportRunway({b.x-15,b.y-15,b.x+15,b.y+15},1.3f,solids);
+        bool handoff=certificate.verified() && (!strictRunway || runway>=26*1.3f);
+        e.landingRunwayTicks=std::isfinite(runway)?int(runway/1.3f):MaxHorizon;
+        e.landingVerified=certificate.required && handoff;
+        e.firstActionVerified=handoff;
         return e;
     }
 };
@@ -154,5 +161,25 @@ int main() {
         }
         check(live.x>=850 && presses>=6,"realtime beam did not finish the staircase");
     }
+    {
+        Scene exact;exact.strictRunway=true;Body live;CubePulse p;
+        struct NativeLike { Scene const *s;Body b;CubePulse p;
+            Evaluation prefix(Plan const &q,Clock::time_point end,bool){return s->evaluate(b,p,q,end,true);}
+        };
+        Config cfg;cfg.horizon=768;cfg.candidates=12;cfg.budgetMs=8;cfg.tickSeconds=1./240;
+        cfg.plannerMode=PlannerMode::Cube;cfg.cubePulsePlanning=cfg.priorityControl=true;
+        seedCubeEvents(cfg,live.x,live.y-15,1.3f,exact.solids,exact.hazards);
+        check(landingChainAhead(live.x,live.y-15,1.3f,exact.solids),"raised staircase was not detected");
+        RealtimeSearch oldOrder;auto old=oldOrder.decide(cfg,false,NativeLike{&exact,live,p});
+        cfg.landingChain=true;RealtimeSearch chained;
+        auto d=chained.decide(cfg,false,NativeLike{&exact,live,p});
+        check(d.hasValidatedInput&&d.selected.landingVerified&&d.selected.landingCount>=2,
+              "strict short-support staircase did not get a proved landing chain");
+        for(int t=0;t<d.plan.length;++t)check(exact.step(live,d.plan.at(t)),"checked stair-chain replay died");
+        check(live.x>700&&live.ground,"chain stopped on an unusable early step");
+        std::cout<<"PASS: strict contact-runway chain, landings="<<d.selected.landingCount
+                 <<", checked="<<d.certificateTicks<<", old-order-landings="<<old.selected.landingCount<<"\n";
+    }
     std::cout << "PASS: repeated touchdown pulses, five legacy and three priority-control realtime staircase runs\n";
 }
+
