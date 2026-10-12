@@ -3,6 +3,25 @@
 
 namespace agb {
 struct TraceSegment { Point a, b; };
+// Keep the refresh phase instead of scheduling from each slightly late frame.
+// A small presentation-only slack avoids turning 120 Hz into 60 Hz when the
+// render thread arrives a fraction of a millisecond before its nominal slot.
+class TraceCadence {
+    Clock::time_point next_ = Clock::time_point::min();
+    int hz_ = 0;
+  public:
+    void reset() { next_ = Clock::time_point::min(); hz_ = 0; }
+    bool consume(Clock::time_point now,int hz) {
+        hz=std::clamp(hz,20,240);
+        auto period=std::chrono::nanoseconds(1000000000/hz);
+        auto slack=std::min(period/10,std::chrono::nanoseconds(350000));
+        if(hz_!=hz || next_==Clock::time_point::min()){hz_=hz;next_=now;}
+        if(now+slack<next_)return false;
+        next_+=period;
+        if(next_<=now)next_=now+period;
+        return true;
+    }
+};
 // Simplify only near-collinear native samples. Preserve corners, the last
 // segment, and explicit teleports. Never interpolate a predicted path across
 // a different route or turn a collision boundary into a smooth fake curve.
@@ -37,3 +56,4 @@ inline std::vector<TraceSegment> traceSegments(std::vector<Point> const &points,
     return out;
 }
 }
+

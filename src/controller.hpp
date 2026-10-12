@@ -161,6 +161,7 @@ struct Decision {
     Plan forecastPlan;
     Evaluation forecast;
     int forecastTicks = 0, jumpWindowTicks = 0;
+    int reachableCells = 0, mergedStates = 0, resumedPlans = 0, retainedPlans = 0;
     std::array<Evaluation, 2> alternatives;
     std::vector<Plan> proposals;
 };
@@ -182,6 +183,10 @@ inline bool preferVerifiedFallback(Decision const &current, Decision const &fall
            (!current.hasValidatedInput || current.selected.died);
 }
 inline void retainSearchDiagnostics(Decision &queued, Decision const &search) {
+    queued.reachableCells = search.reachableCells;
+    queued.mergedStates = search.mergedStates;
+    queued.resumedPlans = search.resumedPlans;
+    queued.retainedPlans = search.retainedPlans;
     queued.candidates = search.candidates;
     queued.repairsCreated = search.repairsCreated;
     queued.repairsTested = search.repairsTested;
@@ -1155,3 +1160,4 @@ class Controller {
     }
 };
 } // namespace agb
+

@@ -351,7 +351,7 @@ class Runtime {
     uint64_t lightTicks = 0;
     double totalMs = 0;
     bool telemetryPending = false;
-    Clock::time_point redraw = Clock::now();
+    TraceCadence traceCadence;
     Clock::time_point hudRedraw = Clock::now();
     std::string message = "Autopilot off";
     std::string plannerStage = "IDLE";
@@ -392,7 +392,7 @@ class Runtime {
             draw->setID("autogdbot-traces");
             pl->m_objectLayer->addChild(draw, 10000);
         }
-        label = CCLabelBMFont::create("AutoGDBot RT4 | loading", "bigFont.fnt");
+        label = CCLabelBMFont::create("AutoGDBot GDS RT5 | loading", "bigFont.fnt");
         if (label) {
             auto size = CCDirector::sharedDirector()->getWinSize();
             label->setScale(.22f);
@@ -553,7 +553,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v1.0.0-realtime.4.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v1.0.0-realtime.5.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -562,7 +562,7 @@ class Runtime {
                      "requested_down,actual_down,deadline_hit,selected_died,selected_interrupted,"
                      "first_action_verified,requires_landing,landing_verified,boundary,position_"
                      "error,light_ticks,reflex_jumps,route_id,mode_transitions,post_portal_ticks,"
-                     "portal_verified,queue_ticks,repairs_created,repairs_tested,proof_kind,forecast_died,forecast_interrupted,support_loss_tick,memo_hits,memo_skipped_ticks,cold_ticks,cache_mismatches,forecast_ticks,jump_window_ticks\n";
+                     "portal_verified,queue_ticks,repairs_created,repairs_tested,proof_kind,forecast_died,forecast_interrupted,support_loss_tick,memo_hits,memo_skipped_ticks,cold_ticks,cache_mismatches,forecast_ticks,jump_window_ticks,reachable_cells,merged_states,resumed_plans,retained_plans\n";
             for (auto const &row : csv)
                 f << row << '\n';
         }
@@ -1389,7 +1389,7 @@ class Runtime {
             }
         };
         decision = controller.decide(searchConfig, botHeld, Oracle{this, dt});
-        plannerStage = "LONG-REPAIR";
+        plannerStage = "GDS-NATIVE-DP";
         if (activeWorldMotion && decision.hasValidatedInput) {
             decision.hasValidatedInput = false;
             decision.completeContinuation = decision.recedingCertificate = false;
@@ -1431,7 +1431,7 @@ class Runtime {
         finishTick(start, error);
     }
     void finishTick(Clock::time_point start, float error) {
-        controller.advance();
+        controller.advanceWithInput(decision.down);
         ++ticks;
         totalMs = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
         telemetryPending = settings.telemetry;
@@ -1455,7 +1455,8 @@ class Runtime {
             .append(fmt::format(",{},{},{},{},{},{},{},{},{},{}", decision.repairsCreated, decision.repairsTested,
                 decision.proofKind, decision.forecastDied, decision.forecastInterrupted, e.supportLossTick,
                 forecastCache.hits, forecastCache.skippedTicks, decision.coldVerificationTicks, decision.cacheMismatches))
-            .append(fmt::format(",{},{}", decision.forecastTicks, decision.jumpWindowTicks)));
+            .append(fmt::format(",{},{},{},{},{},{}", decision.forecastTicks, decision.jumpWindowTicks,
+                decision.reachableCells, decision.mergedStates, decision.resumedPlans, decision.retainedPlans)));
         if (csv.size() >= 256)
             flush();
     }
@@ -1522,9 +1523,8 @@ class Runtime {
             return;
         settings.read();
         const auto now = Clock::now();
-        if (now < redraw)
+        if (!traceCadence.consume(now, settings.traceHz))
             return;
-        redraw = now + std::chrono::microseconds(1000000 / std::max(20, settings.traceHz));
         if (label && now >= hudRedraw) {
         hudRedraw = now + std::chrono::milliseconds(125);
         if (!settings.debugTraces) {
@@ -1538,10 +1538,12 @@ class Runtime {
                     break;
                 }
             }
-            label->setString(fmt::format("AutoGDBot RT4 | {}\nstep={} native={}/{} candidates={} | forecast={:.2f}s checked={}\nsearch={:.2f}ms total={:.2f}ms{}",
+            label->setString(fmt::format("AutoGDBot GDS RT5 | {}\nstep={} native={}/{} candidates={} | forecast={:.2f}s checked={}\nsearch={:.2f}ms total={:.2f}ms{}",
                 message, ticks, nativeUpdates, nativeCollisions, decision.candidates,
                 decision.forecastTicks * previousDt, decision.certificateTicks,
-                decision.elapsedMs, totalMs, jump).c_str());
+                decision.elapsedMs, totalMs, jump)
+                .append(fmt::format("\npaths={} resumed={} cells={}", decision.retainedPlans,
+                    decision.resumedPlans, decision.reachableCells)).c_str());
         } else {
         label->setString(
             fmt::format(
@@ -2024,3 +2026,4 @@ class $modify(AGBRing, RingObject) {
         RingObject::spawnCircle();
     }
 };
+

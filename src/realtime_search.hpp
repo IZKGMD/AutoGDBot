@@ -1,12 +1,18 @@
 #pragma once
 #include "route_proof.hpp"
+#include "gdsolver_frontier.hpp"
 #include <tuple>
 
 namespace agb {
-// Receding-horizon beam search. The oracle extends exact native prefixes;
-// neither the search nor its warm start is a precomputed level solution.
+// GDSolver-derived receding reachability search. Native GD prefixes replace
+// the offline Windows model; state cells keep climb/dive representatives.
+// Input proposals persist across frames, but all certificates are live-root.
 class RealtimeSearch {
     Plan warm_;
+    gdsolver::ContinuationBank bank_;
+    gdsolver::NativeFrontier cells_;
+    bool lastDown_ = false;
+    unsigned repairPhase_ = 0;
     struct Node { Plan plan; Evaluation state; };
     static bool alive(Node const &n) {
         return !n.state.died && !n.state.interrupted && !n.state.boundary &&
@@ -17,18 +23,8 @@ class RealtimeSearch {
             int(std::clamp(std::min(n.state.clearance, n.state.endpointClearance), 0.f, 120.f) * 8),
             -n.state.buttonChanges, -n.state.cubeTakeoffs};
     }
-    static void prune(std::vector<Node> &nodes) {
-        std::stable_sort(nodes.begin(), nodes.end(), [](auto const &a, auto const &b) {
-            return rank(a) > rank(b);
-        });
-        // Preserve both possible live commands. A roomy but doomed UP state
-        // must not evict all DOWN states before the obstacle enters the window.
-        std::array<int, 2> counts{};
-        std::vector<Node> kept;
-        for (auto &n : nodes) {
-            if (counts[n.plan.at(0)]++ < 2) kept.push_back(std::move(n));
-        }
-        nodes = std::move(kept);
+    void prune(std::vector<Node> &nodes) {
+        cells_.prune(nodes, [](auto const &n) { return rank(n); });
     }
     static PlannerMode endMode(Node const &n, Config const &c, int player = 0) {
         auto const &v = n.state.modeTraces[player];
@@ -67,8 +63,14 @@ class RealtimeSearch {
         return primary;
     }
   public:
-    void reset() { warm_ = {}; }
+    void reset() { warm_ = {}; bank_.reset(); lastDown_ = false; repairPhase_ = 0; }
+    size_t retainedProposals() const { return bank_.size(); }
+    void advanceWithInput(bool applied, int ticks = 1) {
+        lastDown_ = applied;
+        advance(ticks);
+    }
     void advance(int ticks = 1) {
+        bank_.advance(ticks, lastDown_);
         ticks = std::clamp(ticks, 0, warm_.length);
         for (int t = 0; t < warm_.length - ticks; ++t) warm_.buttons[t] = warm_.buttons[t + ticks];
         warm_.length -= ticks;
@@ -87,6 +89,8 @@ class RealtimeSearch {
         auto searchEnd = start + (end - start) * (c.priorityControl ? 4 : 2) / (c.priorityControl ? 5 : 3);
         Decision result; result.down = c.forceRelease ? false : held;
         if (start >= end) { result.exhausted = true; return result; }
+        auto retained = bank_.take();
+        cells_.cells = cells_.merged = 0;
         const int slice = std::clamp(int(std::lround(.05 / c.tickSeconds)), 4, 16);
         const int minimum = reactionTicks(c.tickSeconds, .10);
         std::vector<Node> frontier;
@@ -95,6 +99,7 @@ class RealtimeSearch {
         RouteProof bestCertificate;
         Node checkedControl;
         RouteProof checkedControlProof;
+        int checkedWindowTicks = 0;
         auto checkedControlRank = std::tuple{-1, -1, -100000, -100000, -1};
         auto bestProofRank = std::tuple{-1, -1, -1, -1, -100000, -100000};
         auto inspect = [&](Node const &n) {
@@ -116,7 +121,11 @@ class RealtimeSearch {
                 // upcoming obstacle. Clearance is measured along the flight,
                 // not only at its roomy endpoint.
                 float margin = e.requiresLanding ? e.landingMargin : e.clearance;
-                auto score = std::tuple{full ? 2 : 1, std::min(e.survived, c.horizon),
+                // A later local takeoff lands later. That extra duration is
+                // not a safety benefit; compare its actual flight margin.
+                // Complete distant routes still outrank local probes.
+                int reach = full && n.plan.stopAtLanding ? 0 : std::min(e.survived, c.horizon);
+                auto score = std::tuple{full ? 2 : 1, reach,
                     int(std::clamp(margin, 0.f, 120.f) / 4),
                     int(std::clamp(e.endpointClearance, 0.f, 120.f) * 2),
                     -e.buttonChanges, -int(n.plan.at(0) != held)};
@@ -143,9 +152,13 @@ class RealtimeSearch {
             result.deaths += n.state.died; result.guardDeaths += n.state.guardDeath;
             result.nativeDeaths += n.state.nativeDeath; result.interruptions += n.state.interrupted;
             if (!alive(n)) { ++result.rejectedUnsafe; result.bestRejectedTicks = std::max(result.bestRejectedTicks, n.state.survived); }
-            if (n.state.hasRealized) n.plan = n.state.realized;
+            if (n.state.hasRealized) {
+                n.plan = n.state.realized;
+                n.plan.stopAtLanding = p.stopAtLanding;
+            }
             // A death leaves only a checked prefix, never a complete child.
             if (n.state.died || n.state.interrupted || n.state.boundary) n.plan = p;
+            if (!n.state.boundary) bank_.remember(n.plan, n.state.survived);
             auto &alt = result.alternatives[p.at(0)];
             if (n.state.survived > alt.survived || alt.traces[0].empty()) alt = n.state;
             inspect(n); result.proposals.push_back(p);
@@ -247,6 +260,41 @@ class RealtimeSearch {
                     if (Clock::now() >= searchEnd || result.candidates >= c.candidates) break;
                 }
             }
+            // Check neighbouring takeoff coordinates in the priority phase,
+            // before optional distant work. A cached or solitary lucky launch
+            // cannot count as a robust timing window.
+            if (checkedControlProof.kind == ProofKind::LandedRoute) {
+                Node original = checkedControl;
+                int at = -1;
+                for (int t=0;t<original.plan.length;++t) if(original.plan.at(t)) {at=t;break;}
+                if(at>=0) {
+                    std::vector<std::pair<int,Node>> safe{{at,original}};
+                    for(int delta : {-1,1,-2,2}) {
+                        int shifted=at+delta;
+                        if(shifted<0 || shifted>=original.plan.length || (shifted==0&&c.forceRelease))continue;
+                        auto p=original.plan; p.buttons[at]=false; p.buttons[shifted]=true;
+                        p.length=std::min(MaxHorizon,p.length+std::max(0,delta));
+                        auto n=priority(p);
+                        if(n.state.landingVerified && !n.state.died && !n.state.interrupted && !n.state.boundary &&
+                           proveRoute(c,n.plan,n.state).kind==ProofKind::LandedRoute)
+                            safe.emplace_back(shifted,std::move(n));
+                        if(Clock::now()>=searchEnd || result.candidates>=c.candidates)break;
+                    }
+                    int lo=at,hi=at;
+                    auto found=[&](int t){return std::any_of(safe.begin(),safe.end(),[&](auto const &v){return v.first==t;});};
+                    while(found(lo-1))--lo;
+                    while(found(hi+1))++hi;
+                    // A checked immediate launch must stay immediate. Waiting
+                    // one frame for the centre of a one-sided timing window
+                    // can lose the only proved command under the next deadline.
+                    int center=at==0?0:(lo+hi)/2;
+                    auto pick=std::find_if(safe.begin(),safe.end(),[&](auto const &v){return v.first==center;});
+                    if(pick!=safe.end() && pick->second.state.landingMargin+1.f>=checkedControl.state.landingMargin) {
+                        checkedControl=pick->second; checkedControlProof=proveRoute(c,checkedControl.plan,checkedControl.state);
+                        checkedWindowTicks=hi-lo+1;
+                    }
+                }
+            }
         }
         std::vector<Node> probes;
         auto probe = [&](Plan p) {
@@ -254,6 +302,19 @@ class RealtimeSearch {
             if (n.state.survived > 0) probes.push_back(n);
             if (alive(n) && n.plan.length < c.horizon) frontier.push_back(std::move(n));
         };
+        // Resume several lineages, rather than restarting the same few coast
+        // plans each frame. A retained short prefix is extended; its state is
+        // obtained afresh from the current root by the native oracle.
+        for (auto p : retained) {
+            if (Clock::now() >= searchEnd || result.candidates >= c.candidates) break;
+            int old = p.length;
+            p.length = std::min(c.horizon, old + slice * 3);
+            auto kind = endKind(Node{}, c);
+            bool continuous = kind == InputKind::Thrust || kind == InputKind::DashHold || kind == InputKind::JumpHold;
+            if (old < p.length) std::fill(p.buttons.begin()+old,p.buttons.begin()+p.length,
+                continuous && p.at(std::max(0,old-1)));
+            ++result.resumedPlans; probe(p);
+        }
         if (warm_.length > 0) {
             auto w = warm_;
             // Extend the retained future, rather than padding a short replay
@@ -311,6 +372,10 @@ class RealtimeSearch {
                 if (it != e.controlActions.rend()) opportunities.push_back(it->tick);
             }
             for (auto at : e.orbActions) opportunities.push_back(at);
+            // Rotate long repair coordinates between live frames. Easy early
+            // branches must not repeatedly starve later timing alternatives.
+            if (!opportunities.empty()) std::rotate(opportunities.begin(),
+                opportunities.begin() + repairPhase_ % opportunities.size(), opportunities.end());
             for (auto at : opportunities) {
                 if (at < 0 || at >= parent.plan.length || (at == 0 && c.forceRelease)) continue;
                 auto p = parent.plan; p.landingDelay = -1;
@@ -443,6 +508,10 @@ class RealtimeSearch {
             }
         }
         result.exhausted = Clock::now() >= searchEnd || result.candidates >= c.candidates;
+        ++repairPhase_;
+        result.reachableCells = cells_.cells;
+        result.mergedStates = cells_.merged;
+        result.retainedPlans = int(bank_.size());
         // Always replay the chosen prefix from the live root with memoization
         // off. A cache hit, or a model that merely predicts life, cannot issue
         // a long queue on its own.
@@ -525,6 +594,7 @@ class RealtimeSearch {
             result.hasValidatedInput = certified = true;
             result.recoveryInput = false;
             result.recoveryTicks = 0;
+            result.jumpWindowTicks = checkedWindowTicks;
             result.plan = checkedControl.state.hasRealized ? checkedControl.state.realized : checkedControl.plan;
             result.plan.length = checkedControlProof.ticks;
             result.down = result.plan.at(0);
@@ -573,8 +643,10 @@ class RealtimeSearch {
             reset();
         }
         result.exhausted |= Clock::now() >= end;
+        lastDown_ = result.down;
         result.elapsedMs = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
         return result;
     }
 };
 } // namespace agb
+

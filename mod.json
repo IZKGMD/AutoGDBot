@@ -6,11 +6,11 @@
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v1.0.0-beta.4",
+  "version": "v1.0.0-beta.5",
   "developers": [
     "AutoGDBot"
   ],
-  "description": "Realtime native control with priority landing checks, bounded far lookahead and visible path/hitbox overlays.",
+  "description": "GDSolver-derived native reachability frontier, persistent online proposals, independent path verification and 120 Hz trace/hitbox overlays.",
   "tags": [
     "gameplay",
     "utility",
@@ -93,3 +93,4 @@
     ]
   }
 }
+
