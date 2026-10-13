@@ -159,3 +159,4 @@ class SemanticMap {
     SemanticStats const &stats() const { return stats_; }
 };
 } // namespace agb
+

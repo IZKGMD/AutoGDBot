@@ -142,3 +142,4 @@ int main() {
     check(e.realized.at(0) && e.realized.at(1) && !e.realized.at(2),"trace shift also shifts the exact input sequence");
     std::cout<<"PASS: gap-to-portal branching, post-contact proof, mode transitions, consumed orbs and aligned route traces\n";
 }
+

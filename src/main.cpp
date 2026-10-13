@@ -20,6 +20,7 @@
 #include "portal_continuation.hpp"
 #include "online_planner.hpp"
 #include "prefix_cache.hpp"
+#include "travel_phase.hpp"
 #include <fstream>
 #include <unordered_set>
 
@@ -234,7 +235,7 @@ static bool cubeCanPress(PlayerObject *p) {
     return p && (p->m_isOnGround || touchingUsableOrb(p));
 }
 struct Settings {
-    bool enabled = false, telemetry = false, debugTraces = false;
+    bool enabled = false, telemetry = false, debugTraces = false, debugHud=false;
     int traceHz = 30;
     Config config;
     void read() {
@@ -242,7 +243,8 @@ struct Settings {
         enabled = m->getSettingValue<bool>("enabled");
         telemetry = m->getSettingValue<bool>("telemetry");
         debugTraces = m->getSettingValue<bool>("debug-traces");
-        traceHz = int(m->getSettingValue<int64_t>("trace-hz"));
+        debugHud = m->getSettingValue<bool>("debug-hud");
+        traceHz = 120;
         config.horizon = int(m->getSettingValue<int64_t>("horizon"));
         config.candidates = int(m->getSettingValue<int64_t>("candidates"));
         config.budgetMs = m->getSettingValue<double>("budget-ms");
@@ -268,10 +270,16 @@ class Runtime {
     std::array<PlayerSeed, 2> seeds;
     OnlinePlanner controller;
     PrefixCache<ForecastFrame> forecastCache;
+    PrefixCache<ForecastFrame> verificationCache;
+    PrefixCache<ForecastFrame> visualCache;
+    std::array<Evaluation,2> visualAlternatives;
+    float cacheDt=0;
     uint64_t worldSignature=0;
+    float worldAnchorX=0,worldRadius=0;
     bool worldSignatureValid=false;
     PhysicsTiming timing;
     PhysicsOrder physicsOrder;
+    TravelPhase travelPhase;
     CubePulse cubePulse;
     VerifiedInputQueue inputQueue;
     bool usingQueuedInput = false;
@@ -470,8 +478,10 @@ class Runtime {
         releaseLiveInput();
         controller.reset();
         forecastCache.reset();worldSignatureValid=false;
+        verificationCache.reset();cacheDt=0;
         timing.reset();
         physicsOrder = {};
+        travelPhase.reset();
         cubePulse.reset();
         inputQueue.reset();
         ticks = 0;
@@ -512,7 +522,7 @@ class Runtime {
     void flush() {
         if (csv.empty())
             return;
-        auto path = Mod::get()->getSaveDir() / "timing-v0.22.0.csv";
+        auto path = Mod::get()->getSaveDir() / "timing-v0.23.0.csv";
         bool fresh = !std::filesystem::exists(path);
         std::ofstream f(path, std::ios::app);
         if (f) {
@@ -528,7 +538,7 @@ class Runtime {
         csv.clear();
     }
     Evaluation evaluate(Plan const &plan, Clock::time_point deadline, float dt,
-                        int cubeTailCap = MaxHorizon,bool allowCache=true) {
+                        int cubeTailCap = MaxHorizon,bool allowCache=true,bool visual=false) {
         Evaluation out;
         CubePulse pulse = cubePulse;
         bool previousButton = botHeld;
@@ -638,7 +648,10 @@ class Runtime {
             }
         };
         int resume=0;
-        auto *frame=allowCache?forecastCache.find(plan,resume):nullptr;
+        // Independent verification has its own lineage and snapshots. It can
+        // finish over several live commands without using proposal snapshots.
+        auto &cache=visual?visualCache:(allowCache?forecastCache:verificationCache);
+        auto *frame=cache.find(plan,resume);
         if(frame){
             for(auto const &flags:frame->interactions){sim.save(flags.object);flags.restore();}
             layer->m_gameState=frame->world;
@@ -710,6 +723,12 @@ class Runtime {
                 p->resetCollisionLog(false);
                 auto rectBefore = p->getObjectRect(.35f, .35f);
                 Point before{p->getPositionX(), p->getPositionY()};
+                if(travelPhase.measured&&travelPhase.beforeNative&&!p->m_isSideways){
+                    float travel=travelSteps[i].x;
+                    if(modeState(p)!=out.modeTraces[i].front()&&rootVelocity[i]>.0001)
+                        travel*=float(std::abs(p->getCurrentXVelocity())/rootVelocity[i]);
+                    p->setPositionX(before.x+travel);
+                }
                 if (physicsOrder.collisionFirst)
                     layer->checkCollisions(p, physicsDt, false);
                 if (sim.dead[i] || p->m_isDead) {
@@ -845,7 +864,7 @@ class Runtime {
             // Store exact native prefixes only within this live command. A
             // sibling resumes before its first different request, including
             // pulse state, consumed rings, portal band and landing obligation.
-            if(allowCache&&(t+1)%16==0&&t+1<plan.length&&Clock::now()<deadline){
+            if((t+1)%16==0&&t+1<plan.length&&Clock::now()<deadline){
                 ForecastFrame frame;frame.prefix=out;frame.world=layer->m_gameState;
                 for(int i=0;i<players;++i)frame.players[i].capture(clones[i]);
                 frame.pulse=pulse;frame.schedule=schedule;frame.portalProof=portalProof;
@@ -857,7 +876,7 @@ class Runtime {
                 frame.width=layer->m_cameraWidthOffset;frame.unzoomedHeight=layer->m_cameraUnzoomedHeightOffset;
                 frame.calculateHeight=layer->m_calculateTargetHeightOffset;frame.freezeCamera=layer->m_freezeStartCamera;
                 frame.groundShadows=layer->m_updateGroundShadows;
-                forecastCache.save(plan,t+1,std::move(frame));
+                cache.save(plan,t+1,std::move(frame));
             }
         }
         out.boundary = sim.boundary && !out.died;
@@ -928,6 +947,7 @@ class Runtime {
             hintObjects = semantic.hazards(); hintSolids = semantic.solids();
             hintOrbs = semantic.orbs(); hintControls = semantic.controlObjects();
             inputQueue.reset(); controller.reset();
+            forecastCache.reset();verificationCache.reset();
         }
         if (!wasEnabled) {
             botHeld = p->m_holdingButtons[1];
@@ -975,7 +995,7 @@ class Runtime {
             (positionValid && std::hypot(p->getPositionX() - lastPosition.x,
                                         p->getPositionY() - lastPosition.y) > 40) || error > 2.0f) {
             controller.reset();
-            if (stateChanged) cubePulse.reset();
+            if (stateChanged) {cubePulse.reset();travelPhase.reset();}
         }
         lastModes = liveModes;
         lastDual = liveDual;
@@ -996,10 +1016,36 @@ class Runtime {
         if (liveDual && layer->m_player2)
             livePositions[1] = {layer->m_player2->getPositionX(), layer->m_player2->getPositionY()};
         std::array<MotionSample, 2> liveMotion{motionSample(p), motionSample(layer->m_player2)};
-        const auto signature=semantic.signature(p->getPositionX());
-        const bool worldChanged=worldSignatureValid&&signature!=worldSignature;
+        // Keep membership fixed within one geometry epoch. Sliding a hash
+        // window by one pixel otherwise discards deep work as objects enter
+        // its border, even though the world itself did not change.
+        const float radius=MaxHorizon*std::max(std::abs(travelSteps[0].x),std::abs(travelSteps[1].x))+768.f;
+        const bool worldChanged=worldSignatureValid&&
+            semantic.signature(worldAnchorX,worldRadius)!=worldSignature;
+        if(!worldSignatureValid||std::abs(p->getPositionX()-worldAnchorX)>256.f||std::abs(radius-worldRadius)>16.f){
+            worldAnchorX=p->getPositionX();worldRadius=radius;
+            forecastCache.reset();verificationCache.reset();
+        }
+        const auto signature=semantic.signature(worldAnchorX,worldRadius);
         worldSignature=signature;worldSignatureValid=true;
-        if(worldChanged){inputQueue.reset();controller.reset();}
+        if(worldChanged){inputQueue.reset();controller.reset();forecastCache.reset();verificationCache.reset();}
+        if(cacheDt<=0||std::abs(dt/cacheDt-1.f)>.001f||stateChanged||error>2.f){
+            forecastCache.reset();verificationCache.reset();
+        }else{
+            auto reanchor=[&](ForecastFrame &frame){
+                auto &e=frame.prefix;
+                if(!e.hasRealized||e.realized.at(0)!=botHeld)return false;
+                for(int i=0;i<(liveDual?2:1);++i){
+                    if(e.traces[i].size()<2||e.motions[i].size()<2||e.modeTraces[i].size()<2)return false;
+                    auto q=e.traces[i][1];
+                    if(std::hypot(q.x-livePositions[i].x,q.y-livePositions[i].y)>.075f||
+                       e.modeTraces[i][1]!=liveModes[i]||!e.motions[i][1].matches(liveMotion[i]))return false;
+                }
+                advanceEvaluation(e);return true;
+            };
+            forecastCache.reanchor(reanchor);verificationCache.reanchor(reanchor);
+        }
+        cacheDt=dt;
         const bool queueReady = inputQueue.matches(livePositions, liveModes, liveDual, dt, &liveMotion);
         if (!queueReady) inputQueue.reset();
         // Commit a previously verified critical click before another search
@@ -1017,8 +1063,8 @@ class Runtime {
         }
         // A complete certified lineage is cheaper and more accurate than
         // re-solving it each tick. Re-anchor early, while reaction time remains.
-        const int refreshLead=reactionTicks(dt,pulseMode?.14:.08);
-        if(queueReady&&inputQueue.remaining()>refreshLead){
+        const int refreshLead=reactionTicks(dt,.75);
+        if(queueReady&&inputQueue.remaining()>refreshLead&&(ticks&1)){
             decision=inputQueue.continuation();usingQueuedInput=true;
             inputPending=true;plannerStage="VERIFIED";message="BOT | checked timeline";
             ++lightTicks;finishTick(start,error);return;
@@ -1133,7 +1179,6 @@ class Runtime {
         if (layer->m_player2)
             seeds[1].capture(layer->m_player2);
         predictionError = error;
-        forecastCache.reset();
         Config searchConfig = settings.config;
         searchConfig.tickSeconds = dt;
         const int liveMode = mode(p);
@@ -1151,7 +1196,7 @@ class Runtime {
         if (liveMode == 0) {
             // Keep planning while the cube is still on safe ground. The longer
             // rolling horizon sees the edge/gap/orb before the takeoff is urgent.
-            searchConfig.horizon = std::max(searchConfig.horizon, 216);
+            searchConfig.horizon = std::max(searchConfig.horizon, 480);
             searchConfig.candidates = std::max(searchConfig.candidates, 64);
             searchConfig.budgetMs = std::max(searchConfig.budgetMs, nearAction ? 3.5 : 1.35);
             if (nearAction)
@@ -1331,7 +1376,7 @@ class Runtime {
             return evaluate(plan,deadline,dt,MaxHorizon,memo);
         });
         plannerStage="FRONTIER";
-        if(!decision.hasValidatedInput&&queueReady){
+        if(queueReady&&(!decision.hasValidatedInput||decision.certificateTicks<inputQueue.remaining())){
             auto queued=inputQueue.continuation();retainSearchDiagnostics(queued,decision);
             decision=std::move(queued);usingQueuedInput=true;plannerStage="CHECKED-KEPT";
         }
@@ -1362,7 +1407,6 @@ class Runtime {
         finishTick(start, error);
     }
     void finishTick(Clock::time_point start, float error) {
-        controller.advance();
         ++ticks;
         totalMs = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
         telemetryPending = settings.telemetry;
@@ -1422,19 +1466,40 @@ class Runtime {
         botHeld = layer->m_player1->m_holdingButtons[1];
         bool actualMatches = botHeld == down;
         if (dual && layer->m_player2) actualMatches &= layer->m_player2->m_holdingButtons[1] == down;
-        if (actualMatches) inputQueue.consume(down);
+        if (actualMatches) {inputQueue.consume(down);controller.commit(down);}
         else inputQueue.reset();
     }
     void render() {
         if (!draw || !label)
             return;
         settings.read();
-        if (Clock::now() < redraw)
-            return;
-        redraw = Clock::now() + std::chrono::milliseconds(1000 / std::max(5, settings.traceHz));
+        // Preview from the current post-update state. This cache is isolated
+        // from control and verification, so a picture never authorizes input.
+        if(settings.enabled&&settings.debugTraces&&controlling&&previousDt>0&&
+           layer->m_player1&&!layer->m_player1->m_isDead&&!layer->m_isPaused){
+            auto start=Clock::now();auto end=start+std::chrono::microseconds(700);
+            seeds[0].capture(layer->m_player1);
+            if(layer->m_player2)seeds[1].capture(layer->m_player2);
+            visualCache.reset();
+            Plan preview;preview.length=std::clamp(int(std::ceil(.6f/previousDt)),24,MaxPlanningHorizon);
+            auto middle=Clock::now()+(end-Clock::now())/2;
+            visualAlternatives[0]=evaluate(preview,middle,previousDt,preview.length,true,true);
+            preview.buttons[0]=true;
+            if(!cubePulseMode(layer->m_player1,layer->m_player2,layer->m_gameState.m_isDualMode))
+                preview.buttons.fill(true);
+            visualAlternatives[1]=evaluate(preview,end,previousDt,preview.length,true,true);
+        }else visualAlternatives={};
+        const bool refreshHud=Clock::now()>=redraw;
+        if(refreshHud){
+        redraw=Clock::now()+std::chrono::milliseconds(100);
+        if(!settings.debugHud){
+            label->setString(fmt::format("AutoGDBot 0.23.0 | {}\nchecked {:.2f}s | search {:.2f}ms | paths {}",
+                decision.hasValidatedInput?"ONLINE":"SEARCH",decision.certificateTicks*previousDt,
+                decision.elapsedMs,controller.pendingRoutes()).c_str());
+        }else{
         label->setString(
             fmt::format(
-                "AutoGDBot 0.22.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
+                "AutoGDBot 0.23.0 | {} | stage={}\nsearch={:.2f} total={:.2f} ms | {} candidates | {} ticks | cert={} | "
                 "{}\n"
                 "step={} | want={} | actual={} | sent={}\n"
                 "dx={:.2f} | dt={:.5f}->{:.3f}{} | UP={} DOWN={} | tested={}/{}\n"
@@ -1490,8 +1555,10 @@ class Runtime {
                     decision.proofKind,decision.forecastDied,forecastCache.hits,forecastCache.skippedTicks,
                     decision.coldVerificationTicks,decision.cacheMismatches))
                 .c_str());
+        }
         label->setColor(decision.hasValidatedInput ? ccColor3B{120, 255, 170}
                                                    : ccColor3B{255, 180, 100});
+        }
         draw->clear();
         if (!settings.enabled)
             return;
@@ -1508,9 +1575,21 @@ class Runtime {
                          ccColor4F color, float width) {
             // Keep the visual trajectory cheap on mobile. The old fixed stride
             // could emit ~170 draw calls for a 512-tick cube tail.
-            const size_t stride =
-                std::max<size_t>(3, points.size() > 48 ? points.size() / 48 : 3);
-            for (size_t i = stride; i < points.size(); i += stride) {
+            // Draw native samples; interpolation must not invent a path
+            // through a wall or round a wave's sharp input corner.
+            const size_t stride=1;
+            size_t first=0;
+            if(layer->m_player1&&width>.5f){
+                auto pos=layer->m_player1->getPosition();float best=std::numeric_limits<float>::infinity();
+                for(size_t i=0;i<std::min<size_t>(8,points.size());++i){
+                    float d=std::hypot(points[i].x-pos.x,points[i].y-pos.y);
+                    if(d<best){best=d;first=i;}
+                }
+                if(best>1.f)return;
+            }
+            for (size_t i = first+stride; i < points.size(); i += stride) {
+                if(layer->m_player1&&
+                   (points[i].x<layer->m_player1->getPositionX()-80.f||points[i].x>layer->m_player1->getPositionX()+1100.f))continue;
                 const bool discontinuous = std::any_of(breaks.begin(), breaks.end(),
                     [&](int t) { return t > int(i - stride) && t <= int(i); });
                 if (!discontinuous)
@@ -1525,17 +1604,20 @@ class Runtime {
             }
         };
         if (settings.debugTraces) {
-            trace(decision.alternatives[0].traces[0], decision.alternatives[0].discontinuities[0],
-                {1, .25f, .3f, .25f}, .3f);
-            trace(decision.alternatives[1].traces[0], decision.alternatives[1].discontinuities[0],
-                {.35f, .6f, 1, .25f}, .3f);
+            trace(visualAlternatives[0].traces[0], visualAlternatives[0].discontinuities[0],
+                {1, .15f, .2f, .45f}, .3f);
+            trace(visualAlternatives[1].traces[0], visualAlternatives[1].discontinuities[0],
+                {.35f, .6f, 1, .45f}, .3f);
         }
-        bool complete = decision.completeContinuation;
         ccColor4F chosen = decision.selected.died       ? ccColor4F{1, .15f, .15f, .9f}
                            : decision.selected.boundary ? ccColor4F{.3f, .8f, 1, .9f}
-                           : complete                   ? ccColor4F{.2f, 1, .45f, .9f}
+                           : decision.hasValidatedInput ? ccColor4F{.2f, 1, .45f, .9f}
                                                         : ccColor4F{1, .65f, .1f, .9f};
         trace(stableTrace, decision.selected.discontinuities[0], chosen, .85f);
+        int launch=firstLaunch(decision.plan);
+        if(decision.hasValidatedInput&&launch>=0&&launch<int(stableTrace.size())){
+            auto q=stableTrace[launch];draw->drawDot({q.x,q.y},2.f,{.3f,1.f,.5f,.9f});
+        }
         if (layer->m_player1) {
             float x = layer->m_player1->getPositionX();
             int shown = 0;
@@ -1572,7 +1654,7 @@ class Runtime {
                 draw->drawPolygon(v.data(), 4, {0, 0, 0, 0}, .6f, {.2f, .9f, 1.f, .75f});
                 ++shownOrbs;
             }
-            if (routeGap.found) {
+            if (routeGap.found&&settings.debugHud) {
                 float y = layer->m_player1->getPositionY();
                 draw->drawSegment({routeGap.edgeX, y - 80}, {routeGap.edgeX, y + 120}, .7f,
                                   {1.f, .75f, .15f, .8f});
@@ -1670,11 +1752,18 @@ class $modify(AGBBaseLayer, GJBaseGameLayer) {
             // The selected action belongs to this very substep. The native
             // processCommands call may already update the player and collide.
             agb::active->applyInput();
+            auto *p=agb::active->layer->m_player1;
+            if(p&&!p->m_isSideways)
+                agb::active->travelPhase.begin(p->getPositionX(),agb::active->travelSteps[0].x);
             agb::active->nativeCommandActive = true;
         }
         GJBaseGameLayer::processCommands(dt, half, last);
         if (live) {
             agb::active->nativeCommandActive = false;
+            if(agb::active->travelPhase.finish()){
+                agb::active->inputQueue.reset();agb::active->controller.reset();
+                agb::active->forecastCache.reset();agb::active->verificationCache.reset();
+            }
             agb::active->recordTelemetry();
         }
     }
@@ -1687,6 +1776,7 @@ class $modify(AGBBaseLayer, GJBaseGameLayer) {
     int checkCollisions(PlayerObject *p, float dt, bool ignoreDamage) {
         if (agb::active && !agb::sim.active && p == agb::active->layer->m_player1) {
             agb::active->physicsOrder.collision();
+            agb::active->travelPhase.observe(p->getPositionX());
             agb::active->timing.observeNative(dt);
             ++agb::active->nativeCollisions;
         }
@@ -1832,6 +1922,8 @@ class $modify(AGBPlayer, PlayerObject) {
         }
     }
     void update(float dt) {
+        const bool live=agb::active&&!agb::sim.active&&this==agb::active->layer->m_player1;
+        if(live)agb::active->travelPhase.beginUpdate(getPositionX());
         if (agb::active && !agb::sim.active && this == agb::active->layer->m_player1) {
             agb::active->timing.observeNative(dt);
             agb::active->physicsOrder.update();
@@ -1843,6 +1935,7 @@ class $modify(AGBPlayer, PlayerObject) {
                 ++agb::active->inputPhaseMismatches;
         }
         PlayerObject::update(dt);
+        if(live)agb::active->travelPhase.endUpdate(getPositionX());
     }
     void incrementJumps() {
         if (agb::sim.active)
@@ -1870,3 +1963,4 @@ class $modify(AGBRing, RingObject) {
         RingObject::spawnCircle();
     }
 };
+

@@ -1,16 +1,15 @@
 {
   "geode": "5.10.1",
   "gd": {
-    "win": "2.2081",
-    "android": "2.2081"
+    "win": "2.2081"
   },
   "id": "autogdbot.realtime",
   "name": "AutoGDBot Realtime",
-  "version": "v0.22.0",
+  "version": "v0.23.0",
   "developers": [
     "AutoGDBot"
   ],
-  "description": "Native physics route planning with checked input timelines, support-loss branches and independent cache replay.",
+  "description": "Persistent native lookahead with an independent sliced verifier, early input windows and live traces.",
   "tags": [
     "gameplay",
     "utility",
@@ -27,7 +26,7 @@
     "budget-ms": {
       "type": "float",
       "name": "Search time budget (ms)",
-      "default": 1.0,
+      "default": 3.0,
       "min": 0.2,
       "max": 8.0,
       "description": "Adaptive native search budget, limited by the current physics step. Individual game calls can exceed it."
@@ -35,34 +34,32 @@
     "horizon": {
       "type": "int",
       "name": "Lookahead in physics ticks",
-      "default": 180,
+      "default": 480,
       "min": 24,
-      "max": 384
+      "max": 768
     },
     "candidates": {
       "type": "int",
       "name": "Maximum candidates per tick",
-      "default": 48,
+      "default": 96,
       "min": 4,
       "max": 96
-    },
-    "trace-hz": {
-      "type": "int",
-      "name": "Trace redraw rate",
-      "default": 20,
-      "min": 5,
-      "max": 60
     },
     "telemetry": {
       "type": "bool",
       "name": "Save timing CSV",
       "description": "Writes telemetry in the mod save directory every 256 physics ticks.",
-      "default": false
+      "default": true
     },
     "debug-traces": {
       "type": "bool",
       "name": "Show candidate traces",
       "description": "Show UP (red) and DOWN (blue) diagnostic alternatives alongside the selected route.",
+      "default": true
+    },
+    "debug-hud": {
+      "type": "bool",
+      "name": "Detailed diagnostics",
       "default": false
     }
   },

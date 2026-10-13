@@ -1,74 +1,70 @@
 {
-  "mod_id": "autogdbot.realtime",
-  "version": "v0.22.0",
-  "targets": [
-    "Android64",
-    "Windows x64"
-  ],
-  "geometry_dash": "2.2081",
+  "version": "v0.23.0",
+  "base_commit": "c58621942c736fcd3219f7295589570f348c1994",
+  "base_package_sha256": "4102582987a35d4c93419528102c8aeac9c3549e28baaf9da58b51529ac7ec6e",
   "geode_sdk": "5.10.1",
   "bindings_commit": "f050fd74ad531b0827377c97510cb807903ff1b3",
-  "build_type": "Release",
-  "validation": [
-    "controller_tests",
-    "staircase_tests",
-    "mode_tests",
-    "interaction_tests",
-    "survival_tests",
-    "accuracy_tests",
-    "portal_tests",
-    "block_regression_tests",
-    "online_planner_tests",
-    "prefix_cache_tests"
-  ],
-  "gameplay_verified": false,
-  "fingerdash_verified": false,
-  "dash_verified": false,
-  "success_rate_measured": false,
-  "fps_measured": false,
-  "observed_previous_video": {
-    "file": "2026-10-07 21-28-25.mp4",
-    "version": "v0.4",
-    "correction": "User corrected earlier attribution to v0.21.0"
+  "gd": "2.2081",
+  "platform": "Windows x64",
+  "compiler": "Clang-cl 21.1.8, MSVC ABI",
+  "package_bytes": 268305,
+  "package_sha256": "501501643fa70834a292404a4d7bd8ff8aea3189d05a8813532780447541f9c2",
+  "retail_gameplay_verified": false,
+  "device_120fps_measured": false,
+  "universal_completion_proved": false,
+  "source_sha256": {
+    "CMakeLists.txt": "3c31dc2ce061f28652d5235365654e0a8bbac6ec44f06d3790f7d4fa4fe32b28",
+    "mod.json": "3bc773ac228fb50945208469efb93ae6b3dcfd958ca4b94bd91cf8ab6ad02476",
+    "src/android_libcpp_compat.cpp": "c52dd5e23e8889f717d396df8178c0190dcb739bdd40286dc197741ff12ecea3",
+    "src/controller.hpp": "e076a9cbace6eadad85b4dd4090efb5a04660462c40003e932197156aac3d6cf",
+    "src/flight_certificate.hpp": "577d77fa65f2684e15d01066b22d558f0e86b5295f93a284f720460b7da73eb6",
+    "src/gpu_ranker.cpp": "cd9512e40c7806a43b80e0fda11a75659aebf223b435fbb0e7e43a95df5884d5",
+    "src/gpu_ranker.hpp": "55fa2aa9aebd3fb0540d2091323a16468ef7679285197fcec0332407b93eec01",
+    "src/gpu_ranker_stub.cpp": "ee6eb3dbd411545a5b6c2fc9f961953d4eb9026dfdf94bb5c69c4071a0bc82aa",
+    "src/hazard_guard.hpp": "08aef46f01c71b7352f94cdd2504841b8ee67d73d4bf5cb784b1ed64e65b84e4",
+    "src/input_motion.hpp": "f8f560edac6ba5a892da72fbdfd2cbb25a3666b5cc6e12461a85cb036c372039",
+    "src/interaction_state.hpp": "03fb4acb16cd787520ae69a0271607844930ca1493f5aa1035dca2aac7936376",
+    "src/landing_frame.hpp": "7bdbdcf3d90c232c06240169e85f9ed869cd8b174fdef9b0e6a4760d36fc631b",
+    "src/landing_schedule.hpp": "fb42fb61cc462a2d0b57b89c348e79fe9eeafa6c3a07bcc17244d2ed00f2d6c0",
+    "src/launch_window.hpp": "073e86c619be01415c6bffd67fb994fd48863fefc92f53acc46995d26b0b044f",
+    "src/main.cpp": "95754c5cd3b66ff9a11c61ba1e626176e871264482d298e6ac94826d86774993",
+    "src/mode_policy.hpp": "7fb8246ed7742a6fb2acf15b600ba39048b8aacc42471da7d08f44f897a9a417",
+    "src/object_semantics.hpp": "1132f5f74a3d89a0de9272235f8fe8a63b0cbbcff8c3e58e385f6a048ffa1a66",
+    "src/online_planner.hpp": "32d9c1720ac36e033e055eabfcf20513ab7de04a5f3ffea8dc6959af4aba8d9f",
+    "src/planning_hints.hpp": "5a94a03fa627df8d7354173bea1b1434132ad6403f90d46395aec8c35a015a86",
+    "src/player_scalars.inc": "566bd3d5faf3fab60d3cab65fee4e0413da45f8d1f03af30a18e16ed9f8dc5ac",
+    "src/portal_continuation.hpp": "0428d5d34fde9d6c89ac81828c82ffebe688e477618737ebcf37293d18b0343c",
+    "src/prefix_cache.hpp": "1216e75a9e3e29bc5d5b88bc9e20ff335bae53abc9920d9b2a8635192ee636cd",
+    "src/route_proof.hpp": "81957bdcc81fae667a051be18892f04529609378c02ea686320b6a77a110ae93",
+    "src/semantic_map.hpp": "7ad7610732a03a9ae8e8ca82839b1a4e8d40fd7aa2f032aa38bbcf18838d5683",
+    "src/travel_phase.hpp": "e234bbd96315fed2fb1072e40cf58d861d195eadf4bccbdc9c1e232217689c32",
+    "src/verified_input_queue.hpp": "2a4af9f339d15b924f246a6b7a0e146b21f257c32e3c448a5d988bd075360774",
+    "tests/accuracy_tests.cpp": "56487525dd8901b17d5de2e8ed37d2639234d4d661d30be91840e6fea42ad09d",
+    "tests/block_regression_tests.cpp": "f1c9a7175179768d4da19782c54551bd2b1e095ce3693234230ef5035efa55df",
+    "tests/controller_tests.cpp": "91c4bc9276bc4d0b29a03f0d869980284acc031891bb45877455f591ae70124b",
+    "tests/interaction_tests.cpp": "28f0b63dfd2502263b3dcf4be9c1900df7b69777ebdb782303f770c2c69a2279",
+    "tests/mode_tests.cpp": "a02f6a4dad842191d6cb1f1f1da29688aac0aff6012b3ca6d41a8aea464f6ec8",
+    "tests/online_planner_tests.cpp": "835525b49ec37f75979927965d094d59990375546f77cf5b4d54ac9c7f55b860",
+    "tests/persistent_search_tests.cpp": "97092670ab7825d4f0a58716080c0e56303890f33b87324002c9c299d24e0a46",
+    "tests/portal_tests.cpp": "6448a6d51684a22b102a1b2971f3a0ac6c84a631c91b79e6e11ea705a0129839",
+    "tests/prefix_cache_tests.cpp": "809f8eab4b7aecdd7836a2a209cc74c7779f505bdb86aeb3527a7ac1bd8a1bac",
+    "tests/staircase_tests.cpp": "47c3f3b9ce20613dcf6ddb684c0a61ed1313b4e835bf5ff15e40f4010f10ed96",
+    "tests/survival_tests.cpp": "c77eef3ff14b6aa16480ac5c3cd5471cb8d18945b95064a8907ec1f99d89dd52"
   },
-  "gdsolver_reference": "gdsolver/gdsolver@8e8d69ada86a315c71d05cc8b8fe4d369d883aa2",
-  "architecture": "single online frontier, bounded route proofs, command-scoped exact prefix cache and cold winner replay",
-  "native_packages_built": [
-    "Android64",
-    "Windows x64"
-  ],
-  "packages": [
-    {
-      "file": "AutoGDBot-v0.22.0-Android64.geode",
-      "bytes": 444119,
-      "sha256": "de5c2928a110d71943058b47075547a025e52a53005dc98943767e7bf428799f",
-      "architecture": "Android64"
-    },
-    {
-      "file": "AutoGDBot-v0.22.0-Windows-x64.geode",
-      "bytes": 254680,
-      "sha256": "4102582987a35d4c93419528102c8aeac9c3549e28baaf9da58b51529ac7ec6e",
-      "architecture": "Windows-x64"
-    }
-  ],
-  "android_ndk": "r29",
-  "compiler": "Clang 21.0.0",
-  "standalone_suites_passed": 10,
   "sanitizers": {
-    "online_planner_tests": "ASan/UBSan PASS",
-    "prefix_cache_tests": "ASan/UBSan PASS",
-    "leak_detection": false
+    "ASan_UBSan_suites_passed": 11,
+    "leak_detection": false,
+    "staircase_clock": "deterministic functional clock; real deadline instrumentation runs failed the timing-sensitive assertion"
   },
   "limitations": [
-    "future arbitrary trigger/world actions not fully simulated",
-    "dual/solo and unsupported portal/frame changes need live re-anchor",
-    "no native gameplay replay, completion percentage or device frame-time evidence"
+    "arbitrary future trigger world actions not simulated",
+    "unsupported platformer, two player controls and complex frame boundaries",
+    "individual native calls can exceed deadlines",
+    "no active retail GD connection"
   ],
-  "package_checks": [
-    "ZIP CRC and v0.22.0 manifest/id",
-    "exact compiled binary identity",
-    "latest README and gdsolver MIT notice",
-    "Android AArch64 / SONAME / defined private hash helper / entry export",
-    "Windows AMD64 / Release CRT / entry export / no D3D imports"
+  "release_suites_passed": 11,
+  "host_reports": [
+    "validation/release-final.xml",
+    "validation/sanitizer-final.xml"
   ]
 }

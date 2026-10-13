@@ -10,10 +10,14 @@
 #include "mode_policy.hpp"
 
 namespace agb {
-constexpr int MaxPlanningHorizon = 384;
-constexpr int MaxHorizon = 512; // bounded tail for completing a flight beyond lookahead
+constexpr int MaxPlanningHorizon = 768;
+constexpr int MaxHorizon = 1024; // landing tail beyond the rolling lookahead
 constexpr int MaxCandidates = 96;
+#ifdef AUTOGDBOT_TEST_CLOCK
+using Clock = AUTOGDBOT_TEST_CLOCK;
+#else
 using Clock = std::chrono::steady_clock;
+#endif
 struct Point {
     float x{}, y{};
 };
@@ -1137,3 +1141,4 @@ class Controller {
     }
 };
 } // namespace agb
+

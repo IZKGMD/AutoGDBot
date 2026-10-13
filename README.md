@@ -1,25 +1,27 @@
-# AutoGDBot Realtime v0.22.0
+# AutoGDBot Realtime v0.23.0 — Windows
 
-Geode mod for Geometry Dash 2.2081, Geode SDK 5.10.1 and bindings f050fd74ad531b0827377c97510cb807903ff1b3.
+This build starts from the exact v0.22.0 source commit c58621942c736fcd3219f7295589570f348c1994, rather than the later beta branches. The supplied original Windows package SHA-256 is 4102582987a35d4c93419528102c8aeac9c3549e28baaf9da58b51529ac7ec6e.
 
 ## Install
 
-Import the Android64 `.geode` using Geode's local-package picker, then restart Geometry Dash. If the picker hides `.geode`, extract the accompanying Android ZIP first. Windows needs the separate Windows x64 package. Remove an older copy with the same mod ID before importing if the picker reports a duplicate. The in-game HUD must show **0.22.0**.
+Windows x64, Geometry Dash 2.2081, Geode 5.10.1. Replace the previous mod with ID `autogdbot.realtime`, restart GD and check that the HUD says 0.23.0. This package does not contain an Android binary.
 
-## Route planning
+## Changed behavior
 
-The runtime now uses `OnlinePlanner`: one event-driven frontier, one absolute deadline and one proof policy. The earlier Controller remains a proposal generator and historical test target; its separate search tiers no longer control the game. Geometric and mode proposals retain evaluation slots alongside adaptive native repairs. Safe routes rank by proved progress and clearance; launch count and input changes break safety ties.
+- The search retains unfinished input candidates across physics steps. Retained candidates are proposals until verified; actual input filters incompatible lineages.
+- Proposal snapshots and independent verification snapshots live in separate pools. A long verification can continue over successive commands. Each carried snapshot must match the next live position within 0.075 units, native motion/interaction sample, input state, mode, timestep and geometry epoch. It is discarded on disagreement. Verification never borrows a proposal snapshot.
+- Native calls stay on the game thread, with deadlines checked between calls. No worker touches Cocos objects. Individual game calls and snapshot capture can exceed a deadline; device frame times are not yet measured.
+- The default horizon is 480 physics steps (two seconds at 240 TPS), adjustable up to 768, with a landing tail up to 1024. Those are limits, not a guarantee that every frame reaches the full horizon. Quiet steps work on future continuations while a checked queue runs. Refresh lead is 0.75 seconds; already checked critical transitions execute first.
+- Jump timing compares neighboring checked launches. Only contiguous verified samples form an input window; failed or untested timings cannot be bridged. Timing margin is used within comparable clearance ranges, while a safe empty-floor coast remains preferred over unnecessary jumping.
+- Platform support distance uses the trailing edge of the collider. Landing and future native collisions still decide whether a proposed path is usable.
+- A deadline can close a completed native flight at a stable landing with reaction runway. An unfinished flight or a known fatal launched continuation remains unapproved. Short grounded waits retain the takeoff reserve while deep search starts.
+- Travel phase observes the live native call boundaries before changing external travel order. Four agreeing measurements are required; a changed phase invalidates saved control/forecast state.
+- The selected green trace draws native samples each render frame, including sharp wave corners and teleport breaks. Short red/blue alternatives are recalculated from the current post-update state in an isolated visual pool (700 microsecond target including capture). They never authorize control. Detailed HUD is optional. CSV telemetry is enabled by default.
 
-A forecast runs the entire planned window, then completes any cube/robot landing obligation and post-portal reaction window within a 512-tick maximum. The first touchdown is not a success endpoint. A native loss of floor support creates branches before the edge. An interrupted or fatal coast can commit only its contiguous grounded prefix, shortened by a takeoff reserve. The falling tail is recorded separately and never drawn as an approved route. See ONLINE_PLANNER_v0.22.0.md for proof boundaries.
+## Verification boundaries
 
-Verified input timelines are reused while position, native motion, mode, interaction identity, timestep and nearby world state agree. Expected portal transitions remain on the same lineage. A missed state match discards the queue. Refresh starts before the checked suffix runs out; due clicks execute before another search.
+The tests use independent numerical scenes, not the retail game's executable. Neither Bloodbath nor an official level has been replayed with this build here. The old Windows bridge status is dated 2026-10-08 and is not an active game connection on 2026-10-13.
 
-Exact requested-input prefixes share native snapshots within one live command. Cached winners are independently replayed from the command's root; a mismatch or unfinished replay rejects that winner and retains an independently checked fallback where available. This does not merge states by rounded coordinates. HUD/CSV expose cache savings and replay mismatches. Unused D3D11 ranking and unproved-flight recovery settings have been removed.
+The forecast still does not advance arbitrary future trigger-driven world actions. Platformer, two-player controls and complex unsupported frame transitions are not supported. Moving geometry invalidation observes real changes; it does not establish future trigger safety. This release is a testable improvement, not proof of universal completion or a promise of zero lag at 120 FPS.
 
-## Validation and limits
-
-Ten standalone suites cover existing regressions and the new kernel/cache contracts. Independent numerical fixtures exercise a cube crossing a floor gap above a red kill zone and alternating wave controls. Additional contract fixtures cover every control mode, late portals/orbs, grounded waiting and cache disagreement. These are not recordings of Geometry Dash gameplay or a complete emulator of its physics.
-
-Native game routines remain responsible for player integration, ordinary collision, supported single-player portals, rings and pads. The local forecast does not reproduce the complete future world: arbitrary trigger-driven movement/actions are not advanced. Dual/solo, teleport/mirror and unsupported camera/frame changes remain live re-anchor boundaries. Queue invalidation observes changes after they happen; it cannot establish future trigger safety. See GDSOLVER_REVIEW.md.
-
-Fingerdash is the general bot's target benchmark; there is no level-specific macro. Installation, native completion, device FPS and success rate have not been measured for v0.22.0. No claim of 100% completion or zero lag is made. Save timing CSV records `timing-v0.22.0.csv` in the mod save directory. The supplied recording `2026-10-07 21-28-25.mp4` showed **v0.4**, as corrected by the user; it is not evidence of a v0.21 regression.
+References reviewed: gdsolver/gdsolver@2cddf0e25fca53105e9851d20d44f9e5e82d8314 (native verification, snapshot failure boundaries); EclipseMenu/EclipseMenu@af89a68b5f7dc7df3b9936ea27b676b04626b537 (native trajectory rendering). No full GDSolver search engine was embedded. Its MIT notice is preserved from the base project.

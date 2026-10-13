@@ -40,44 +40,15 @@ jobs:
           name: AutoGDBot-Realtime-Windows
           path: ${{ steps.build.outputs.build-output }}
 
-  build-android64:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build Android64 Geode mod
-        id: build
-        uses: geode-sdk/build-geode-mod@main
-        with:
-          sdk: given
-          target: Android64
-          build-config: Release
-          bindings-ref: f050fd74ad531b0827377c97510cb807903ff1b3
-      - name: Verify Android libc++ ABI
-        shell: bash
-        run: |
-          GEODE_FILE="$(find "${{ steps.build.outputs.build-output }}" -type f -name '*.geode' -print -quit)"
-          test -n "$GEODE_FILE"
-          unzip -p "$GEODE_FILE" autogdbot.realtime.android64.so > /tmp/autogdbot.realtime.android64.so
-          test -s /tmp/autogdbot.realtime.android64.so
-          if readelf -Ws /tmp/autogdbot.realtime.android64.so | grep -E 'UND[[:space:]]+_ZNSt6__ndk113__hash_memoryEPKvm'; then
-            echo "Android build still depends on private libc++ __hash_memory"
-            exit 1
-          fi
-          readelf -Ws /tmp/autogdbot.realtime.android64.so | grep '_ZNSt6__ndk113__hash_memoryEPKvm'
-      - name: Upload Android64 artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: AutoGDBot-Realtime-Android64
-          path: ${{ steps.build.outputs.build-output }}
-
   source:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Archive exact source
-        run: git archive --format=zip --output=AutoGDBot-Realtime-v0.22.0-source.zip HEAD
+        run: git archive --format=zip --output=AutoGDBot-Realtime-v0.23.0-source.zip HEAD
       - uses: actions/upload-artifact@v4
         with:
           name: AutoGDBot-Realtime-source
-          path: AutoGDBot-Realtime-v0.22.0-source.zip
+          path: AutoGDBot-Realtime-v0.23.0-source.zip
+
 

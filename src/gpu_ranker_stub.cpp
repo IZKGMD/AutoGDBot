@@ -14,3 +14,4 @@ bool GpuRanker::submit(GpuState, std::vector<Plan> const &, std::vector<Obstacle
     return false;
 }
 } // namespace agb
+

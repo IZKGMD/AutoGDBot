@@ -42,3 +42,4 @@ Reference inspected: gdsolver/gdsolver at 8e8d69ada86a315c71d05cc8b8fe4d369d883a
 Ordinary native rings/pads and supported single-player mode/gravity/size/speed portals use the existing game hooks. Future trigger-driven world motion and arbitrary action state are incomplete. Dual/solo, mirror/teleport and unsupported frame transitions stop the local forecast for a live re-anchor. These limitations matter to the Fingerdash goal and prevent a near-100% claim.
 
 The historical recording was v0.4, not v0.21.0. Source-only defects reproduced in earlier controller fixtures remain valid as source findings; attribution of the recorded death to v0.21 was withdrawn.
+

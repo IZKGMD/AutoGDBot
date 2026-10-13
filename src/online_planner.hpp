@@ -1,5 +1,6 @@
 #pragma once
 #include "route_proof.hpp"
+#include "launch_window.hpp"
 #include <tuple>
 
 namespace agb {
@@ -10,11 +11,22 @@ class OnlinePlanner {
     Controller seeds_;
     Plan warm_;
     struct Node{Plan plan;int priority=0;bool repair=false;};
+    std::vector<Node> future_;
   public:
-    void reset(){seeds_.reset();warm_={};}
+    void reset(){seeds_.reset();warm_={};future_.clear();}
     void advance(int n=1){seeds_.advance(n);n=std::clamp(n,0,warm_.length);
         for(int t=0;t<warm_.length-n;++t)warm_.buttons[t]=warm_.buttons[t+n];
         warm_.length-=n;std::fill(warm_.buttons.begin()+warm_.length,warm_.buttons.end(),false);}
+    void commit(bool down){
+        std::erase_if(future_,[&](Node &node){
+            auto &p=node.plan;
+            if(p.length<=1||p.at(0)!=down)return true;
+            for(int t=0;t<p.length-1;++t)p.buttons[t]=p.buttons[t+1];
+            p.buttons[--p.length]=false;return false;
+        });
+        advance();
+    }
+    size_t pendingRoutes()const{return future_.size();}
     void seedVerifiedPrefix(Plan const&p,int n){seeds_.seedVerifiedPrefix(p,n);warm_=p;
         warm_.length=std::clamp(n,0,p.length);std::fill(warm_.buttons.begin()+warm_.length,warm_.buttons.end(),false);}
     template<class Evaluator> Decision decide(Config c,bool held,Evaluator &&evaluate){
@@ -43,9 +55,14 @@ class OnlinePlanner {
         if(!c.cubePulsePlanning){press.buttons.fill(true);}
         add(c.immediateOrb?press:coast,1000000,false);
         if(!c.forceRelease)add(c.immediateOrb?coast:press,999999,false);
+        if(warm_.length&&!c.immediateOrb)add(warm_,900000,false);
+        for(auto const &node:future_)add(node.plan,20000+node.priority,node.repair);
+        future_.clear();
         int seedPriority=5000;
         for(auto p:proposals)add(p,seedPriority--,false);
         auto best=std::tuple{-1,-1,-1,-1,-1,-1};
+        struct Safe{Plan plan;Evaluation evaluation;RouteProof proof;decltype(best) rank;};
+        std::vector<Safe> safe;
         auto repair=[&](Plan const&p,Evaluation const&e,int at,PlannerMode m,bool orb=false,bool dash=false){
             if(at<0||at>=MaxHorizon||(at==0&&c.forceRelease))return;
             const auto kind=modePolicy(m).input;
@@ -64,6 +81,7 @@ class OnlinePlanner {
                 add(child,10000+e.survived*8-at,true);
             }
         };
+        std::vector<Node> deferred;
         while(!pending.empty()&&result.candidates<c.candidates){
             if(Clock::now()>=deadline){result.exhausted=true;break;}
             auto picked=std::max_element(pending.begin(),pending.end(),[&](int a,int b){return nodes[a].priority<nodes[b].priority;});
@@ -79,6 +97,7 @@ class OnlinePlanner {
             auto localDeadline=deadline;
             if(result.candidates==0&&!c.forceRelease){auto now=Clock::now();localDeadline=now+(deadline-now)/3;}
             auto e=evaluate(p,localDeadline);++result.candidates;result.repairsTested+=node.repair;
+            if(e.interrupted&&!e.died&&!e.boundary)deferred.push_back({p,e.survived*8,true});
             ++result.firstActionCandidates[p.at(0)];e.routeId=routeFingerprint(e.hasRealized?e.realized:p);
             auto &alt=result.alternatives[p.at(0)];if(e.survived>alt.survived||alt.traces[0].empty())alt=e;
             auto proof=proveRoute(c,p,e);
@@ -90,8 +109,21 @@ class OnlinePlanner {
                 // Progress/room first; launch count is only a tie breaker among
                 // already safe routes, so it cannot hide a necessary gap jump.
                 auto rank=std::tuple{full?2:1,std::min(proof.ticks,c.horizon),
-                    int(std::clamp(e.nearClearance,0.f,120.f)*4),
+                    int(std::clamp(std::min(e.clearance,e.nearClearance),0.f,120.f)*4),
                     c.cubePulsePlanning&&!c.immediateOrb?-e.cubeTakeoffs:0,-changes,continuity};
+                if(full&&safe.size()<24){
+                    safe.push_back({actual,e,proof,rank});
+                    if(c.cubePulsePlanning&&!c.immediateOrb){
+                        int launch=firstLaunch(actual);
+                        for(int delta:{-1,1,-2,2,-4,4}){
+                            int at=launch+delta;
+                            if(launch<0||at<0||at>=actual.length||actual.at(at)||
+                               (at>0&&actual.at(at-1))||(at+1<actual.length&&actual.at(at+1)))continue;
+                            Plan child=actual;child.landingDelay=-1;child.buttons[launch]=false;child.buttons[at]=true;
+                            add(child,100000-std::abs(delta),true);
+                        }
+                    }
+                }
                 if(rank>best){best=rank;result.hasValidatedInput=true;result.down=actual.at(0);
                     result.predictedTicks=e.survived;result.certificateTicks=proof.ticks;
                     result.completeContinuation=full;result.recedingCertificate=!full;
@@ -146,16 +178,45 @@ class OnlinePlanner {
                (c.forceRelease||(result.firstActionCandidates[0]&&result.firstActionCandidates[1])))break;
         }
         result.exhausted|=!pending.empty()&&result.candidates>=c.candidates;
+        if(c.cubePulsePlanning&&!c.immediateOrb&&!safe.empty()){
+            std::vector<Plan> checked;for(auto const&s:safe)checked.push_back(s.plan);
+            auto chosen=std::max_element(safe.begin(),safe.end(),[&](auto const&a,auto const&b){
+                return std::tuple{std::get<0>(a.rank),std::get<1>(a.rank),std::get<2>(a.rank)/16,
+                           firstLaunch(a.plan)<0,launchWindowMargin(a.plan,checked),a.rank}<
+                       std::tuple{std::get<0>(b.rank),std::get<1>(b.rank),std::get<2>(b.rank)/16,
+                           firstLaunch(b.plan)<0,launchWindowMargin(b.plan,checked),b.rank};
+            });
+            if(chosen!=safe.end()){
+                auto const&e=chosen->evaluation;auto proof=chosen->proof;
+                result.hasValidatedInput=true;result.down=chosen->plan.at(0);result.plan=chosen->plan;
+                result.plan.length=proof.ticks;result.certificateTicks=proof.ticks;result.predictedTicks=e.survived;
+                result.completeContinuation=true;result.recedingCertificate=false;result.proofKind=int(proof.kind);
+                result.selected=e;trimProof(result.selected,proof.ticks);
+                result.selected.died=result.selected.interrupted=result.selected.boundary=false;
+                result.selected.realized=result.plan;result.selected.routeId=routeFingerprint(result.plan);
+                result.forecastDied=e.died;result.forecastInterrupted=e.interrupted;
+                if(e.cacheResumeTicks==0)coldFallback=result;
+            }
+        }
         if constexpr(requires(Plan p){evaluate(p,confirmationDeadline,false);}){
             if(result.hasValidatedInput&&result.selected.cacheResumeTicks>0){
                 auto cold=evaluate(result.plan,confirmationDeadline,false);
                 result.coldVerificationTicks=cold.survived;
                 auto proof=proveRoute(c,result.plan,cold);
+                auto checked=cold;
+                if(proof&&proof.ticks>=result.certificateTicks){
+                    trimProof(checked,result.certificateTicks);
+                    checked.died=checked.interrupted=checked.boundary=false;
+                    checked.firstActionVerified=true;
+                    if(proof.kind==ProofKind::GroundWait)
+                        checked.requiresLanding=checked.landingVerified=false;
+                }
                 if(proof&&proof.ticks>=result.certificateTicks&&
-                   sameTimeline(result.selected,cold,result.certificateTicks,c.dual)){
-                    result.selected=std::move(cold);trimProof(result.selected,result.certificateTicks);
+                   sameTimeline(result.selected,checked,result.certificateTicks,c.dual)){
+                    result.selected=std::move(checked);
                     result.selected.realized=result.plan;result.selected.routeId=routeFingerprint(result.plan);
                 }else{
+                    deferred.push_back({result.plan,100000,true});
                     ++result.cacheMismatches;
                     int mismatches=result.cacheMismatches,checked=result.coldVerificationTicks;
                     retainSearchDiagnostics(coldFallback,result);result=std::move(coldFallback);
@@ -163,9 +224,17 @@ class OnlinePlanner {
                 }
             }
         }
+        for(int id:pending)deferred.push_back({nodes[id].plan,std::min(nodes[id].priority,80000),nodes[id].repair});
+        std::stable_sort(deferred.begin(),deferred.end(),[](auto const&a,auto const&b){return a.priority>b.priority;});
+        for(auto const&node:deferred){
+            if(future_.size()>=128)break;
+            bool duplicate=false;for(auto const&old:future_)duplicate|=old.plan.buttons==node.plan.buttons&&old.plan.landingDelay==node.plan.landingDelay;
+            if(!duplicate)future_.push_back(node);
+        }
         for(auto const&n:nodes)result.proposals.push_back(n.plan);
-        if(result.hasValidatedInput)seedVerifiedPrefix(result.plan,result.certificateTicks);else reset();
+        if(result.hasValidatedInput)seedVerifiedPrefix(result.plan,result.certificateTicks);
         result.elapsedMs=std::chrono::duration<double,std::milli>(Clock::now()-start).count();return result;
     }
 };
 }
+

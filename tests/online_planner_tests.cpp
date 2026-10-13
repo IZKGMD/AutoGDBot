@@ -99,6 +99,21 @@ int main(){
         e.requiresLanding=false;e.firstActionVerified=true;e.boundary=true;e.groundedPrefixTicks=0;
         check(!proveRoute(c,p,e),"unsupported boundary cannot certify a grounded cube takeoff");
     });
+    run("sliced search can commit a closed flight, never an open one",[]{
+        auto c=config();Plan p;p.length=480;p.buttons[0]=true;
+        auto e=trace(p,180);e.interrupted=true;e.requiresLanding=true;
+        e.landingVerified=e.decisionPoint=e.firstActionVerified=true;
+        check(proveRoute(c,p,e).kind==ProofKind::LandedPrefix,"native stable landing is a legal receding endpoint");
+        e.landingVerified=false;check(!proveRoute(c,p,e),"open flight remains uncommittable");
+        e.landingVerified=true;e.died=true;check(!proveRoute(c,p,e),"known fatal continuation cannot certify a launch");
+        e.died=false;e.decisionPoint=false;check(!proveRoute(c,p,e),"landing without reaction runway cannot close the proof");
+    });
+    run("startup wait keeps takeoff reserve without requiring a long queue",[]{
+        auto c=config();Plan p;p.length=480;auto e=trace(p,34,true);e.groundedPrefixTicks=34;
+        auto proof=proveRoute(c,p,e);
+        check(proof.kind==ProofKind::GroundWait&&proof.ticks>=2&&proof.ticks<=34-reactionTicks(c.tickSeconds),
+            "brief verified waiting keeps the complete takeoff reserve while search continues");
+    });
     run("ground wait excludes a known fatal tail and keeps takeoff reserve",[]{
         auto c=config();c.forceRelease=true;c.candidates=4;OnlinePlanner solver;
         auto d=solver.decide(c,false,[](Plan const&p,auto){auto e=trace(p,140,true);e.requiresLanding=true;
@@ -158,3 +173,4 @@ int main(){
     });
     return failures?1:0;
 }
+

@@ -62,3 +62,4 @@ constexpr bool controlOpportunity(PlannerMode m, bool grounded, bool orb) {
     }
 }
 } // namespace agb
+

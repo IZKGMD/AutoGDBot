@@ -28,3 +28,4 @@ int main(){
     check(resumed.y==full.y&&resumed.velocity==full.velocity,"shared-prefix integration remains bit exact");
     std::cout<<"PASS: bounded prefix cache, exact lineage keys, policy isolation and cold/resumed numerical agreement\n";
 }
+

@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="(empty)"
+	tests="11"
+	failures="0"
+	disabled="0"
+	skipped="0"
+	hostname=""
+	time="6"
+	timestamp="2026-10-13T23:37:28"
+	>
+	<testcase name="persistent_search_tests" classname="persistent_search_tests" time="0.010507" status="run">
+		<properties/>
+		<system-out>PASS: 4096 timing-hole patterns, 48 split-replay lengths, live invalidation, native phase and persistent frontier
+</system-out>
+	</testcase>
+	<testcase name="online_planner_tests" classname="online_planner_tests" time="0.00883751" status="run">
+		<properties/>
+		<system-out>PASS: landing does not terminate the planned window
+PASS: empty floor stays grounded
+PASS: gap branches before the native support loss
+PASS: independent cube integration crosses a red kill zone below a pit
+PASS: independent wave corridor needs alternating controls
+PASS: a falling horizon endpoint cannot become a safe cube route
+PASS: sliced search can commit a closed flight, never an open one
+PASS: startup wait keeps takeoff reserve without requiring a long queue
+PASS: ground wait excludes a known fatal tail and keeps takeoff reserve
+PASS: all native control modes share the proof pipeline
+PASS: portal and following orb stay on one lineage
+PASS: cached route requires an independent replay
+PASS: candidate cap and expired deadline
+</system-out>
+	</testcase>
+	<testcase name="prefix_cache_tests" classname="prefix_cache_tests" time="0.00206119" status="run">
+		<properties/>
+		<system-out>PASS: bounded prefix cache, exact lineage keys, policy isolation and cold/resumed numerical agreement
+</system-out>
+	</testcase>
+	<testcase name="block_regression_tests" classname="block_regression_tests" time="0.00260284" status="run">
+		<properties/>
+		<system-out>PASS: empty floor does not earn a jump
+PASS: coast repairs cannot consume all compound-jump slots
+PASS: airborne release prioritizes a discovered touchdown
+PASS: repair pool cannot exceed the evaluation budget
+PASS: late portal control keeps its extended timeline
+</system-out>
+	</testcase>
+	<testcase name="portal_tests" classname="portal_tests" time="0.00301287" status="run">
+		<properties/>
+		<system-out>PASS: gap-to-portal branching, post-contact proof, mode transitions, consumed orbs and aligned route traces
+</system-out>
+	</testcase>
+	<testcase name="controller_tests" classname="controller_tests" time="0.00413884" status="run">
+		<properties/>
+		<system-out>PASS: strict fatal/partial cube rejection, flight certificates, physics order, joined/reverse ledge events, delayed takeoff priority, landing verification gate, unique CPU/GPU proposals, safe continuation early exit, cube pulse/live forecast agreement, no flight hold, continuous-mode/dash hold, mandatory release candidates/dead-end fallback, stable first-action tie, hazard landing/clearance/swept/reverse guard, missed native hazard rejection, command/native time units, live timing calibration, grounded jump, detached travel, native travel preservation, sideways/reverse motion, direct input/resynchronization, forward obstacle, first-action coverage, multi-switch route, dead-end fallback, GPU validation gate, interrupted rollout, deterministic reset, deadline (0.201837 ms)
+</system-out>
+	</testcase>
+	<testcase name="staircase_tests" classname="staircase_tests" time="6.04117" status="run">
+		<properties/>
+		<system-out>PASS: repeated touchdown pulses, completed tails, five legacy and five persistent staircase runs
+</system-out>
+	</testcase>
+	<testcase name="mode_tests" classname="mode_tests" time="0.0039792" status="run">
+		<properties/>
+		<system-out>Mode tests passed: 9 action-window routes; flag, transition, dual and landing regressions.
+</system-out>
+	</testcase>
+	<testcase name="interaction_tests" classname="interaction_tests" time="0.00271522" status="run">
+		<properties/>
+		<system-out>Interaction tests passed: 2048 rollback states, live pad/dual ownership, rapid orb input, cache invalidation and ledge runway.
+</system-out>
+	</testcase>
+	<testcase name="survival_tests" classname="survival_tests" time="0.0118581" status="run">
+		<properties/>
+		<system-out>PASS: full orb chains, bounded labelled recovery, dual/input proof, native-motion queue and 400 cached geometry comparisons
+</system-out>
+	</testcase>
+	<testcase name="accuracy_tests" classname="accuracy_tests" time="0.00293671" status="run">
+		<properties/>
+		<system-out>PASS: fatal/unknown launch rejection, grounded waits, delayed safe takeoffs, fair deadlines and queued airborne edges
+</system-out>
+	</testcase>
+</testsuite>

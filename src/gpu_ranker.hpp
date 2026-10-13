@@ -24,3 +24,4 @@ class GpuRanker {
     bool submit(GpuState, std::vector<Plan> const &, std::vector<Obstacle> const &);
 };
 } // namespace agb
+

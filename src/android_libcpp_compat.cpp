@@ -28,3 +28,4 @@ std::size_t agb_ndk_hash_memory(void const *data, std::size_t size) {
     }
     return hash;
 }
+

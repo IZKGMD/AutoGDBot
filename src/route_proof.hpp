@@ -2,7 +2,7 @@
 #include "controller.hpp"
 
 namespace agb {
-enum class ProofKind { None, GroundWait, ControlPrefix, LandedRoute, Horizon };
+enum class ProofKind { None, GroundWait, ControlPrefix, LandedRoute, Horizon, LandedPrefix };
 struct RouteProof { ProofKind kind=ProofKind::None; int ticks=0; explicit operator bool()const{return ticks>0;} };
 inline int reactionTicks(double dt,double seconds=.12){
     return std::clamp(int(std::ceil(seconds/std::clamp(dt,.001,1./30))),4,MaxHorizon);
@@ -29,6 +29,13 @@ inline RouteProof proveRoute(Config const&c,Plan const&p,Evaluation const&e){
        e.survived>=p.length&&(!e.requiresLanding||e.landingVerified)&&traceCovers(e,e.survived,c.dual))
         return {e.requiresLanding?ProofKind::LandedRoute:ProofKind::Horizon,
                 std::min(e.survived,MaxHorizon)};
+    // A deadline may stop after a complete flight and a checked native landing
+    // with reaction runway. Commit that closed flight while the far frontier
+    // continues; never commit an unfinished flight or a known fatal tail.
+    if(landingMode&&e.interrupted&&!e.died&&!e.boundary&&portals&&
+       e.firstActionVerified&&e.requiresLanding&&e.landingVerified&&e.decisionPoint&&
+       e.survived>=minimum&&traceCovers(e,e.survived,c.dual))
+        return {ProofKind::LandedPrefix,e.survived};
     // Waiting is proved by the native contiguous grounded segment, even when
     // its uncommitted tail later falls. Reserve enough ground for takeoff;
     // never authorize the whole fatal/unfinished tail as a queued coast.
@@ -37,7 +44,10 @@ inline RouteProof proveRoute(Config const&c,Plan const&p,Evaluation const&e){
         if(e.supportLossTick>=0)n=std::min(n,std::max(0,e.supportLossTick-reactionTicks(c.tickSeconds)));
         if(e.died)n=std::min(n,std::max(0,e.survived-reactionTicks(c.tickSeconds)));
         if(e.boundary)n=std::min(n,std::max(0,e.survived-1));
-        if(n>=minimum&&traceCovers(e,n,c.dual))return {ProofKind::GroundWait,n};
+        // A brief checked wait is useful during startup of the sliced search.
+        // The takeoff reserve above still applies; demanding another .10s of
+        // queued ground used to reject all input before a nearby first jump.
+        if(n>=2&&traceCovers(e,n,c.dual))return {ProofKind::GroundWait,n};
     }
     // Responsive modes can commit a short checked control segment. A newly
     // launched cube/robot cannot: its unsteerable flight must be proved first.
@@ -70,3 +80,4 @@ inline bool sameTimeline(Evaluation const&a,Evaluation const&b,int n,bool dual){
     return true;
 }
 }
+

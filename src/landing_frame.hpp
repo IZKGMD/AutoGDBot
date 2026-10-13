@@ -24,11 +24,14 @@ inline float supportRunway(Bounds foot, float dx, std::span<Bounds const> solids
             merged.back().second = std::max(merged.back().second, span.second);
         else merged.push_back(span);
     }
+    float longest=0;bool found=false;
     for (auto span : merged) {
         if (foot.maxX < span.first || foot.minX > span.second) continue;
-        const float runway = dx > 0 ? span.second - foot.maxX : foot.minX - span.first;
-        best = std::min(best, std::max(0.f, runway));
+        // Support persists until the TRAILING edge leaves the surface.
+        const float runway = dx > 0 ? span.second - foot.minX : foot.maxX - span.first;
+        longest=std::max(longest,std::max(0.f,runway));found=true;
     }
-    return best;
+    return found?longest:best;
 }
 }
+
