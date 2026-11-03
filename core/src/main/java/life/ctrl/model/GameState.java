@@ -35,7 +35,11 @@ public final class GameState {
   }
 
   public String objective() {
-    if (deliveredLetter) return "Вернись домой. В этом городе тебя уже знают.";
+    if (deliveredLetter) {
+      return map.equals("room")
+          ? "Ты дома. Первый вечер стал началом истории."
+          : "Письмо у Миры. Гуляй дальше или возвращайся домой.";
+    }
     if (hasLetter) return "Отнеси письмо Мире в подъезд.";
     if (askedLetter) return "Найди письмо под лавкой у магазина, справа.";
     if (!metMira) return "Осмотрись дома и познакомься с соседкой.";
