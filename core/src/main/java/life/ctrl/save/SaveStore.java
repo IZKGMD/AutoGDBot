@@ -1,0 +1,116 @@
+package life.ctrl.save;
+
+import com.badlogic.gdx.utils.Json;
+import com.badlogic.gdx.utils.JsonWriter;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
+import life.ctrl.content.Content;
+import life.ctrl.model.*;
+
+/** Validated, atomic single-slot saves with a previous-good backup. */
+public final class SaveStore {
+  public static final int VERSION = 1;
+
+  public static final class Envelope {
+    public int version = VERSION;
+    public GameState state;
+
+    public Envelope() {}
+
+    public Envelope(GameState s) {
+      state = s;
+    }
+  }
+
+  public record Loaded(GameState state, boolean fromBackup) {}
+
+  private final Path directory;
+  private final Content content;
+
+  public SaveStore(Path directory, Content content) {
+    this.directory = directory;
+    this.content = content;
+  }
+
+  public static Path defaultDirectory() {
+    String override = System.getProperty("ctrl.dataDir");
+    if (override != null) return Path.of(override);
+    String base =
+        System.getProperty("os.name").startsWith("Windows")
+            ? System.getenv("LOCALAPPDATA")
+            : System.getenv("XDG_DATA_HOME");
+    if (base == null || base.isBlank())
+      base = Path.of(System.getProperty("user.home"), ".local", "share").toString();
+    return Path.of(base, "CtrlLife");
+  }
+
+  private Json json() {
+    Json j = new Json();
+    j.setOutputType(JsonWriter.OutputType.json);
+    j.setUsePrototypes(false);
+    return j;
+  }
+
+  public boolean exists() {
+    return Files.isRegularFile(directory.resolve("save.json"))
+        || Files.isRegularFile(directory.resolve("save.backup.json"));
+  }
+
+  private GameState read(Path file) throws IOException {
+    if (Files.size(file) > 65536) throw new IOException("Файл сохранения слишком большой");
+    try {
+      Envelope e = json().fromJson(Envelope.class, Files.readString(file, StandardCharsets.UTF_8));
+      if (e == null || e.version != VERSION || e.state == null)
+        throw new IllegalArgumentException("Версия сохранения не поддерживается");
+      new World(content, e.state);
+      return e.state;
+    } catch (RuntimeException ex) {
+      throw new IOException("Повреждённое или несовместимое сохранение", ex);
+    }
+  }
+
+  public Loaded load() throws IOException {
+    try {
+      return new Loaded(read(directory.resolve("save.json")), false);
+    } catch (IOException main) {
+      try {
+        return new Loaded(read(directory.resolve("save.backup.json")), true);
+      } catch (IOException backup) {
+        throw new IOException("Не удалось прочитать сохранение и резервную копию", main);
+      }
+    }
+  }
+
+  public void save(GameState state) throws IOException {
+    new World(content, state);
+    Files.createDirectories(directory);
+    Path main = directory.resolve("save.json"),
+        temp = directory.resolve("save.tmp.json"),
+        backup = directory.resolve("save.backup.json");
+    Files.writeString(temp, json().prettyPrint(new Envelope(state)), StandardCharsets.UTF_8);
+    read(temp);
+    if (Files.isRegularFile(main)) {
+      boolean valid = true;
+      try {
+        read(main);
+      } catch (IOException ignored) {
+        valid = false;
+      }
+      if (valid) Files.copy(main, backup, StandardCopyOption.REPLACE_EXISTING);
+    }
+    replace(temp, main);
+  }
+
+  public static void replace(Path temp, Path file) throws IOException {
+    try {
+      Files.move(temp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+    } catch (AtomicMoveNotSupportedException ex) {
+      Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+    }
+  }
+
+  public Path directory() {
+    return directory;
+  }
+}

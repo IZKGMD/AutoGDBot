@@ -1,0 +1,43 @@
+apply plugin: 'application'
+application {
+    mainClass = 'life.ctrl.desktop.DesktopLauncher'
+    applicationName = 'ctrl-life'
+    applicationDefaultJvmArgs = ['-Dfile.encoding=UTF-8']
+}
+dependencies {
+    implementation project(':core')
+    implementation 'com.badlogicgames.gdx:gdx-backend-lwjgl3:1.13.1'
+    runtimeOnly 'com.badlogicgames.gdx:gdx-platform:1.13.1:natives-desktop'
+    for (module in ['lwjgl', 'lwjgl-glfw', 'lwjgl-jemalloc', 'lwjgl-openal', 'lwjgl-opengl', 'lwjgl-stb']) {
+        runtimeOnly "org.lwjgl:${module}:3.3.3:natives-windows"
+        runtimeOnly "org.lwjgl:${module}:3.3.3:natives-linux"
+    }
+}
+distributions.main.contents {
+    from(rootProject.file('README.md'))
+    from(rootProject.file('run.bat'))
+    from(rootProject.file('LICENSE'))
+    from(rootProject.file('THIRD_PARTY.md'))
+}
+sourceSets {
+    smoke {
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+configurations {
+    smokeImplementation.extendsFrom implementation
+    smokeRuntimeOnly.extendsFrom runtimeOnly
+}
+tasks.register('guiSmoke', JavaExec) {
+    dependsOn smokeClasses
+    classpath = sourceSets.smoke.runtimeClasspath
+    mainClass = 'life.ctrl.desktop.GuiSmoke'
+    systemProperty 'ctrl.test', 'true'
+    systemProperty 'ctrl.noAudio', providers.gradleProperty('noAudio').getOrElse('true')
+    systemProperty 'ctrl.fps', providers.gradleProperty('fps').getOrElse('60')
+    systemProperty 'ctrl.menuOnly', providers.gradleProperty('menuOnly').getOrElse('false')
+    systemProperty 'ctrl.dataDir', layout.buildDirectory.dir('smoke/save').get().asFile.absolutePath
+    systemProperty 'ctrl.shots', layout.buildDirectory.dir('smoke/screenshots').get().asFile.absolutePath
+    systemProperty 'ctrl.soakSeconds', providers.gradleProperty('soakSeconds').getOrElse('0')
+}

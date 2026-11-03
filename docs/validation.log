@@ -1,0 +1,127 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :lwjgl3:processResources NO-SOURCE
+> Task :lwjgl3:processTestResources NO-SOURCE
+> Task :lwjgl3:processSmokeResources NO-SOURCE
+> Task :core:compileJava UP-TO-DATE
+> Task :core:processResources UP-TO-DATE
+> Task :core:classes UP-TO-DATE
+> Task :core:jar UP-TO-DATE
+> Task :core:compileTestJava UP-TO-DATE
+> Task :lwjgl3:compileJava UP-TO-DATE
+> Task :lwjgl3:classes UP-TO-DATE
+> Task :core:processTestResources NO-SOURCE
+> Task :core:testClasses UP-TO-DATE
+> Task :lwjgl3:jar UP-TO-DATE
+> Task :lwjgl3:compileTestJava
+> Task :lwjgl3:testClasses
+> Task :lwjgl3:test
+> Task :lwjgl3:compileSmokeJava
+> Task :lwjgl3:smokeClasses
+> Task :core:test
+
+> Task :lwjgl3:guiSmoke
+GUI: wait boot
+GUI: menu screenshot
+GUI: wait CREATE
+GUI: create screenshot
+GUI: wait WORLD
+GUI: room screenshot
+GUI: path to 128.0,140.0
+GUI: walk to 128.0,140.0
+GUI: interact
+GUI: wait DIALOGUE
+GUI: computer screenshot
+GUI: choose 1
+GUI: choose 1
+GUI: wait WORLD
+GUI: computer flag
+GUI: path to 243.0,252.0
+GUI: walk to 243.0,252.0
+GUI: interact
+GUI: entered stair
+GUI: approach Mira
+GUI: wait DIALOGUE
+GUI: Mira screenshot
+GUI: choose 1
+GUI: choose 1
+GUI: wait WORLD
+GUI: Mira request
+GUI: path to 244.0,254.0
+GUI: walk to 244.0,254.0
+GUI: interact
+GUI: street screenshot
+GUI: path to 480.0,287.0
+GUI: walk to 480.0,287.0
+GUI: street middle screenshot
+GUI: path to 675.0,310.0
+GUI: walk to 675.0,310.0
+GUI: interact
+GUI: wait DIALOGUE
+GUI: choose 1
+GUI: wait WORLD
+GUI: letter collected
+GUI: wait BAG
+GUI: inventory screenshot
+GUI: wait WORLD
+GUI: map
+GUI: wait MAP
+GUI: map screenshot
+GUI: path to 174.0,235.0
+GUI: walk to 174.0,235.0
+GUI: interact
+GUI: return stair
+GUI: return to Mira
+GUI: wait DIALOGUE
+GUI: choose 1
+GUI: choose 1
+GUI: wait WORLD
+GUI: letter delivered
+GUI: path to 160.0,87.0
+GUI: walk to 160.0,87.0
+GUI: interact
+GUI: home again
+GUI: wait JOURNAL
+GUI: journal screenshot
+GUI: focus loss
+GUI: paused time start
+GUI: pause time
+GUI: paused time check
+GUI: pause screenshot
+GUI: wait SETTINGS
+GUI: music mouse click
+GUI: music changed
+GUI: settings screenshot
+GUI: wait CONTROLS
+GUI: controls screenshot
+GUI: bind T
+GUI: back controls
+GUI: wait SETTINGS
+GUI: back settings
+GUI: wait PAUSE
+GUI: back menu
+GUI: wait MENU
+GUI: continue
+GUI: wait WORLD
+GUI: restored
+GUI: move with remapped T
+GUI: hold remapped key
+GUI: remapped movement works
+GUI: 960 resize
+GUI: resize settle
+GUI: small screenshot
+GUI: 1080 resize
+GUI: large settle
+GUI: 1080 screenshot
+GUI: restore size
+GUI: soak
+GUI_SMOKE_PASS: movement, 3 maps, dialogues, quest, save/continue, focus, menus, resize. Frames=9002 seconds=300.03345
+GUI: finished
+
+> Task :lwjgl3:startScripts
+> Task :lwjgl3:distZip
+Persisted dependency lock state for project ':core'
+Persisted dependency lock state for project ':lwjgl3'
+
+BUILD SUCCESSFUL in 5m 13s
+13 actionable tasks: 7 executed, 6 up-to-date

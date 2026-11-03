@@ -1,0 +1,16 @@
+# This is a Gradle generated file for dependency locking.
+# Manual edits can break the build and are not advised.
+# This file is expected to be part of source control.
+com.badlogicgames.gdx:gdx-backend-lwjgl3:1.13.1=compileClasspath,runtimeClasspath,smokeCompileClasspath,smokeRuntimeClasspath
+com.badlogicgames.gdx:gdx-jnigen-loader:2.5.2=compileClasspath,runtimeClasspath,smokeCompileClasspath,smokeRuntimeClasspath
+com.badlogicgames.gdx:gdx-platform:1.13.1=runtimeClasspath,smokeRuntimeClasspath
+com.badlogicgames.gdx:gdx:1.13.1=compileClasspath,runtimeClasspath,smokeCompileClasspath,smokeRuntimeClasspath
+com.badlogicgames.jlayer:jlayer:1.0.1-gdx=compileClasspath,runtimeClasspath,smokeCompileClasspath,smokeRuntimeClasspath
+org.jcraft:jorbis:0.0.17=compileClasspath,runtimeClasspath,smokeCompileClasspath,smokeRuntimeClasspath
+org.lwjgl:lwjgl-glfw:3.3.3=compileClasspath,runtimeClasspath,smokeCompileClasspath,smokeRuntimeClasspath
+org.lwjgl:lwjgl-jemalloc:3.3.3=compileClasspath,runtimeClasspath,smokeCompileClasspath,smokeRuntimeClasspath
+org.lwjgl:lwjgl-openal:3.3.3=compileClasspath,runtimeClasspath,smokeCompileClasspath,smokeRuntimeClasspath
+org.lwjgl:lwjgl-opengl:3.3.3=compileClasspath,runtimeClasspath,smokeCompileClasspath,smokeRuntimeClasspath
+org.lwjgl:lwjgl-stb:3.3.3=compileClasspath,runtimeClasspath,smokeCompileClasspath,smokeRuntimeClasspath
+org.lwjgl:lwjgl:3.3.3=compileClasspath,runtimeClasspath,smokeCompileClasspath,smokeRuntimeClasspath
+empty=annotationProcessor,smokeAnnotationProcessor

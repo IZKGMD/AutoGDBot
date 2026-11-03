@@ -1,0 +1,12 @@
+allprojects {
+    group = 'life.ctrl'
+    version = '0.1.0'
+    repositories { mavenCentral() }
+}
+subprojects {
+    apply plugin: 'java'
+    java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+    tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+    tasks.withType(Test).configureEach { useJUnitPlatform() }
+    dependencyLocking { lockAllConfigurations() }
+}

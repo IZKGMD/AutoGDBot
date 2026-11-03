@@ -1,0 +1,8 @@
+Linux/Xvfb production launcher: PASS
+Window: CTRL+LIFE — Нулевой билд, 1440x810
+OpenAL: enabled, null output device
+Normal WM_DELETE_WINDOW request: handled
+Process exit code: 0
+Console errors: none
+Save created before starting a game: no
+Windows execution: not tested
