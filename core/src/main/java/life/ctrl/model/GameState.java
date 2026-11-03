@@ -1,12 +1,30 @@
 package life.ctrl.model;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 
 /** Only durable values: no graphics, input state, or transient UI. */
 public final class GameState {
   public String name = "Саша", map = "room";
-  public float x = 240, y = 176;
+  public float x = 240, y = 190;
   public int direction = 0, outfit = 0;
+  public int money = 10000, rentDebt = 0, rentThroughDay = 3;
+  public double health = 85, hunger = 42, energy = 62, mood = 45, gameMinutes = 17 * 60 + 30;
+  public boolean introSeen, ateFirstMeal, firstDateFinished;
+  public String trackedGirl = "mira",
+      partnerId = "",
+      plannedGirl = "",
+      plannedVenue = "",
+      activeJob = "",
+      codeSource = "",
+      activeLedger = "";
+  public int plannedDay = -1, typedCount = 0, jobStage = 0, algorithm = 0, goalChoice = 0;
+  public boolean programPreviewed;
+  public int lastCourierMinute = -10000, lastFreeMealDay = -1;
+  public ArrayList<String> paidJobs = new ArrayList<>();
+  public ArrayList<Economy.Entry> transactions = new ArrayList<>();
+  public HashMap<String, Integer> items = new HashMap<>();
+  public HashMap<String, Relationship> relationships = new HashMap<>();
   public double elapsed = 0;
   public boolean inspectedPc,
       metMira,
@@ -26,7 +44,19 @@ public final class GameState {
   }
 
   public int minutes() {
-    return 18 * 60 + 40 + (int) (elapsed / 2);
+    return (int) gameMinutes;
+  }
+
+  public int day() {
+    return 1 + minutes() / 1440;
+  }
+
+  public int count(String id) {
+    return items.getOrDefault(id, 0);
+  }
+
+  public Relationship relation(String id) {
+    return relationships.computeIfAbsent(id, k -> new Relationship());
   }
 
   public String clock() {
@@ -35,14 +65,18 @@ public final class GameState {
   }
 
   public String objective() {
-    if (deliveredLetter) {
-      return map.equals("room")
-          ? "Ты дома. Первый вечер стал началом истории."
-          : "Письмо у Миры. Гуляй дальше или возвращайся домой.";
-    }
-    if (hasLetter) return "Отнеси письмо Мире в подъезд.";
-    if (askedLetter) return "Найди письмо под лавкой у магазина, справа.";
-    if (!metMira) return "Осмотрись дома и познакомься с соседкой.";
-    return "Поговори с Аркадием и прогуляйся по улице.";
+    if (paidJobs.isEmpty())
+      return inspectedPc
+          ? "Закончи первый заказ в KeyCode. Оплата: 650 ₽."
+          : "Подойди к столу и включи компьютер [E].";
+    if (!ateFirstMeal) return "Зайди в «Ложку» и поешь у стойки [E].";
+    if (!plannedGirl.isEmpty()) return "Свидание назначено. Доберись до места встречи.";
+    if (!firstDateFinished) return "Познакомься с Мирой: разговор → приглашение на свидание.";
+    if (energy < 30) return "Вернись в комнату и выспись [E у кровати].";
+    return switch (goalChoice) {
+      case 1 -> "Заработай кодингом: новые заказы на домашнем ПК.";
+      case 2 -> "Проведи время с девушкой: контакты [R].";
+      default -> "Твоя жизнь: заказы, знакомства, еда и новые дни.";
+    };
   }
 }

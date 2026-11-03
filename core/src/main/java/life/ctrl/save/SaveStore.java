@@ -10,7 +10,7 @@ import life.ctrl.model.*;
 
 /** Validated, atomic single-slot saves with a previous-good backup. */
 public final class SaveStore {
-  public static final int VERSION = 1;
+  public static final int VERSION = 2;
 
   public static final class Envelope {
     public int version = VERSION;
@@ -61,8 +61,23 @@ public final class SaveStore {
     if (Files.size(file) > 65536) throw new IOException("Файл сохранения слишком большой");
     try {
       Envelope e = json().fromJson(Envelope.class, Files.readString(file, StandardCharsets.UTF_8));
-      if (e == null || e.version != VERSION || e.state == null)
+      if (e == null || (e.version < 1 || e.version > VERSION) || e.state == null)
         throw new IllegalArgumentException("Версия сохранения не поддерживается");
+      if (e.version == 1) {
+        e.state.gameMinutes = 17 * 60 + 30 + e.state.elapsed / 2;
+        var m = content.map(e.state.map);
+        // The cutaway room and furniture changed. Old positions get a safe entrance.
+        if (e.state.map.equals("room")) {
+          e.state.x = m.spawnX;
+          e.state.y = m.spawnY;
+        }
+        try {
+          new World(content, e.state);
+        } catch (IllegalArgumentException ex) {
+          e.state.x = m.spawnX;
+          e.state.y = m.spawnY;
+        }
+      }
       new World(content, e.state);
       return e.state;
     } catch (RuntimeException ex) {

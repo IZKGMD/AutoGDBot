@@ -87,8 +87,25 @@ public final class PixelCanvas implements Disposable {
           "arkady",
           "lev"
         }) texture(n);
-    for (String n : new String[] {"hero", "hero_1", "hero_2", "mira", "arkady", "lev"})
-      actors.put(n, TextureRegion.split(texture(n), 16, 24));
+    for (String n :
+        new String[] {
+          "cafe",
+          "diner",
+          "workshop",
+          "park",
+          "counter",
+          "table",
+          "portrait_asya",
+          "portrait_nika",
+          "portrait_tamara",
+          "asya",
+          "nika",
+          "tamara"
+        }) texture(n);
+    for (String n :
+        new String[] {
+          "hero", "hero_1", "hero_2", "mira", "arkady", "lev", "asya", "nika", "tamara"
+        }) actors.put(n, TextureRegion.split(texture(n), 16, 24));
   }
 
   public Texture texture(String name) {
@@ -150,6 +167,10 @@ public final class PixelCanvas implements Disposable {
   public void art(String name, float x, float y) {
     Texture t = texture(name);
     batch.draw(t, Math.round(x), H - Math.round(y) - t.getHeight());
+  }
+
+  public void scaledArt(String name, float x, float y, float width, float height) {
+    batch.draw(texture(name), Math.round(x), H - Math.round(y) - height, width, height);
   }
 
   public void actor(String name, int dir, int animation, float x, float feetY, int outfit) {

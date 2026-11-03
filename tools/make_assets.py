@@ -142,7 +142,7 @@ for x in range(18,945,18):rect(d,(x,477,x+2,503),'#263b43');rect(d,(x,482,x+17,4
 rect(d,(16,205,56,216),'#55696d');rect(d,(289,205,392,216),'#55696d');rect(d,(553,205,615,216),'#55696d');rect(d,(871,205,943,216),'#55696d')
 save(street,'street')
 # BMFont, thresholded for crisp nearest-neighbour text. Includes all Cyrillic.
-chars=''.join(dict.fromkeys(''.join(chr(i) for i in range(32,127))+''.join(chr(i) for i in range(0x400,0x460))+'—–…«»№•·×→←↑↓✓'))
+chars=''.join(dict.fromkeys(''.join(chr(i) for i in range(32,127))+''.join(chr(i) for i in range(0x400,0x460))+'—–…«»№•·×→←↑↓✓₽−'))
 for name,size,path in [('ui',11,'/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'),('small',9,'/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'),('title',27,'/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf')]:
  font=ImageFont.truetype(path,size);cell=size+8;cols=16; im=Image.new('L',(cols*cell,math.ceil(len(chars)/cols)*cell));dd=ImageDraw.Draw(im);rows=[]
  for i,ch in enumerate(chars):
@@ -174,3 +174,4 @@ print('Assets generated: original scene art, sprites, Cyrillic fonts and four PC
 import runpy
 runpy.run_path(str(Path(__file__).with_name('polish_assets.py')))
 runpy.run_path(str(Path(__file__).with_name('make_soundscape.py')))
+runpy.run_path(str(Path(__file__).with_name('make_chapter2_art.py')))

@@ -34,6 +34,8 @@ public final class Settings {
         || key == Keys.ENTER
         || key == Keys.F11
         || key == Keys.F5
+        || key == Keys.R
+        || key == Keys.B
         || key == Keys.I
         || key == Keys.M
         || key == Keys.TAB

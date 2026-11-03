@@ -17,6 +17,12 @@ public final class Content {
     public float[][] solids;
     public Prop[] objects;
     public Npc[] npcs;
+    public Sign[] signs;
+  }
+
+  public static final class Sign {
+    public String text, color;
+    public float x, y;
   }
 
   public static final class Prop {

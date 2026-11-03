@@ -8,6 +8,26 @@ public final class World {
   public final Content content;
   public final GameState state;
   public boolean moving;
+  private String cacheMap = "", cacheGirl = "", cacheVenue = "";
+  private final ArrayList<Content.Npc> activeNpcs = new ArrayList<>();
+
+  public List<Content.Npc> npcs() {
+    if (!cacheMap.equals(state.map)
+        || !cacheGirl.equals(state.plannedGirl)
+        || !cacheVenue.equals(state.plannedVenue)) {
+      cacheMap = state.map;
+      cacheGirl = state.plannedGirl;
+      cacheVenue = state.plannedVenue;
+      activeNpcs.clear();
+      for (var m : content.maps)
+        for (var n : m.npcs) {
+          boolean meeting = n.id.equals(state.plannedGirl);
+          if (meeting ? state.map.equals(state.plannedVenue) : m.id.equals(state.map))
+            activeNpcs.add(n);
+        }
+    }
+    return activeNpcs;
+  }
 
   public World(Content content, GameState state) {
     this.content = content;
@@ -33,14 +53,58 @@ public final class World {
         || state.outfit < 0
         || state.outfit > 2
         || state.visited == null) throw new IllegalArgumentException("Некорректное сохранение");
+    if (state.money < 0
+        || state.rentDebt < 0
+        || state.rentThroughDay < 3
+        || !validNeed(state.health)
+        || !validNeed(state.hunger)
+        || !validNeed(state.energy)
+        || !validNeed(state.mood)
+        || !Double.isFinite(state.gameMinutes)
+        || state.gameMinutes < 0
+        || state.gameMinutes > 1e7
+        || state.items == null
+        || state.relationships == null
+        || state.paidJobs == null
+        || state.transactions == null
+        || state.activeJob == null
+        || state.activeLedger == null
+        || state.codeSource == null
+        || state.codeSource.length() > 4096
+        || state.typedCount < 0
+        || state.typedCount > state.codeSource.length()
+        || state.partnerId == null
+        || state.plannedGirl == null
+        || state.plannedVenue == null
+        || state.trackedGirl == null
+        || state.jobStage < 0
+        || state.jobStage > 5) throw new IllegalArgumentException("Некорректные показатели");
+    for (var item : state.items.entrySet())
+      if (item.getKey() == null || item.getValue() == null || item.getValue() <= 0)
+        throw new IllegalArgumentException("Некорректный инвентарь");
+    for (var relation : state.relationships.values())
+      if (relation == null
+          || relation.affinity < 0
+          || relation.affinity > 100
+          || relation.trust < 0
+          || relation.trust > 100
+          || relation.dates < 0
+          || relation.sharedNights < 0
+          || relation.memory == null) throw new IllegalArgumentException("Некорректные отношения");
     if (blocked(state.x, state.y))
       throw new IllegalArgumentException("Персонаж внутри препятствия");
     if (state.hasLetter && state.deliveredLetter)
       throw new IllegalArgumentException("Противоречивое состояние письма");
   }
 
+  private static boolean validNeed(double value) {
+    return Double.isFinite(value) && value >= 0 && value <= 100;
+  }
+
   public void tick(float dx, float dy) {
     state.elapsed += STEP;
+    Life.advance(state, STEP * .5);
+    Social.expire(state);
     float length = (float) Math.hypot(dx, dy);
     moving = length > 0;
     if (!moving) return;
@@ -88,6 +152,13 @@ public final class World {
   }
 
   public void position(Content.Npc n, Actor out) {
+    if (n.id.equals(state.plannedGirl) && state.map.equals(state.plannedVenue)) {
+      out.x = state.map.equals("park") ? 264 : 328;
+      out.y = state.map.equals("park") ? 155 : 216;
+      out.direction = 1;
+      out.moving = false;
+      return;
+    }
     // A loop with a four-second pause at every waypoint; derived from saved world time.
     double duration = 0;
     int count = n.route.length;
@@ -123,7 +194,7 @@ public final class World {
     Content.Npc found = null;
     double best = 28;
     Actor a = new Actor();
-    for (var n : map().npcs) {
+    for (var n : npcs()) {
       position(n, a);
       double dist = Math.hypot(state.x - a.x, state.y - a.y);
       if (dist < best) {
@@ -132,6 +203,15 @@ public final class World {
       }
     }
     return found;
+  }
+
+  /** Nearby fixtures win over a passing NPC, consistently in the prompt and input handler. */
+  public Content.Npc interactionNpc() {
+    var prop = nearestProp();
+    if (prop != null
+        && Math.hypot(state.x - prop.x, state.y - prop.y) < 21
+        && Set.of("door", "shop", "computer", "rest", "date").contains(prop.action)) return null;
+    return nearestNpc();
   }
 
   public void enter(Content.Prop p) {

@@ -54,3 +54,5 @@ dialogues=[
  node('workshop','Мастерская Аркадия','«Идёт учёт деталей. Мастер рядом, на улице». На вывеске маленький паяльник и надпись: «Вещам нужен второй шанс».', [('Поискать Аркадия поблизости.','','')])]
 (out/'world.json').write_text(json.dumps(dict(maps=maps,dialogues=dialogues),ensure_ascii=False,indent=2),encoding='utf-8')
 print('3 connected maps; 3 NPCs; '+str(len(dialogues))+' dialogue nodes.')
+import runpy
+runpy.run_path(str(Path(__file__).with_name('make_chapter2.py')))

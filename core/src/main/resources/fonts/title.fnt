@@ -1,7 +1,7 @@
 info face="DejaVu" size=27 padding=0,0,0,0 spacing=0,0
 common lineHeight=30 base=27 scaleW=560 scaleH=455 pages=1 packed=0
 page id=0 file="title.png"
-chars count=205
+chars count=207
 char id=32 x=0 y=26 width=16 height=0 xoffset=0 yoffset=26 xadvance=16 page=0 chnl=15
 char id=33 x=35 y=6 width=16 height=20 xoffset=0 yoffset=6 xadvance=16 page=0 chnl=15
 char id=34 x=70 y=6 width=16 height=20 xoffset=0 yoffset=6 xadvance=16 page=0 chnl=15
@@ -207,3 +207,5 @@ char id=8592 x=315 y=433 width=16 height=13 xoffset=0 yoffset=13 xadvance=16 pag
 char id=8593 x=350 y=431 width=16 height=15 xoffset=0 yoffset=11 xadvance=16 page=0 chnl=15
 char id=8595 x=385 y=431 width=16 height=15 xoffset=0 yoffset=11 xadvance=16 page=0 chnl=15
 char id=10003 x=420 y=430 width=16 height=16 xoffset=0 yoffset=10 xadvance=16 page=0 chnl=15
+char id=8381 x=455 y=426 width=16 height=20 xoffset=0 yoffset=6 xadvance=16 page=0 chnl=15
+char id=8722 x=490 y=436 width=16 height=10 xoffset=0 yoffset=16 xadvance=16 page=0 chnl=15

@@ -22,8 +22,8 @@ class WorldTest {
       for (var c : d.choices) assertDoesNotThrow(() -> world.effect(c.effect));
     for (var m : content.maps)
       for (var p : m.objects)
-        if (!Set.of("door", "decoration", "wardrobe").contains(p.action))
-          assertDoesNotThrow(() -> content.dialogue(world.propDialogue(p)));
+        if (!Set.of("door", "decoration", "wardrobe", "rest", "shop", "date", "courier", "wait")
+            .contains(p.action)) assertDoesNotThrow(() -> content.dialogue(world.propDialogue(p)));
   }
 
   @Test
@@ -35,8 +35,8 @@ class WorldTest {
       diagonal.tick(1, 1);
     }
     assertEquals(
-        Math.hypot(straight.state.x - 240, straight.state.y - 176),
-        Math.hypot(diagonal.state.x - 240, diagonal.state.y - 176),
+        Math.hypot(straight.state.x - 240, straight.state.y - 190),
+        Math.hypot(diagonal.state.x - 240, diagonal.state.y - 190),
         .002);
   }
 
@@ -166,16 +166,21 @@ class WorldTest {
   }
 
   @Test
-  void letterDisappearsFromWorldOnPickup() {
-    var w = fresh();
-    var p =
-        Arrays.stream(content.map("street").objects)
-            .filter(o -> o.id.equals("letter"))
-            .findFirst()
-            .orElseThrow();
-    assertTrue(w.visible(p));
-    w.effect("takeLetter");
-    assertFalse(w.visible(p));
+  void guideUsesReachableDoorsFromEveryMap() {
+    var catalog = life.ctrl.content.LifeContent.load();
+    for (var map : content.maps) {
+      var state = new GameState();
+      state.map = map.id;
+      state.x = map.spawnX;
+      state.y = map.spawnY;
+      var w = new World(content, state);
+      var g = Navigation.localGoal(w, Navigation.goal(w, catalog));
+      assertEquals(map.id, g.map());
+      assertTrue(
+          Math.hypot(state.x - g.x(), state.y - g.y()) < 29
+              || !Navigation.route(w, g.x(), g.y()).isEmpty(),
+          map.id);
+    }
   }
 
   @Test

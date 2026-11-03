@@ -8,6 +8,7 @@ import life.ctrl.content.Content;
 import life.ctrl.model.*;
 import life.ctrl.render.*;
 import life.ctrl.save.SaveStore;
+import life.ctrl.ui.LifeScreens;
 
 /** Desktop exploration slice. Menus freeze simulation, input belongs to exactly one mode. */
 public class CtrlLife extends ApplicationAdapter {
@@ -22,10 +23,22 @@ public class CtrlLife extends ApplicationAdapter {
     CONTROLS,
     JOURNAL,
     MAP,
-    BAG
+    BAG,
+    INTRO,
+    SHOP,
+    IDE,
+    SOCIAL,
+    CONTACTS,
+    REST,
+    SCENE,
+    NIGHT,
+    BUDGET
   }
 
   private PixelCanvas c;
+  private LifeScreens life;
+  private List<float[]> guidePath = List.of();
+  private float guideTimer;
   private AudioScene audio;
   private Content content;
   private SaveStore saves;
@@ -79,6 +92,7 @@ public class CtrlLife extends ApplicationAdapter {
     settings = Settings.load(saves.directory());
     c = new PixelCanvas();
     c.preload();
+    life = new LifeScreens(this, c);
     audio = new AudioScene();
     world = new World(content, new GameState());
     rebuildDrawItems();
@@ -129,6 +143,35 @@ public class CtrlLife extends ApplicationAdapter {
         });
   }
 
+  public void switchMode(Mode next) {
+    change(next);
+  }
+
+  public void resetSelection() {
+    selection = 0;
+    confirm = false;
+    clicked = false;
+  }
+
+  public void uiButton(String text, int x, int y, int w, int h, boolean enabled, Runnable run) {
+    button(text, x, y, w, h, enabled, run);
+  }
+
+  public void refreshState() {
+    Social.expire(world.state);
+    rebuildDrawItems();
+    saveQuiet();
+    guideTimer = 0;
+  }
+
+  public void successCue() {
+    audio.success(settings);
+  }
+
+  public LifeScreens lifeScreens() {
+    return life;
+  }
+
   public World world() {
     return world;
   }
@@ -176,6 +219,14 @@ public class CtrlLife extends ApplicationAdapter {
       held.clear();
       return true;
     }
+    if (mode == Mode.IDE
+        && key != Keys.ESCAPE
+        && key != Keys.ENTER
+        && key != Keys.UP
+        && key != Keys.DOWN) {
+      life.typeKey();
+      return true;
+    }
     if (mode == Mode.WORLD) {
       held.add(key);
       if (key == settings.interact || key == Keys.ENTER) {
@@ -185,6 +236,10 @@ public class CtrlLife extends ApplicationAdapter {
         saveQuiet();
       } else if (key == settings.journal) {
         change(Mode.JOURNAL);
+      } else if (key == Keys.R) {
+        change(Mode.CONTACTS);
+      } else if (key == Keys.B) {
+        change(Mode.BUDGET);
       } else if (key == Keys.M) {
         change(Mode.MAP);
       } else if (key == Keys.I) {
@@ -229,7 +284,15 @@ public class CtrlLife extends ApplicationAdapter {
         change(settingsReturn);
       }
       case CONTROLS -> change(Mode.SETTINGS);
-      case PAUSE, JOURNAL, MAP, BAG -> change(Mode.WORLD);
+      case INTRO -> {
+        world.state.introSeen = true;
+        change(Mode.WORLD);
+        saveQuiet();
+      }
+      case IDE, SHOP, SOCIAL, CONTACTS, REST, SCENE, NIGHT, BUDGET, PAUSE, JOURNAL, MAP, BAG -> {
+        change(Mode.WORLD);
+        saveQuiet();
+      }
       case DIALOGUE -> {
         change(Mode.WORLD);
         saveQuiet();
@@ -251,7 +314,8 @@ public class CtrlLife extends ApplicationAdapter {
     hasSession = true;
     rebuildDrawItems();
     snapCamera();
-    change(Mode.WORLD);
+    life.introPage = 0;
+    change(Mode.INTRO);
     arrivalTimer = 4;
     saveQuiet();
     notify("WASD — идти · E — действие · J — журнал");
@@ -264,7 +328,8 @@ public class CtrlLife extends ApplicationAdapter {
       hasSession = true;
       rebuildDrawItems();
       snapCamera();
-      change(Mode.WORLD);
+      life.introPage = 0;
+      change(world.state.introSeen ? Mode.WORLD : Mode.INTRO);
       arrivalTimer = 3;
       if (loaded.fromBackup()) notify("Восстановлена предыдущая резервная копия.");
     } catch (IOException e) {
@@ -339,14 +404,49 @@ public class CtrlLife extends ApplicationAdapter {
   }
 
   private void interact() {
-    var npc = world.nearestNpc();
+    var npc = world.interactionNpc();
     var prop = world.nearestProp();
     if (npc != null) {
+      if (npc.id.equals("mira") || npc.id.equals("asya") || npc.id.equals("nika")) {
+        if (npc.id.equals(world.state.plannedGirl)
+            && world.state.map.equals(world.state.plannedVenue)) life.openDate();
+        else life.openSocial(npc.id, false);
+        return;
+      }
       openDialogue(world.npcDialogue(npc));
       return;
     }
     if (prop == null) return;
     audio.click(settings);
+    switch (prop.action) {
+      case "computer" -> {
+        life.openCode();
+        return;
+      }
+      case "shop" -> {
+        life.shopPage = 0;
+        change(Mode.SHOP);
+        return;
+      }
+      case "rest" -> {
+        change(Mode.REST);
+        return;
+      }
+      case "date" -> {
+        life.openDate();
+        return;
+      }
+      case "courier" -> {
+        life.scene("Подработка без ПК", Life.courier(world.state), Mode.WORLD);
+        return;
+      }
+      case "wait" -> {
+        Life.advance(world.state, 30);
+        world.state.energy = Math.min(100, world.state.energy + 8);
+        life.scene("Пауза в сквере", "Прошло 30 минут. Ты немного отдохнул(а).", Mode.WORLD);
+        return;
+      }
+    }
     if (prop.action.equals("door")) {
       audio.door(settings);
       doorFade = settings.reducedEffects ? 0 : .18f;
@@ -409,7 +509,7 @@ public class CtrlLife extends ApplicationAdapter {
         if (p.id.equals("post") && world.state.signedMailbox) art = "mailbox_signed";
         drawItems.add(new DrawItem(art, p.x, p.artY + c.texture(art).getHeight(), p.artX, p.artY));
       }
-    for (var n : world.map().npcs) {
+    for (var n : world.npcs()) {
       DrawItem d = new DrawItem(n.art, 0, 0, 0, 0);
       d.person = true;
       drawItems.add(d);
@@ -453,6 +553,7 @@ public class CtrlLife extends ApplicationAdapter {
     buttons.clear();
     c.begin();
     drawWorld();
+    if (mode == Mode.WORLD) drawGuide();
     if (doorFade > 0) {
       transitionColor.a = doorFade / .18f;
       c.rect(0, 0, 480, 270, transitionColor);
@@ -469,13 +570,12 @@ public class CtrlLife extends ApplicationAdapter {
       case PAUSE -> drawPause();
       case SETTINGS -> drawSettings();
       case CONTROLS -> drawControls();
-      case JOURNAL -> drawJournal();
-      case MAP -> drawMap();
-      case BAG -> drawBag();
+      case JOURNAL, MAP, BAG, INTRO, SHOP, IDE, SOCIAL, CONTACTS, REST, SCENE, NIGHT, BUDGET ->
+          life.draw(mode);
     }
-    if (toastTimer > 0) {
+    if (toastTimer > 0 && mode == Mode.WORLD) {
       int w = Math.min(460, (int) c.width(toast) + 18);
-      int y = (mode == Mode.WORLD || mode == Mode.DIALOGUE) ? 49 : 4;
+      int y = 57;
       c.rect((480 - w) / 2, y, w, 20, "182a35f5");
       c.center(toast, y + 4, MINT);
     }
@@ -487,11 +587,8 @@ public class CtrlLife extends ApplicationAdapter {
   private void drawWorld() {
     float ox = Math.round(cameraX), oy = Math.round(cameraY);
     c.art(world.state.map, -ox, -oy);
-    if (world.state.map.equals("street")) {
-      c.small("ДОМ № 7", 153 - ox, 160 - oy, CREAM);
-      c.small("РЕМОНТ", 413 - ox, 179 - oy, "554947");
-      c.small("У ДОМА", 723 - ox, 147 - oy, "554947");
-    }
+    if (world.map().signs != null)
+      for (var sign : world.map().signs) c.small(sign.text, sign.x - ox, sign.y - oy, sign.color);
     for (var item : drawItems)
       if (item.person) {
         if (item.art.equals("hero")) {
@@ -501,7 +598,7 @@ public class CtrlLife extends ApplicationAdapter {
           item.frame = world.moving ? (int) (world.state.elapsed * 8) % 4 : 0;
           item.outfit = world.state.outfit;
         } else
-          for (var npc : world.map().npcs)
+          for (var npc : world.npcs())
             if (npc.art.equals(item.art)) {
               world.position(npc, actor);
               item.x = actor.x;
@@ -524,11 +621,8 @@ public class CtrlLife extends ApplicationAdapter {
       }
     }
     if (world.state.map.equals("room")) {
-      // CRT status light and a narrow glow cast by the window.
-      c.art("glow_warm", 132 - ox, 34 - oy);
-      c.art("glow_cool", 209 - ox, 39 - oy);
-      c.rect(221 - ox, 65 - oy, 55, 2, "b3c7ad48");
-      c.rect(153 - ox, 105 - oy, 2, 2, ((int) (visualTime * 2) % 2 == 0) ? "ecc48a" : "7d7770");
+      c.art("glow_cool", 151 - ox, 85 - oy);
+      c.rect(211 - ox, 121 - oy, 2, 2, ((int) (visualTime * 2) % 2 == 0) ? "c4c992" : "68756e");
     }
     if (world.state.map.equals("stair")) c.art("glow_warm", 195 - ox, 20 - oy);
     if (world.state.map.equals("street")) {
@@ -549,42 +643,59 @@ public class CtrlLife extends ApplicationAdapter {
     }
   }
 
+  private void meter(String label, double value, int x, String color) {
+    c.small(label + " " + (int) value, x, 13, CREAM);
+    c.rect(x, 27, 70, 4, "344652");
+    c.rect(x, 27, Math.max(1, (float) value * .7f), 4, value < 25 ? "df8d72" : color);
+  }
+
   private void drawHud() {
-    c.panel(10, 10, 148, 32);
-    c.small(world.map().name.toUpperCase(Locale.ROOT), 18, 15, CREAM);
-    c.small(
-        "ДЕНЬ " + (1 + world.state.minutes() / 1440) + "   /   " + world.state.clock(),
-        18,
-        28,
-        MUTED);
-    String help = Keys.toString(settings.journal) + " журнал   M карта   Esc пауза";
-    c.small(help, 470 - c.smallWidth(help), 15, CREAM);
-    if (arrivalTimer > 0 && toastTimer <= 0) {
-      c.panel(133, 51, 214, 30);
-      c.center(world.map().subtitle, 58, GOLD);
-    }
+    c.rect(0, 0, 480, 49, "15232ef2");
+    meter("ЗДОРОВЬЕ", world.state.health, 12, "b99d89");
+    meter("СЫТОСТЬ", world.state.hunger, 100, "b8bd82");
+    meter("ЭНЕРГИЯ", world.state.energy, 188, "8caaa5");
+    c.small(world.state.money + " ₽", 285, 13, GOLD);
+    c.small("День " + world.state.day() + " · " + world.state.clock(), 365, 13, CREAM);
+    c.small(world.map().name, 12, 36, MUTED);
+    c.small("J план · M карта · R люди · B деньги", 242, 36, MUTED);
     if (mode != Mode.WORLD) return;
-    var n = world.nearestNpc();
+    var target = Navigation.goal(world, life.data);
+    c.rect(0, 214, 480, 56, "15232ef5");
+    c.small("ТЕКУЩАЯ ЦЕЛЬ", 12, 220, GOLD);
+    c.text(target.title(), 12, 234, CREAM);
+    c.small(target.hint(), 12, 252, MUTED);
+    var n = world.interactionNpc();
     var p = world.nearestProp();
     String prompt = n != null ? "Поговорить: " + n.name.split(" · ")[0] : p != null ? p.label : "";
-    if (n == null && p != null) {
-      if (p.id.equals("plant") && world.state.wateredPlant) prompt = "Осмотреть растение";
-      if (p.id.equals("boxes") && world.state.unpacked) prompt = "Осмотреть разобранную коробку";
-    }
     if (!prompt.isEmpty()) {
-      String text = Keys.toString(settings.interact) + "  —  " + prompt;
-      int w = (int) c.width(text) + 24;
-      c.panel((480 - w) / 2, 240, w, 23);
-      c.center(text, 245, CREAM);
-      if (n != null) world.position(n, actor);
-      float x = n != null ? actor.x : p.x, y = n != null ? actor.y : p.y;
-      c.text("·", x - cameraX - 2, y - cameraY - 34, GOLD);
-    } else if (showDetails) {
-      c.panel(16, 235, 448, 27);
-      c.center(world.state.objective(), 241, CREAM);
-    } else c.small("TAB — цель     F5 — сохранить", 16, 252, MUTED);
-    if (world.state.deliveredLetter && world.state.map.equals("room")) {
-      c.small("В новом городе появился знакомый свет.", 100, 224, GOLD);
+      String text = Keys.toString(settings.interact) + " — " + prompt;
+      int w = Math.min(464, (int) c.width(text) + 20);
+      c.panel((480 - w) / 2, 184, w, 23);
+      c.center(text, 189, CREAM);
+    }
+  }
+
+  private void drawGuide() {
+    var goal = Navigation.localGoal(world, Navigation.goal(world, life.data));
+    guideTimer -= Gdx.graphics.getDeltaTime();
+    if (guideTimer <= 0) {
+      guidePath = Navigation.route(world, goal.x(), goal.y());
+      guideTimer = .45f;
+    }
+    int phase = (int) (visualTime * 3) % 3;
+    for (int i = phase; i < guidePath.size(); i += 5) {
+      var p = guidePath.get(i);
+      float x = p[0] - cameraX, y = p[1] - cameraY;
+      if (x > 5 && x < 475 && y > 53 && y < 183) c.rect(x - 1, y - 1, 3, 2, "d8b875a0");
+    }
+    float x = goal.x() - cameraX, y = goal.y() - cameraY - 29;
+    if (x > 12 && x < 468 && y > 58 && y < 174) {
+      c.rect(x - 7, y - 3, 15, 17, "192f3dde");
+      c.text("!", x - 2, y - 2, GOLD);
+    } else {
+      float px = Math.max(18, Math.min(462, x)), py = Math.max(69, Math.min(172, y));
+      c.rect(px - 8, py - 6, 17, 17, "192f3dde");
+      c.text(x < 18 ? "←" : x > 462 ? "→" : y < 69 ? "↑" : "↓", px - 5, py - 5, GOLD);
     }
   }
 
@@ -598,7 +709,7 @@ public class CtrlLife extends ApplicationAdapter {
     c.title("CTRL+LIFE", 30, 57, CREAM);
     c.text("Н У Л Е В О Й   Б И Л Д", 33, 93, GOLD);
     c.wrap(
-        "Коробки ещё не разобраны.\nЗа окном — дождь.\nА впереди — твоя жизнь.",
+        "Последняя маршрутка.\nКомната в общежитии.\nПервый заказ — и новые люди.",
         33,
         122,
         236,
@@ -618,8 +729,8 @@ public class CtrlLife extends ApplicationAdapter {
         });
     button("Настройки", 245, 182, 135, 23, true, () -> openSettings(Mode.MENU));
     button("Выйти", 245, 209, 135, 23, true, () -> Gdx.app.exit());
-    c.small("GATE 01  /  ПЕРВЫЙ ВЕЧЕР", 32, 248, MUTED);
-    c.small("0.1.0", 419, 248, MUTED);
+    c.small("ПЕРВЫЕ ДЕНЬГИ. ПЕРВЫЕ ЧУВСТВА.", 32, 248, MUTED);
+    c.small("0.2.0", 419, 248, MUTED);
     // An illuminated architectural vignette cut out of the room.
     c.panel(314, 44, 120, 112);
     c.art("desk", 342, 66);
@@ -800,88 +911,6 @@ public class CtrlLife extends ApplicationAdapter {
         198,
         bindIndex >= 0 ? GOLD : MUTED);
     button("Готово", 89, 222, 302, 23, bindIndex < 0, () -> change(Mode.SETTINGS));
-  }
-
-  private void drawJournal() {
-    shade();
-    c.panel(34, 17, 412, 237);
-    c.small("БЛОКНОТ  /  " + world.state.name.toUpperCase(Locale.ROOT), 51, 30, MINT);
-    c.text("Первый вечер", 51, 49, CREAM);
-    c.wrap(world.state.objective(), 51, 70, 374, GOLD);
-    int y = 107;
-    var s = world.state;
-    journalLine(s.inspectedPc, "Старый ПК: три сигнала. Сначала диагностика.", y);
-    y += 22;
-    journalLine(s.metMira, "Познакомиться с Мирой в подъезде.", y);
-    y += 22;
-    journalLine(s.metArkady, "Найти Аркадия у мастерской, справа от дома.", y);
-    y += 22;
-    journalLine(
-        s.deliveredLetter,
-        s.deliveredLetter
-            ? "Письмо возвращено. Весной посадим семена."
-            : s.hasLetter
-                ? "Письмо найдено. Мира ждёт в подъезде."
-                : "Письмо Миры: под лавкой рядом с магазином.",
-        y);
-    y += 22;
-    journalLine(s.metLev, "Поговорить со Львом на другой стороне улицы.", y);
-    button("Закрыть блокнот", 51, 219, 378, 23, true, () -> change(Mode.WORLD));
-  }
-
-  private void journalLine(boolean done, String text, int y) {
-    c.rect(52, y + 3, 8, 8, done ? MINT : "5c7279");
-    if (done) c.rect(54, y + 5, 4, 4, "263847");
-    c.small(text, 67, y, done ? MINT : MUTED);
-  }
-
-  private void drawBag() {
-    shade();
-    c.panel(60, 40, 360, 188);
-    c.text("В карманах", 78, 54, CREAM);
-    c.wrap(
-        world.state.hasLetter
-            ? "Плотный конверт для Миры. Семена внутри тихо шуршат. Нужно отнести его в подъезд."
-            : "Ключ от комнаты 04, телефон и старый блокнот. Всё, с чего начинается новая жизнь.",
-        78,
-        83,
-        322,
-        MUTED);
-    if (world.state.hasLetter) c.art("letter", 81, 142);
-    c.small(
-        world.state.deliveredLetter
-            ? "Контакт добавлен: Мира, соседка."
-            : "Ключи и блокнот всегда с собой.",
-        78,
-        165,
-        GOLD);
-    button("Убрать в карман", 78, 190, 324, 24, true, () -> change(Mode.WORLD));
-  }
-
-  private void drawMap() {
-    shade();
-    c.panel(28, 16, 424, 239);
-    c.small("КАРТА ПРОГУЛКИ", 46, 30, MINT);
-    c.text("Улица Тихая", 46, 49, CREAM);
-    c.rect(51, 130, 376, 20, "657c81");
-    c.rect(280, 150, 19, 45, "657c81");
-    c.rect(51, 192, 376, 11, "657c81");
-    c.panel(58, 83, 87, 44);
-    c.small("ДОМ № 7", 70, 91, CREAM);
-    c.small("Ты живёшь здесь", 64, 108, MUTED);
-    c.panel(182, 83, 93, 44);
-    c.small("МАСТЕРСКАЯ", 192, 91, CREAM);
-    c.small("Аркадий рядом", 192, 108, MUTED);
-    c.panel(317, 83, 99, 44);
-    c.small("МАГАЗИН", 333, 91, CREAM);
-    c.small("Лавка с письмом", 324, 108, MUTED);
-    c.small("Мира — в подъезде", 53, 158, MUTED);
-    c.small("Лев — у остановки", 307, 183, MUTED);
-    float px = world.state.map.equals("street") ? 51 + world.state.x / 960 * 376 : 101;
-    float py = world.state.map.equals("street") ? (world.state.y > 400 ? 195 : 138) : 120;
-    c.rect(px - 3, py - 3, 7, 7, GOLD);
-    c.small("ты", px + 8, py - 6, GOLD);
-    button("Вернуться к прогулке", 46, 220, 388, 22, true, () -> change(Mode.WORLD));
   }
 
   private void button(
