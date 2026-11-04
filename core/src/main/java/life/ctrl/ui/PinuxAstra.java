@@ -407,7 +407,8 @@ public final class PinuxAstra {
     return wm.pointerDown(x, y);
   }
 
-  public boolean pointerDragged(int x, int y) { return wm.pointerDragged(x, y); }
+  public void pointerMove(int x, int y) { wm.pointerMove(x, y); }
+  public boolean pointerDragged(int x, int y) { wm.pointerDragged(x, y); wm.pointerMove(x, y); return true; }
   public boolean pointerUp(int x, int y) { return wm.pointerUp(x, y); }
   public void cancelPointer() { wm.cancelDrag(); }
 }
