@@ -27,6 +27,23 @@ class CareerTest {
   }
 
   @Test
+  void tactileDraftAndDebugRequireSeparateTypingPhases() {
+    var state = new GameState();
+    var job = data.job("total");
+    Coding.accept(state, job, 0, false, true);
+    assertEquals(0, state.typedCount);
+    assertFalse(Coding.test(state, job).compiled());
+    while (state.typedCount < state.codeSource.length()) Coding.type(state);
+    assertFalse(Coding.test(state, job).passed());
+
+    Coding.repair(state, job, 0, true);
+    assertEquals(0, state.typedCount);
+    assertFalse(Coding.test(state, job).compiled());
+    while (state.typedCount < state.codeSource.length()) Coding.type(state);
+    assertTrue(Coding.test(state, job).passed());
+  }
+
+  @Test
   void profileCountsExecutedOperationsAndRejectsSlowCorrectProgram() {
     var s = new GameState();
     s.codingXp = 8;
