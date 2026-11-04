@@ -12,6 +12,7 @@ public final class LifeScreens {
   private final CtrlLife game;
   private final PixelCanvas c;
   private final Workbench workbench;
+  private final PinuxAstra pinux;
   public final LifeContent data;
   public int introPage, codePage, shopPage;
   public String girlId = "mira", socialPage = "home", socialMessage = "", mapId = "";
@@ -33,6 +34,7 @@ public final class LifeScreens {
     c = canvas;
     data = LifeContent.load();
     workbench = new Workbench(game, this, canvas);
+    pinux = new PinuxAstra(game, this, workbench, canvas);
   }
 
   private GameState s() {
@@ -105,6 +107,7 @@ public final class LifeScreens {
     s().inspectedPc = true;
     codePage = s().activeJob.isEmpty() || s().jobStage < 2 || s().jobStage == 5 ? 0 : 2;
     report = null;
+    pinux.open();
     mode(Mode.IDE);
     persist();
   }
@@ -122,6 +125,14 @@ public final class LifeScreens {
     remote = false;
     socialPage = "date";
     mode(Mode.SOCIAL);
+  }
+
+  public boolean pcKeyDown(int key) {
+    return pinux.keyDown(key);
+  }
+
+  public void pcKeyTyped(char ch) {
+    pinux.keyTyped(ch);
   }
 
   public void typeKey() {
@@ -729,6 +740,6 @@ public final class LifeScreens {
   }
 
   private void coding() {
-    workbench.draw();
+    pinux.draw();
   }
 }
