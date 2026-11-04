@@ -156,7 +156,14 @@ public final class PinuxSmoke extends CtrlLife {
     steps.add(() -> {
       if (lifeScreens().codePage != 2) throw new AssertionError("Astra Code editor not opened");
       screenshot("editor-typing");
+      // Inspector is an actual responsive tool pane, not a decorative mockup.
+      if (findLabel(findWindow("Astra Code"), "CONTRACT  /  " +
+          world().state.activeJob.toUpperCase(java.util.Locale.ROOT)) == null)
+        throw new AssertionError("Astra Code contract inspector missing");
     });
+    steps.add(() -> nativeAction("▤ Details"));
+    steps.add(() -> screenshot("editor-inspector-collapsed"));
+    steps.add(() -> nativeAction("▤ Details"));
     // While Astra Code is focused, launcher text input must never type ByteScript.
     steps.add(() -> {
       mouseAbsolute(0, 47, 13);
