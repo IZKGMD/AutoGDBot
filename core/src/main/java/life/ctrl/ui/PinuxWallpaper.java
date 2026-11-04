@@ -30,9 +30,10 @@ public final class PinuxWallpaper {
     paintClouds(p);
     paintSun(p);
     // Quiet skyline kept to the lower half: room for icons and application windows.
-    paintCity(p, 380, 22, 40, 12, 0x50335f, 0x392c58, .25f);
-    paintCity(p, 443, 30, 64, 17, 0x32274f, 0x202746, .19f);
-    paintCity(p, 495, 39, 72, 20, 0x18263d, 0x152139, .14f);
+    // Three intentionally sparse parallax layers instead of a wall of identical towers.
+    paintCity(p, 410, 33, 31, 16, 0x67436e, 0x533862, .17f);
+    paintCity(p, 469, 47, 63, 22, 0x332f59, 0x252742, .16f);
+    paintCity(p, 513, 68, 49, 16, 0x1b2640, 0x171e35, .13f);
     paintForeground(p);
     city = new Texture(p);
     city.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
@@ -70,21 +71,25 @@ public final class PinuxWallpaper {
   }
 
   private void paintClouds(Pixmap p) {
-    // Narrow luminous, broken horizontal cloud bands; restrained and not noisy.
-    for (int i = 0; i < 50; i++) {
-      int y = 62 + random.nextInt(245);
-      int x = random.nextInt(W);
-      int width = 16 + random.nextInt(112);
-      int height = random.nextInt(3) + 2;
-      int tint = y > 190 ? 0xb46baf : 0x625291;
+    // Painterly wisps (broad, translucent and slightly curved), never random scanlines.
+    for (int i = 0; i < 8; i++) {
+      int centerX = 120 + random.nextInt(800);
+      int centerY = 48 + random.nextInt(210);
+      int span = 65 + random.nextInt(145);
+      int tint = centerY > 145 ? 0xdf83ab : 0x66509b;
       int rr = (tint >> 16) & 255, gg = (tint >> 8) & 255, bb = tint & 255;
-      for (int row = 0; row < height; row++) {
-        int left = x + row * 8, right = Math.min(W, left + Math.max(0, width - row * 18));
-        for (int px = left; px < right; px++) {
-          if (px < 0 || px >= W || random.nextFloat() < .16f) continue;
-          int alpha = 25 + random.nextInt(38);
-          int base = p.getPixel(px, y + row);
-          p.drawPixel(px, y + row, blend(base, rgba(rr, gg, bb, 255), alpha / 255f));
+      for (int dx = -span; dx <= span; dx++) {
+        float along = Math.abs(dx) / (float)span;
+        float edge = Math.max(0f, 1f - along * along);
+        int y0 = centerY + (int)(3 * Math.sin(dx / 42.0 + i));
+        int x = centerX + dx;
+        if (x < 0 || x >= W) continue;
+        for (int dy = -3; dy <= 3; dy++) {
+          int y = y0 + dy;
+          if (y < 0 || y >= H) continue;
+          float falloff = (1f - Math.abs(dy) / 4f) * edge;
+          float alpha = falloff * .12f;
+          p.drawPixel(x, y, blend(p.getPixel(x, y), rgba(rr, gg, bb, 255), alpha));
         }
       }
     }
@@ -108,36 +113,49 @@ public final class PinuxWallpaper {
 
   private void paintCity(Pixmap p, int horizon, int minWidth, int maxHeight, int variance,
                          int topColor, int bottomColor, float windows) {
-    int x = -8;
+    int x = -24;
     while (x < W) {
-      int width = minWidth + random.nextInt(minWidth + 14);
-      int roof = horizon - (18 + random.nextInt(maxHeight) + random.nextInt(variance));
-      roof = Math.max(205, roof);
-      int r1 = (topColor >> 16) & 255, g1 = (topColor >> 8) & 255, b1 = topColor & 255;
-      int r2 = (bottomColor >> 16) & 255, g2 = (bottomColor >> 8) & 255, b2 = bottomColor & 255;
+      int width = minWidth + 9 + random.nextInt(minWidth + 25);
+      int roof = horizon - (10 + random.nextInt(maxHeight) + random.nextInt(variance));
+      // Leave a glowing pocket around the setting sun.
+      if (x < 810 && x + width > 665 && horizon < 500) roof += 19;
+      roof = Math.max(230, Math.min(horizon - 12, roof));
+      int r1 = (topColor >>> 16) & 255, g1 = (topColor >>> 8) & 255, b1 = topColor & 255;
+      int r2 = (bottomColor >>> 16) & 255, g2 = (bottomColor >>> 8) & 255, b2 = bottomColor & 255;
+      int colorRoof = rgba(r1, g1, b1, 255);
+      // Small architectural variations: setback roofs, chimneys, narrow towers.
+      int type = random.nextInt(5);
+      p.setColor(colorRoof);
+      if (type == 0) {
+        p.fillRectangle(x + 7, roof - 7, Math.max(8, width - 14), 7);
+      } else if (type == 1) {
+        p.fillRectangle(x + width / 2, roof - 12, 2, 12);
+        p.fillRectangle(x + width / 2 - 2, roof - 2, 6, 2);
+      } else if (type == 2) {
+        p.fillRectangle(x + 5, roof - 4, Math.max(9, width / 3), 4);
+      }
       for (int yy = roof; yy <= H - 30; yy++) {
-        float t = Math.max(0, Math.min(1, (yy - roof) / (float)(H - roof)));
+        float t = Math.max(0f, Math.min(1f, (yy - roof) / (float)(H - roof)));
+        // Slightly lighter left façade gives buildings actual depth.
         int col = rgba((int)mix(r1, r2, t), (int)mix(g1, g2, t),
             (int)mix(b1, b2, t), 255);
-        for (int xx = Math.max(0, x); xx < Math.min(W, x + width); xx++) {
-          p.drawPixel(xx, yy, col);
-        }
+        p.setColor(col);
+        p.fillRectangle(x, yy, width, 1);
       }
-      int windowStep = 9 + (minWidth > 29 ? 4 : 0);
-      for (int wy = roof + 15; wy < H - 35; wy += windowStep + 4) {
-        for (int wx = x + 6; wx < x + width - 5; wx += windowStep) {
-          if (wx < 0 || wx + 3 >= W || random.nextFloat() > windows) continue;
-          int col = random.nextFloat() > .38f
-              ? rgba(238, 167, 148, 255) : rgba(163, 136, 193, 255);
+      p.setColor(rgba(Math.min(255, r1 + 11), Math.min(255, g1 + 7),
+          Math.min(255, b1 + 12), 255));
+      p.fillRectangle(x, roof + 2, 2, H - roof - 35);
+      int windowStep = minWidth >= 65 ? 14 : minWidth >= 47 ? 12 : 10;
+      for (int wy = roof + 13; wy < H - 34; wy += 14 + random.nextInt(4)) {
+        for (int wx = x + 9; wx < x + width - 6; wx += windowStep) {
+          if (wx < 1 || wx + 2 >= W || random.nextFloat() > windows) continue;
+          int col = random.nextBoolean()
+              ? rgba(242, 165, 152, 255) : rgba(178, 135, 192, 255);
           p.setColor(col);
-          p.fillRectangle(wx, wy, 3, 5);
+          p.fillRectangle(wx, wy, 2, 4);
         }
       }
-      if (random.nextFloat() < .13f) {
-        p.setColor(rgba(r1, g1, b1, 255));
-        p.fillRectangle(Math.max(0, x + width / 2), roof - 12, 2, 12);
-      }
-      x += width + random.nextInt(8);
+      x += width + 3 + random.nextInt(10);
     }
   }
 
