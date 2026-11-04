@@ -89,10 +89,10 @@ public final class AstraCodeVisuals implements Disposable {
   public static final Color FG_SECONDARY = Color.valueOf("a9b1d6");
 
   /** Приглушенный текст метаданных, неактивных вкладок и комментариев (#565f89). */
-  public static final Color FG_MUTED = Color.valueOf("565f89");
+  public static final Color FG_MUTED = Color.valueOf("8994b3");
 
   /** Цвет номеров строк в неактивных рядах (#414868). */
-  public static final Color FG_GUTTER = Color.valueOf("414868");
+  public static final Color FG_GUTTER = Color.valueOf("64718f");
 
   /** Фирменный синий акцент Tokyo Night / Astra (#7aa2f7). */
   public static final Color ACCENT_BLUE = Color.valueOf("7aa2f7");
@@ -154,6 +154,7 @@ public final class AstraCodeVisuals implements Disposable {
 
   /** Выбранная вкладка нижней консоли: 0 = PROBLEMS, 1 = OUTPUT, 2 = TEST RESULTS. */
   private int activeConsoleTab = 2;
+  private boolean inspectorRequested = true;
 
   /** Текущая активная сессия редактора для быстрых инкрементальных обновлений без rebuild(). */
   private CodeEditorSession activeEditorSession;
@@ -455,7 +456,7 @@ public final class AstraCodeVisuals implements Disposable {
       int typed = Math.max(0, Math.min(state.typedCount, state.codeSource.length()));
       int pct = (int) Math.round((typed * 100.0) / totalLen);
 
-      String jobBadgeText = activeJob.title + "  [" + pct + "%]";
+      String jobBadgeText = activeJob.id + "  [" + pct + "%]";
       Color badgeFg = typed >= state.codeSource.length() ? STATUS_OK : STATUS_WARN;
       Color badgeBg = typed >= state.codeSource.length() ? BADGE_OK_BG : BADGE_WARN_BG;
 
@@ -710,13 +711,18 @@ public final class AstraCodeVisuals implements Disposable {
     return synced;
   }
 
+  /** Responsive editor inspector layout is evaluated each frame because VisWindow can be resized. */
+  public void tickLayout() {
+    if (activeEditorSession != null) activeEditorSession.syncResponsive(false);
+  }
+
   private void refreshTypingBadges(GameState state, LifeContent.Job job) {
     int length = Math.max(1, state.codeSource == null ? 0 : state.codeSource.length());
     int typed = Math.max(0, Math.min(state.typedCount, length));
     boolean ready = state.codeSource != null && typed >= state.codeSource.length();
     int percent = (int) Math.round(typed * 100.0 / length);
     if (activeJobProgressLabel != null && activeJobProgressBadge != null) {
-      activeJobProgressLabel.setText(job.title + " [" + percent + "%]");
+      activeJobProgressLabel.setText(job.id + " [" + percent + "%]");
       activeJobProgressLabel.setColor(ready ? STATUS_OK : STATUS_WARN);
       activeJobProgressBadge.setBackground(solid(ready ? BADGE_OK_BG : BADGE_WARN_BG));
     }
@@ -786,6 +792,14 @@ public final class AstraCodeVisuals implements Disposable {
 
     private final Table codeLinesTable = new Table();
     private final ScrollPane codeScrollPane;
+    private final Table editorArea = new Table();
+    private final Table inspector;
+    private final Cell<Table> inspectorCell;
+    private Label inspectorProgress;
+    private Label inspectorStatus;
+    private Label inspectorNext;
+    private final Coding.Report currentReport;
+    private boolean inspectorVisible = true;
     private final Label progressLabel;
     private final Label cursorStatusLabel;
     private final Label stageHintLabel;
@@ -807,6 +821,7 @@ public final class AstraCodeVisuals implements Disposable {
       this.boundJobId = state.activeJob;
       this.boundCodeSource = state.codeSource == null ? "" : state.codeSource;
       this.boundReportSignature = reportSignature(report);
+      this.currentReport = report;
 
       rootTable.top().left();
       rootTable.setBackground(solid(BG_EDITOR));
@@ -839,6 +854,10 @@ public final class AstraCodeVisuals implements Disposable {
             tabStrip.add().expandX().fillX();
 
       // Компактные кнопки действий прямо в заголовке редактора
+      tabStrip.add(compactButton("▤ Details", ButtonVariant.GHOST, true, () -> {
+        inspectorRequested = !inspectorRequested;
+        syncResponsive(true);
+      })).height(22f).padRight(4f);
       tabStrip.add(compactButton("Commit", ButtonVariant.GHOST, onCommit != null, onCommit))
           .height(22f).padRight(4f);
       tabStrip.add(compactButton("Исправить", ButtonVariant.SECONDARY, true, () -> {
@@ -878,7 +897,19 @@ public final class AstraCodeVisuals implements Disposable {
       buildLinePool(boundCodeSource);
 
       codeScrollPane = createScrollPane(codeLinesTable, true);
-      rootTable.add(codeScrollPane).grow().minHeight(140f).row();
+
+      // The inspector uses the otherwise empty space beside short ByteScript programs.
+      // It is automatically removed from the layout when the IDE window is narrow.
+      editorArea.top().left();
+      editorArea.add(codeScrollPane).grow().minWidth(0f).minHeight(140f);
+      inspector = new Table();
+      Table inspectorBody = buildContractInspector(state, job, report, onRunTests, onCommit,
+          onNavigate);
+      // Long client briefs or smaller windows must never force the editor console off-screen.
+      ScrollPane inspectorScroll = createScrollPane(inspectorBody, false);
+      inspector.add(inspectorScroll).grow().minWidth(0f).minHeight(0f);
+      inspectorCell = editorArea.add(inspector).width(224f).growY().padLeft(1f);
+      rootTable.add(editorArea).grow().minHeight(140f).row();
 
       // 4. Компактная строка статуса редактора (Ln/Col, Прогресс символов, Кодировка)
       addHorizontalRule(rootTable, BORDER_SUBTLE, 0f, 0f);
@@ -903,8 +934,71 @@ public final class AstraCodeVisuals implements Disposable {
       Table bottomDock = buildBottomConsoleDock(state, job, report, onRunTests, onTabSwitchRebuild);
       rootTable.add(bottomDock).height(BOTTOM_DOCK_HEIGHT).growX().row();
 
-      // Первичная синхронизация текста и курсора
+      // Initial state, then responsive sizing is maintained without rebuilding code widgets.
       updateTypedCodeView(state.typedCount);
+    }
+
+    private Table buildContractInspector(GameState state, LifeContent.Job job,
+        Coding.Report report, Runnable runTests, Runnable commit, IntConsumer navigate) {
+      Table panel = new Table();
+      panel.top().left().pad(12f);
+      panel.setBackground(solid(BG_SURFACE));
+
+      panel.add(monoLabel("CONTRACT  /  " + job.id.toUpperCase(Locale.ROOT), ACCENT_BLUE))
+          .left().padBottom(10f).row();
+      Label jobName = wrapLabel(job.title, FG_PRIMARY);
+      panel.add(jobName).width(197f).left().padBottom(9f).row();
+      panel.add(label(job.client, FG_SECONDARY, FontRole.SMALL)).left().padBottom(8f).row();
+      addHorizontalRule(panel, BORDER_SUBTLE, 6f, 10f);
+
+      panel.add(monoLabel("REWARD", FG_MUTED)).left().padBottom(5f).row();
+      panel.add(label(job.pay + " ₽", STATUS_OK, FontRole.UI)).left().padBottom(12f).row();
+      panel.add(monoLabel("SOURCE  ·  main.bs", FG_MUTED)).left().padBottom(8f).row();
+      inspectorProgress = monoLabel("", ACCENT_CYAN);
+      panel.add(inspectorProgress).left().padBottom(6f).row();
+      addHorizontalRule(panel, BORDER_SUBTLE, 6f, 12f);
+
+      panel.add(monoLabel("WORKFLOW", FG_MUTED)).left().padBottom(11f).row();
+      panel.add(label("01  ● Контракт принят", STATUS_OK, FontRole.SMALL)).left().padBottom(8f).row();
+      inspectorStatus = label("", ACCENT_CYAN, FontRole.SMALL);
+      panel.add(inspectorStatus).left().padBottom(8f).row();
+      panel.add(label("03  ● Проверка ByteScript", report == null ? FG_MUTED :
+          report.passed() ? STATUS_OK : STATUS_ERR, FontRole.SMALL)).left().padBottom(8f).row();
+      panel.add(label("04  ● Отправка клиенту", report != null && report.passed() ?
+          ACCENT_CYAN : FG_MUTED, FontRole.SMALL)).left().padBottom(12f).row();
+      addHorizontalRule(panel, BORDER_SUBTLE, 6f, 12f);
+
+      panel.add(monoLabel("NEXT ACTION", ACCENT_BLUE)).left().padBottom(7f).row();
+      inspectorNext = wrapLabel("", FG_SECONDARY);
+      panel.add(inspectorNext).width(197f).left().padBottom(13f).row();
+
+      TextButton testButton = compactButton("▶ Run tests", ButtonVariant.PRIMARY, true, runTests);
+      panel.add(testButton).height(28f).growX().padBottom(6f).row();
+      if (report != null && report.passed()) {
+        panel.add(compactButton("▷ Preview result", ButtonVariant.SUCCESS, true,
+            () -> navigate.accept(4))).height(27f).growX().padBottom(6f).row();
+      } else if (report != null) {
+        panel.add(compactButton("⚙ Repair source", ButtonVariant.SECONDARY, true,
+            () -> navigate.accept(3))).height(27f).growX().padBottom(6f).row();
+      }
+      panel.add(compactButton("⎇ Commit revision", ButtonVariant.GHOST, true, commit))
+          .height(27f).growX().row();
+      addHorizontalRule(panel, BORDER_SUBTLE, 10f, 8f);
+      panel.add(monoLabel("KEYBOARD", FG_MUTED)).left().padBottom(5f).row();
+      panel.add(wrapLabel("Нажимай буквенные клавиши — игровой код печатается автоматически.",
+          FG_SECONDARY)).width(197f).left().row();
+      return panel;
+    }
+
+    void syncResponsive(boolean forced) {
+      float available = rootTable.getWidth();
+      if (!forced && available <= 0f) return;
+      boolean show = inspectorRequested && available >= 740f;
+      if (!forced && inspectorVisible == show) return;
+      inspectorVisible = show;
+      inspector.setVisible(show);
+      inspectorCell.width(show ? 224f : 0f).padLeft(show ? 1f : 0f);
+      editorArea.invalidateHierarchy();
     }
 
     boolean syncIfCompatible(GameState state, LifeContent.Job job, Coding.Report report) {
@@ -1017,6 +1111,21 @@ public final class AstraCodeVisuals implements Disposable {
       int pct = totalLen == 0 ? 100 : (int) Math.round((typed * 100.0) / totalLen);
       progressLabel.setText(typed + "/" + totalLen + " · " + pct + "%");
       progressLabel.setColor(typed >= totalLen && totalLen > 0 ? STATUS_OK : STATUS_WARN);
+      if (inspectorProgress != null) inspectorProgress.setText(typed + " / " + totalLen + " · " + pct + "%");
+      if (inspectorStatus != null) {
+        inspectorStatus.setText(typed >= totalLen ? "02  ✓ Исходник набран" : "02  ◌ Ввод кода: " + pct + "%");
+        inspectorStatus.setColor(typed >= totalLen ? STATUS_OK : STATUS_WARN);
+      }
+      if (inspectorNext != null) {
+        String guidance = currentReport != null && currentReport.passed()
+            ? "Все тесты пройдены. Открой предпросмотр и отправь результат."
+            : currentReport != null
+                ? "Проверь диагностику ниже и открой раздел исправлений."
+                : typed < totalLen
+                    ? "Продолжай ввод ByteScript с клавиатуры."
+                    : "Исходник готов. Запусти компиляцию и тесты.";
+        inspectorNext.setText(guidance);
+      }
 
       stageHintLabel.setText(typed < totalLen ? "TYPING" : "READY");
       stageHintLabel.setColor(typed < totalLen ? STATUS_WARN : STATUS_OK);
