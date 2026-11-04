@@ -47,30 +47,7 @@ final class SshClient {
         settings.put("PreferredAuthentications", "password,keyboard-interactive");
         settings.put("ConnectTimeout", "12000");
         session.setConfig(settings);
-        session.setUserInfo(new UIKeyboardInteractive() {
-            @Override public String getPassphrase() { return null; }
-            @Override public String getPassword() { return password; }
-            @Override public boolean promptPassword(String message) { return true; }
-            @Override public boolean promptPassphrase(String message) { return false; }
-            @Override public void showMessage(String message) { }
-            @Override public boolean promptYesNo(String message) {
-                // A changed host key MUST NOT be trusted over the previously pinned one.
-                String lower = message.toLowerCase(java.util.Locale.ROOT);
-                if (lower.contains("changed") || lower.contains("identification has changed")) return false;
-                try {
-                    return trustPrompt.ask(message);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return false;
-                }
-            }
-            @Override public String[] promptKeyboardInteractive(String destination,
-                    String name, String instruction, String[] prompt, boolean[] echo) {
-                String[] responses = new String[prompt.length];
-                for (int i=0; i<prompt.length; i++) responses[i] = password;
-                return responses;
-            }
-        });
+        session.setUserInfo(new AuthInfo());
         try {
             session.connect(12000);
             return session;
@@ -122,4 +99,29 @@ final class SshClient {
             if (out.size() + n <= 131072) out.write(buf, 0, n);
         }
     }
+    private final class AuthInfo implements UserInfo, UIKeyboardInteractive {
+            @Override public String getPassphrase() { return null; }
+            @Override public String getPassword() { return password; }
+            @Override public boolean promptPassword(String message) { return true; }
+            @Override public boolean promptPassphrase(String message) { return false; }
+            @Override public void showMessage(String message) { }
+            @Override public boolean promptYesNo(String message) {
+                // A changed host key MUST NOT be trusted over the previously pinned one.
+                String lower = message.toLowerCase(java.util.Locale.ROOT);
+                if (lower.contains("changed") || lower.contains("identification has changed")) return false;
+                try {
+                    return trustPrompt.ask(message);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
+            @Override public String[] promptKeyboardInteractive(String destination,
+                    String name, String instruction, String[] prompt, boolean[] echo) {
+                String[] responses = new String[prompt.length];
+                for (int i=0; i<prompt.length; i++) responses[i] = password;
+                return responses;
+            }
+    }
+
 }
