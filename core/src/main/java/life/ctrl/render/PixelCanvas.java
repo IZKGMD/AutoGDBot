@@ -262,6 +262,19 @@ public final class PixelCanvas implements Disposable {
     rect(x, y, w, h, color(color));
   }
 
+  /** Small-radius filled panel, rendered in canvas units without HTML/native widgets. */
+  public void roundRect(float x, float y, float w, float h, int radius, String hex) {
+    int r = Math.max(0, Math.min(radius, (int)Math.min(w, h) / 2));
+    if (r == 0) { rect(x, y, w, h, hex); return; }
+    rect(x, y + r, w, h - 2 * r, hex);
+    for (int iy = 0; iy < r; iy++) {
+      float d = r - iy - .5f;
+      float cut = r - (float)Math.sqrt(Math.max(0, r * r - d * d));
+      rect(x + cut, y + iy, w - cut * 2, 1, hex);
+      rect(x + cut, y + h - iy - 1, w - cut * 2, 1, hex);
+    }
+  }
+
   public void panel(int x, int y, int w, int h) {
     rect(x + 1, y + 2, w, h, "07141cc0");
     rect(x, y, w, h, "526b70");
