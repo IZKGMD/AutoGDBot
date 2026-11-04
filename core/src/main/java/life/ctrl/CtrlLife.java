@@ -103,7 +103,7 @@ public class CtrlLife extends ApplicationAdapter {
     selection = saves.exists() ? 0 : 1;
     if (!Boolean.getBoolean("ctrl.test")) applyDisplay();
     Gdx.input.setInputProcessor(
-        new InputAdapter() {
+        new InputMultiplexer(life.pcNativeStage(), new InputAdapter() {
           @Override
           public boolean keyDown(int key) {
             return press(key);
@@ -164,7 +164,7 @@ public class CtrlLife extends ApplicationAdapter {
             if (mode == Mode.IDE) life.pcPointerMove(Math.round(c.logicalX(x)), Math.round(c.logicalY(y)));
             return true;
           }
-        });
+        }));
   }
 
   public void switchMode(Mode next) {
@@ -628,6 +628,7 @@ public class CtrlLife extends ApplicationAdapter {
       c.fitted(toast, (480 - w) / 2f + 9, y + 4, w - 18, MINT, false);
     }
     c.end();
+    if (mode == Mode.IDE) life.renderPcOverlay(delta);
     activateButtons();
     mouseMoved = false;
   }
@@ -1067,6 +1068,7 @@ public class CtrlLife extends ApplicationAdapter {
   @Override
   public void resize(int width, int height) {
     held.clear();
+    if (life != null) life.resizePc(width, height);
   }
 
   @Override
