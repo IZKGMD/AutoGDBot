@@ -90,7 +90,7 @@ public final class PinuxSmoke extends CtrlLife {
     steps.add(() -> {
       // Verify an actual native Scene2D shortcut click at 1440x810.
       click(30, 27);
-      if (lifeScreens().pcNativeStage().getRoot().isVisible())
+      if (!lifeScreens().isLegacyEditorOpen())
         throw new AssertionError("Scene2D desktop shortcut did not open Astra Code");
     });
     steps.add(() -> screenshot("astra-code"));
