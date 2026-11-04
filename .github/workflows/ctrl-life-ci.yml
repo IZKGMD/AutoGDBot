@@ -1,0 +1,25 @@
+name: CTRL+LIFE (ctrl-life) Java checks
+
+on:
+  push:
+    branches: [ctrl-life]
+  pull_request:
+    branches: [ctrl-life]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  java-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Unit tests and Java compile
+        run: bash ./gradlew --no-daemon :core:test :lwjgl3:classes
