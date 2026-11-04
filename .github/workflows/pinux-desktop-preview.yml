@@ -8,6 +8,7 @@ on:
       - 'core/src/main/java/life/ctrl/ui/PinuxWallpaper.java'
       - 'core/src/main/java/life/ctrl/ui/PinuxAstra.java'
       - 'core/src/main/java/life/ctrl/ui/PinuxDesktopStage.java'
+      - 'core/src/main/java/life/ctrl/ui/PinuxNativeWindows.java'
       - 'core/src/main/java/life/ctrl/ui/PinuxWindowManager.java'
       - 'core/src/main/java/life/ctrl/ui/Workbench.java'
       - 'core/src/main/java/life/ctrl/render/PixelCanvas.java'
