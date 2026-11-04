@@ -44,6 +44,7 @@ public final class PinuxWindowManager {
   private long lastClickAt;
   private App lastClickApp;
   private boolean moved;
+  private int hoverX = -1, hoverY = -1;
   private static final String EDGE = "4e7087", TEXT = "dceaf4", ACCENT = "8dcce0";
 
   public PinuxWindowManager() {
@@ -105,9 +106,8 @@ public final class PinuxWindowManager {
     if (w == null) return;
     w.visible = false;
     w.minimized = false;
-    w.animation = 0;
+    // Let the window shrink away instead of disappearing in a single frame.
     if (dragging == w) dragging = null;
-    zOrder.remove(w);
   }
 
   public void closeFront() { Window w = front(); if (w != null) close(w.app); }
@@ -188,6 +188,8 @@ public final class PinuxWindowManager {
 
   public void cancelDrag() { dragging = null; moved = false; }
 
+  public void pointerMove(int x, int y) { hoverX = x; hoverY = y; }
+
   private static boolean inside(Window w, int x, int y) {
     return x >= w.x && x < w.right() && y >= w.y && y < w.bottom();
   }
@@ -206,11 +208,12 @@ public final class PinuxWindowManager {
       w.animation += (target - w.animation) * speed;
       if (Math.abs(w.animation - target) < .008f) w.animation = target;
     }
+    zOrder.removeIf(w -> !w.visible && w.animation == 0);
   }
 
   public void draw(PixelCanvas c, ContentPainter painter) {
     for (Window w : zOrder) {
-      if (!w.visible || w.minimized || w.animation < .03f) continue;
+      if (w.animation < .03f) continue;
       if (isMaximizedCode() && w.app != App.CODE) continue; // completely covered
       boolean active = front() == w;
       if (isMaximizedCode() && w.app == App.CODE) {
@@ -230,7 +233,7 @@ public final class PinuxWindowManager {
       c.rect(xx + 1, yy + 1, ww - 2, 18, active ? "244359" : "1b2f41");
       if (w.animation > .94f) {
         c.clip(w.x + 2, w.y + 20, w.width - 4, w.height - 22);
-        painter.paint(w, active);
+        painter.paint(w, active && w.visible && !w.minimized);
         c.unclip();
         drawCaption(c, w, active);
       }
@@ -246,7 +249,10 @@ public final class PinuxWindowManager {
     int start = w.right() - 43;
     for (int i = 0; i < 3; i++) {
       int x = start + i * 15;
-      c.rect(x, y + 3, 12, 12, i == 2 ? "704850" : "34576a");
+      boolean hovered = hoverY >= y + 2 && hoverY <= y + 16 &&
+          hoverX >= x && hoverX <= x + 12;
+      c.rect(x, y + 3, 12, 12, hovered ? (i == 2 ? "b6525d" : "4a7c92")
+          : i == 2 ? "704850" : "34576a");
       c.small(i == 0 ? "_" : i == 1 ? "□" : "×", x + 3, y + 2,
           i == 2 ? "ffd5d1" : ACCENT);
     }
