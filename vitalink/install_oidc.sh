@@ -18,6 +18,13 @@ from jwt import PyJWKClient
 assert PyJWKClient
 print("JWT library installed:",jwt.__version__)
 PY
+echo "Preflight: starting the OIDC verifier with the exact system Python version..."
+VITALINK_OIDC_SOURCE="$SOURCE/server.py" /usr/bin/python3 - <<'PY'
+import os,runpy
+module=runpy.run_path(os.environ["VITALINK_OIDC_SOURCE"])
+verifier=module["GitHubOIDCVerifier"]()
+print("OIDC verifier initialized successfully.")
+PY
 STAMP="$(date +%Y%m%d-%H%M%S)"
 SERVER_BACKUP="/opt/vitalink/server.py.before-oidc-$STAMP"
 CONFIG_BACKUP="/etc/vitalink/server.json.before-oidc-$STAMP"
@@ -47,8 +54,21 @@ p.write_text(json.dumps(data,indent=2)+"\n")
 PY
 /usr/bin/python3 -m py_compile /opt/vitalink/server.py
 systemctl restart vitalink
-sleep 1
-echo "Checking local health..."
+echo "Checking local health (up to 15 seconds)..."
+HEALTHY=0
+for i in $(seq 1 15); do
+  if curl -fsS --max-time 2 http://127.0.0.1:8765/health >/dev/null 2>&1; then
+    HEALTHY=1
+    break
+  fi
+  sleep 1
+done
+if [[ "$HEALTHY" != 1 ]]; then
+  echo "VitaLink did not start. Recent service diagnostics:"
+  systemctl status vitalink --no-pager -l || true
+  journalctl -u vitalink --no-pager -n 15 || true
+  exit 5
+fi
 curl -fsS --max-time 10 http://127.0.0.1:8765/health
 echo
 echo "Checking HTTPS health..."
