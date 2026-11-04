@@ -11,6 +11,7 @@ class GitHubOIDCVerifier:
     AUDIENCE = "vitalink.muchogdps.space"
     REPO = "IZKGMD/AutoGDBot"
     REPO_ID = "1407579678"
+    OWNER_ID = "112145870"
     REF = "refs/heads/vitabridge-android"
     WORKFLOW = ("IZKGMD/AutoGDBot/.github/workflows/"
                 "vitalink-requests.yml@refs/heads/vitabridge-android")
@@ -38,7 +39,10 @@ class GitHubOIDCVerifier:
                 audience=self.AUDIENCE,issuer=self.ISSUER,
                 leeway=30,options={"require":["exp","iat","iss","aud","sub"]})
             return (
-                claims.get("sub")=="repo:"+self.REPO+":ref:"+self.REF
+                claims.get("sub") in (
+                    "repo:"+self.REPO+":ref:"+self.REF,
+                    "repo:IZKGMD@"+self.OWNER_ID+"/AutoGDBot@"+self.REPO_ID
+                    +":ref:"+self.REF)
                 and claims.get("repository")==self.REPO
                 and str(claims.get("repository_id"))==self.REPO_ID
                 and claims.get("ref")==self.REF
