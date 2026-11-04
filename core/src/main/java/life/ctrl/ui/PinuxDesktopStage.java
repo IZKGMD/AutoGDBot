@@ -61,6 +61,17 @@ public final class PinuxDesktopStage {
     skin.add("title-button", patch("title-button", 7, 32, 40, 60, 176, 0), Drawable.class);
     skin.add("title-button-hover", patch("title-button-hover", 7, 61, 71, 105, 235, 0), Drawable.class);
     skin.add("title-close-hover", patch("title-close-hover", 7, 123, 52, 74, 248, 0), Drawable.class);
+    // OneDark / Archcraft-inspired terminal palette. Keep separate from the
+    // desktop and other applications until this single design is approved.
+    skin.add("term-frame", patch("term-frame", 12, 46, 50, 60, 255, 0), Drawable.class);
+    skin.add("term-header", patch("term-header", 7, 41, 45, 55, 255, 0), Drawable.class);
+    skin.add("term-surface", patch("term-surface", 8, 30, 33, 40, 255, 0), Drawable.class);
+    skin.add("term-toolbar", patch("term-toolbar", 5, 35, 39, 48, 255, 0), Drawable.class);
+    skin.add("term-tab", patch("term-tab", 5, 47, 52, 62, 255, 0), Drawable.class);
+    skin.add("term-prompt", patch("term-prompt", 6, 41, 45, 55, 255, 0), Drawable.class);
+    skin.add("term-title-button", patch("term-title-button", 5, 41, 45, 55, 180, 0), Drawable.class);
+    skin.add("term-title-hover", patch("term-title-hover", 5, 72, 81, 97, 255, 0), Drawable.class);
+    skin.add("term-title-close", patch("term-title-close", 5, 154, 59, 68, 255, 0), Drawable.class);
 
     addIcon("code", 93, 72, 188);
     addIcon("terminal", 60, 69, 111);
