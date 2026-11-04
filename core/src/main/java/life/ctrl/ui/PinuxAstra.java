@@ -63,14 +63,16 @@ public final class PinuxAstra {
   public com.badlogic.gdx.scenes.scene2d.Stage inputStage() { return nativeDesktop.inputStage(); }
 
   public String clockText() { return s().clock(); }
-  public boolean isLegacyEditorOpen() { return wm.isFront(App.CODE); }
+  public boolean isLegacyEditorOpen() { return nativeDesktop.isCodeFront(); }
+  public boolean isCodeFront() { return nativeDesktop.isCodeFront(); }
+  CtrlLife game() { return game; }
+  LifeScreens life() { return life; }
 
   public void openApp(App app) { launch(app); }
 
   public void openLegacyEditor() {
-    wm.open(App.CODE);
-    if (!wm.get(App.CODE).maximized) wm.toggleMaximize(App.CODE);
-    nativeDesktop.raiseChrome();
+    // Historical entry point retained for callers; the editor is now 100% Scene2D.
+    nativeDesktop.openNativeWindow(App.CODE);
     game.resetSelection();
   }
 
@@ -99,26 +101,17 @@ public final class PinuxAstra {
   public void resizeNative(int w, int h) { nativeDesktop.resize(w, h); }
 
   public void renderNativeDesktop(float delta) {
-    // Until Astra Code is ported to VisUI, hide its old pixelated interface
-    // behind native application windows, while preserving its state in memory.
-    nativeDesktop.setDesktopVisible(wm.front() == null || nativeDesktop.hasNativeWindows());
+    nativeDesktop.setVisible(true);
+    nativeDesktop.setDesktopVisible(true);
     nativeDesktop.draw(delta);
   }
 
   public void draw() {
+    // The game world still renders to the pixel framebuffer, but ALL Pinux
+    // applications (including Astra Code) render at the real window resolution.
     float delta = Math.min(.1f, Gdx.graphics.getDeltaTime());
     time += delta;
-    boot += delta;
-    wm.tick(quietMotion ? Math.max(delta, .2f) : delta);
     noticeTime = Math.max(0, noticeTime - delta);
-    if (wm.front() == null) return; // Desktop and native windows are Scene2D actors.
-    if (boot < .55f && !quietMotion) {
-      bootSplash();
-      return;
-    }
-    // Legacy ByteScript IDE is retained underneath the new high-resolution window layer.
-    // All desktop chrome and new windows are drawn by Scene2D after this framebuffer.
-    if (wm.isFront(App.CODE)) workbench.draw();
   }
 
   private void bootSplash() {
@@ -361,8 +354,7 @@ public final class PinuxAstra {
 
   private void launch(App app) {
     menuOpen = false;
-    if (app == App.CODE) openLegacyEditor();
-    else nativeDesktop.openNativeWindow(app);
+    nativeDesktop.openNativeWindow(app);
     game.resetSelection();
   }
 
@@ -424,7 +416,7 @@ public final class PinuxAstra {
       case "files" -> launch(App.FILES);
       case "mail" -> launch(App.MAIL);
       case "settings" -> launch(App.SETTINGS);
-      case "desktop", "exit" -> wm.close(App.TERMINAL);
+      case "desktop", "exit" -> nativeDesktop.closeFrontNativeWindow();
       default -> {
         if (cmd.startsWith("echo ")) log(raw.substring(5));
         else log("command not found: " + raw + "  [help]");
@@ -432,46 +424,38 @@ public final class PinuxAstra {
     }
   }
 
+  /** Only game actions are executed here; no host OS commands or filesystem access. */
   public boolean keyDown(int key) {
     if (key == Keys.F1) { launch(App.CODE); return true; }
     if (key == Keys.F2) { launch(App.TERMINAL); return true; }
     if (key == Keys.F3) { launch(App.FILES); return true; }
     if (key == Keys.F4) { launch(App.MAIL); return true; }
     if (key == Keys.F6) { launch(App.SETTINGS); return true; }
-    if (key == Keys.TAB) { wm.cycleFocus(); return true; }
+    if (key == Keys.TAB) { nativeDesktop.cycleNativeWindows(); return true; }
     if (key == Keys.ESCAPE) {
       if (nativeDesktop.hasNativeWindows()) nativeDesktop.closeFrontNativeWindow();
       else if (menuOpen) menuOpen = false;
-      else if (wm.front() != null) wm.closeFront();
       else { game.switchMode(Mode.WORLD); game.refreshState(); }
       return true;
     }
-    if (nativeDesktop.hasNativeWindows()) return true;
-    if (wm.isFront(App.TERMINAL)) {
-      if (key == Keys.ENTER) execute();
-      else if (key == Keys.BACKSPACE && !command.isEmpty())
-        command = command.substring(0, command.length() - 1);
-      else if (key == Keys.UP && !commandHistory.isEmpty()) {
-        historyIndex = Math.max(0, historyIndex - 1);
-        command = commandHistory.get(historyIndex);
-      } else if (key == Keys.DOWN && !commandHistory.isEmpty()) {
-        historyIndex = Math.min(commandHistory.size(), historyIndex + 1);
-        command = historyIndex == commandHistory.size() ? "" : commandHistory.get(historyIndex);
-      }
-      return true;
-    }
-    if (wm.isFront(App.CODE) && wm.isMaximizedCode()) {
-      if ((key >= Keys.A && key <= Keys.Z)
-          || (key >= Keys.NUM_0 && key <= Keys.NUM_9)
-          || (key >= Keys.NUMPAD_0 && key <= Keys.NUMPAD_9)
-          || key == Keys.SPACE || key == Keys.COMMA || key == Keys.PERIOD
-          || key == Keys.SLASH || key == Keys.SEMICOLON || key == Keys.MINUS
-          || key == Keys.EQUALS || key == Keys.APOSTROPHE || key == Keys.BACKSLASH
-          || key == Keys.LEFT_BRACKET || key == Keys.RIGHT_BRACKET)
-        life.typeKey();
-      return true;
-    }
     return true;
+  }
+
+  /** Called before the regular game key handler by the native desktop Stage. */
+  boolean codeTypingKey(int key) {
+    if (game.mode() != Mode.IDE || !nativeDesktop.isCodeFront()) return false;
+    boolean character = (key >= Keys.A && key <= Keys.Z)
+        || (key >= Keys.NUM_0 && key <= Keys.NUM_9)
+        || (key >= Keys.NUMPAD_0 && key <= Keys.NUMPAD_9)
+        || key == Keys.SPACE || key == Keys.COMMA || key == Keys.PERIOD
+        || key == Keys.SLASH || key == Keys.SEMICOLON || key == Keys.MINUS
+        || key == Keys.EQUALS || key == Keys.APOSTROPHE || key == Keys.BACKSLASH
+        || key == Keys.LEFT_BRACKET || key == Keys.RIGHT_BRACKET;
+    if (character && life.codePage == 2) {
+      life.typeKey();
+      return true;
+    }
+    return false;
   }
 
   public void keyTyped(char ch) {
