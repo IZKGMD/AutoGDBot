@@ -1,7 +1,10 @@
 package life.ctrl.ui;
 
 import com.badlogic.gdx.graphics.Color;
+import com.badlogic.gdx.Input;
 import com.badlogic.gdx.scenes.scene2d.Actor;
+import com.badlogic.gdx.scenes.scene2d.InputEvent;
+import com.badlogic.gdx.scenes.scene2d.InputListener;
 import com.badlogic.gdx.scenes.scene2d.Stage;
 import com.badlogic.gdx.scenes.scene2d.actions.Actions;
 import com.badlogic.gdx.scenes.scene2d.ui.Button;
@@ -122,6 +125,43 @@ final class PinuxNativeWindows {
     window.getTitleTable().add(chrome("×", () -> close(app), true))
         .width(33).height(25).padRight(5);
     window.setBounds(x, y, width, height);
+    // Explicit resize capture fixes a libGDX/VisWindow corner hit-test conflict
+    // when the content Table fills the body. The rest of the window stays native.
+    window.addCaptureListener(new InputListener() {
+      float startStageX, startStageY, initialX, initialY, initialW, initialH;
+      boolean resizing;
+
+      @Override public boolean touchDown(InputEvent e, float localX, float localY,
+                                         int pointer, int button) {
+        if (button != Input.Buttons.LEFT || localX < window.getWidth() - 24 || localY > 24)
+          return false;
+        resizing = true;
+        startStageX = e.getStageX();
+        startStageY = e.getStageY();
+        initialX = window.getX();
+        initialY = window.getY();
+        initialW = window.getWidth();
+        initialH = window.getHeight();
+        e.stop();
+        return true;
+      }
+
+      @Override public void touchDragged(InputEvent e, float localX, float localY, int pointer) {
+        if (!resizing) return;
+        float dx = e.getStageX() - startStageX;
+        float dy = e.getStageY() - startStageY;
+        float newW = Math.max(460, Math.min(stage.getWidth() - initialX - 10, initialW + dx));
+        float desiredY = Math.max(95, initialY + dy);
+        float newH = Math.max(300, initialH + initialY - desiredY);
+        window.setBounds(initialX, desiredY, newW, newH);
+        window.invalidateHierarchy();
+      }
+
+      @Override public void touchUp(InputEvent e, float localX, float localY,
+                                    int pointer, int button) {
+        resizing = false;
+      }
+    });
     windows.put(app, window);
     maximized.put(app, false);
     return window;
