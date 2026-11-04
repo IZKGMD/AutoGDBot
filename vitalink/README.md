@@ -1,56 +1,54 @@
-# VitaLink — bridge for PS Vita LinuxOnVita
+# VitaLink at muchogdps.space — one-domain installation
 
-VitaLink lets a PS Vita reach your private VPS via outbound HTTPS. A GitHub Actions workflow sends authorized diagnostic requests and waits for the Vita agent to report results. ChatGPT can edit the request file and read the resulting GitHub Actions logs through the connected GitHub app. It does NOT give ChatGPT direct persistent SSH/network access.
+This deployment uses the **existing main domain**, not a subdomain:
+`https://muchogdps.space/vitalink`.
 
-## 1. VPS (Ubuntu 22.04)
+It keeps the current MuchoGDPS application and TLS certificate in place. VitaLink runs as a separate Linux service on `127.0.0.1:8765`; a single additional Nginx `location ^~ /vitalink/` forwards requests while removing the prefix.
 
-Create a DNS A record for **vita.muchogdps.space** pointing to your VPS IP. Do not change the live MuchoGDPS site.
+## One-time setup on VPS (Ubuntu 22.04 with Nginx)
 
-On your VPS via your own SSH connection, run:
+Run from your normal VPS SSH console:
 
-    git clone --depth 1 --branch vitabridge-android https://github.com/IZKGMD/AutoGDBot.git /tmp/vitalink-source
-    sudo bash /tmp/vitalink-source/vitalink/install_vps.sh /tmp/vitalink-source/vitalink
+```bash
+WORKDIR="$(mktemp -d)"
+git clone --depth 1 --branch vitabridge-android https://github.com/IZKGMD/AutoGDBot.git "$WORKDIR/source"
+sudo bash "$WORKDIR/source/vitalink/install_primary_domain.sh" "$WORKDIR/source/vitalink"
+```
 
-The installer only starts an isolated systemd service on **127.0.0.1:8765**. It never modifies Nginx, Docker, MuchoGDPS or your DNS. Configure **HTTPS** reverse proxy for vita.muchogdps.space with your existing Nginx/Caddy and a valid certificate. Point upstream at http://127.0.0.1:8765. Do not expose port 8765 to the internet. Check https://vita.muchogdps.space/health should return {"ok":true,"service":"VitaLink"}.
+The script checks the live Nginx configuration, installs the isolated service, backs up the current HTTPS virtual host, inserts only the new route, checks syntax with `nginx -t`, and reloads Nginx. It restores the original config if validation/reload fails. It does **not** modify the root website, other routes, Docker containers, or SSH settings. It requires Nginx and a working existing HTTPS virtual host for `muchogdps.space`. If not present, the script stops without changing the web configuration.
 
-Example Nginx settings INSIDE a valid HTTPS server block:
+Test: `https://muchogdps.space/vitalink/health` should respond with `{"ok":true,"service":"VitaLink"}`.
 
-    server_name vita.muchogdps.space;
-    location / {
-        proxy_pass http://127.0.0.1:8765;
-        client_max_body_size 140k;
-    }
+## Pairing
 
-Obtain valid TLS certificate first, and do not overwrite the existing MuchoGDPS server block.
+The installer creates separate tokens in `/etc/vitalink/server.json` (mode 0640). Never send them in chat or commit them to GitHub.
 
-## 2. Two distinct secrets (never send them to ChatGPT)
+1. Repository **Settings → Secrets and variables → Actions**: add `VITALINK_URL` = `https://muchogdps.space/vitalink` and `VITALINK_OPERATOR_TOKEN` = local `operator_token`.
+2. Android VitaControl **2.6 → Мост**: keep `https://muchogdps.space/vitalink` and enter local `agent_token` (not the operator token). The phone installs the LinuxOnVita Alpine agent over SSH, then the agent connects by outbound HTTPS.
+3. On successful pairing, editing `vitalink/requests/request.json` triggers `.github/workflows/vitalink-requests.yml`, which sends a job using GitHub Actions Secrets. See workflow logs for results.
 
-Read the generated secrets locally on the VPS: sudo cat /etc/vitalink/server.json
+## Security and limitations
 
-- GitHub repo Settings → Secrets and variables → Actions: set **VITALINK_URL** = https://vita.muchogdps.space and **VITALINK_OPERATOR_TOKEN** = operator_token from the VPS config.
-- On the phone in VitaControl **Мост** tab enter **agent_token** (a different token). The Android app installs agent.py into Alpine on the Vita using its existing SSH connection. Never commit either token.
+**This repository is public.** Workflows and requests may be visible to anyone. Only non-sensitive diagnostics should be published there. The agent defaults to safe diagnostics; remote shell and package installation are disabled without additional local authorization. To work with private files and unrestricted shell, migrate the control workflow to a private repository and secure its tokens first. Do not expose port 8765 or PS Vita's SSH to the Internet.
 
-## 3. Using ChatGPT after setup
+The VPS must be configured once using the commands above. The ChatGPT execution environment cannot SSH into the VPS itself. No claim of a live bridge should be made until the public HTTPS health endpoint and an authenticated job succeed.
 
-Editing vitalink/requests/request.json triggers .github/workflows/vitalink-requests.yml. Read-only diagnostic example:
+## Manual Nginx fallback
 
-    {"action":"diagnose","args":{},"note":"test-1"}
+For a custom Nginx layout, insert this **inside the existing HTTPS server for muchogdps.space** (not as a new server block):
 
-Other actions: search (package names array), game (one of the four built-in projects), upload (max 50KB, inbox directory), download (max 15KB from outbox but NOT printed to public logs). install and shell are disabled by default; enabling requires explicit local configuration in both VPS and Vita agent.
+```nginx
+location ^~ /vitalink/ {
+    proxy_pass http://127.0.0.1:8765/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    client_max_body_size 140k;
+}
+```
 
-## Security and privacy
+Then run `sudo nginx -t && sudo systemctl reload nginx`. This does not need a new DNS record or certificate.
 
-**This repository is PUBLIC.** Anything submitted in request.json or printed in workflow logs becomes publicly visible. Do not submit secrets, passwords, sensitive files or private command output here. To work extensively with files and unrestricted terminal, move the request workflow into a PRIVATE repository before enabling shell access. User needs to explicitly configure and authorize that private control channel.
+## Debugging
 
-Vita agent uses outbound HTTPS only. No router port-forwarding, public SSH or exposed reverse tunnel is needed. The VPS stores separate operator/agent credentials with strict file permissions. The agent runs diagnostics by default; package installation and arbitrary shell commands are NOT enabled.
-
-## Limitations
-
-I cannot automatically sign into your VPS or discover its private SSH credentials. DNS, TLS and GitHub secrets require a one-time setup by the owner. Nothing should be described as connected until /health and an authenticated Vita diagnostic job actually succeed.
-
-
-## VitaControl 2.5 Android pairing
-
-В приложении VitaControl есть вкладка «Мост». Владелец VPS вводит URL `https://vita.muchogdps.space` и отдельно `agent_token` из `/etc/vitalink/server.json`. Android подключается к уже работающему SSH Виты, устанавливает в Alpine `python3` и `ca-certificates`, скачивает `agent.py` из закреплённого коммита проекта, создаёт `/root/vitalink/agent.json` с `0600` и запускает агент. Установка и ошибки видны в Sakura и журнале. Ключ не сохраняется в Android SharedPreferences. В Alpine добавляется запуск агента из `/root/.profile`, чтобы при новом входе в графический сеанс он запускался вновь. Авторизация GitHub Actions использует другой ключ `operator_token`, который на телефон и Виту не передаётся.
-
-**Штатный режим:** только диагностика. Для установки пакетов на Vita в локальном `/root/vitalink/agent.json` должно быть `allow_install=true`; для shell ещё требуется `enable_shell=true` на сервере и `allow_shell=true` на устройстве. Не включайте shell с публичным GitHub-репозиторием.
+On VPS: `sudo systemctl status vitalink` and `sudo journalctl -u vitalink -n 50 --no-pager`.
+On Vita: VitaControl → Мост → journal, or `/root/vitalink/agent.log` within Alpine.

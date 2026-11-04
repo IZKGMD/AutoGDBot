@@ -129,7 +129,7 @@ public final class ControlActivity extends Activity {
         add(log,output,9);
         Button clear=button("Очистить журнал",false);
         clear.setOnClickListener(v->output.setText(""));add(log,clear,9);
-        add(root,text("VitaControl 2.5 • VitaLink • SSH",11,MUTED,false),15);
+        add(root,text("VitaControl 2.6 • VitaLink • SSH",11,MUTED,false),15);
         setContentView(scroller);
     }
     private void showTab(String name){
@@ -585,9 +585,9 @@ public final class ControlActivity extends Activity {
     private void bridgeUi(){
         LinearLayout c=card();add(content,c,0);
         heading(c,"VITALINK / MUCHOVITA","Связь PS Vita ↔ VPS ↔ GitHub Actions. Вита сама подключается к VPS по HTTPS.");
-        add(c,text("Сначала установи сервер на VPS и включи HTTPS для vita.muchogdps.space. Движок не открывает SSH Виты в интернет.",12,MUTED,false),12);
-        bridgeUrl=field("https://vita.muchogdps.space",false);
-        bridgeUrl.setText("https://vita.muchogdps.space");
+        add(c,text("VitaLink на основном домене: https://muchogdps.space/vitalink. При подключении PS Vita не открывает SSH наружу.",12,MUTED,false),12);
+        bridgeUrl=field("https://muchogdps.space/vitalink",false);
+        bridgeUrl.setText("https://muchogdps.space/vitalink");
         add(c,bridgeUrl,14);
         bridgeToken=field("agent_token из /etc/vitalink/server.json",false);
         bridgeToken.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
@@ -602,7 +602,7 @@ public final class ControlActivity extends Activity {
         Button health=button("Проверить доступ к серверу",false);add(c,health,9);
         health.setOnClickListener(v->task("VitaLink / проверка HTTPS",alpine(
             "if ! command -v python3 >/dev/null; then echo 'Сначала установи Python'; exit 127; fi; "
-            +"python3 -c "+quote("import urllib.request; print(urllib.request.urlopen('https://vita.muchogdps.space/health',timeout=12).read().decode())")),30000,null));
+            +"python3 -c "+quote("import urllib.request; print(urllib.request.urlopen('https://muchogdps.space/vitalink/health',timeout=12).read().decode())")),30000,null));
         add(c,text("На GitHub также понадобятся два Actions Secrets: VITALINK_URL и VITALINK_OPERATOR_TOKEN. Для реальных удалённых тестов я буду отправлять задания через приватно авторизованный VPS, а не напрямую по SSH.",12,MUTED,false),14);
     }
     private void installVitaLink(){
@@ -610,9 +610,9 @@ public final class ControlActivity extends Activity {
         String token=bridgeToken.getText().toString().trim();
         Uri u=Uri.parse(url);
         if(!"https".equalsIgnoreCase(u.getScheme()) ||
-            !"vita.muchogdps.space".equalsIgnoreCase(u.getHost()) ||
-            u.getPort()!=-1  || !(u.getPath()==null || "/".equals(u.getPath()) || "".equals(u.getPath()))){
-            bridgeUrl.setError("Нужен адрес https://vita.muchogdps.space");return;
+            !"muchogdps.space".equalsIgnoreCase(u.getHost()) ||
+            u.getPort()!=-1  || !("/vitalink".equals(u.getPath()) || "/vitalink/".equals(u.getPath()))){
+            bridgeUrl.setError("Нужен адрес https://muchogdps.space/vitalink");return;
         }
         if(token.length()<32 || token.length()>160 || !token.matches("[A-Za-z0-9_-]+")){
             bridgeToken.setError("Вставь agent_token из конфига VPS (не operator_token)");return;

@@ -30,18 +30,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="vitacontrol-v2.5.0"
-          cp app/build/outputs/apk/debug/app-debug.apk VitaControl-2.5.0.apk
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "VitaControl 2.5.0" --notes "VitaLink VPN-free VPS/SSH pairing, Vita Turbo, live Sakura logs, packages and games." --target "$GITHUB_SHA"
-          gh release upload "$TAG" VitaControl-2.5.0.apk --clobber
+          TAG="vitacontrol-v2.6.0"
+          cp app/build/outputs/apk/debug/app-debug.apk VitaControl-2.6.0.apk
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "VitaControl 2.6.0" --notes "VitaLink paired via muchogdps.space/vitalink; Turbo, Sakura logs, packages, games." --target "$GITHUB_SHA"
+          gh release upload "$TAG" VitaControl-2.6.0.apk --clobber
 
       - name: Publish public raw APK (no GitHub login required)
         run: |
           mkdir -p downloads
-          cp app/build/outputs/apk/debug/app-debug.apk downloads/VitaControl-2.5.0.apk
+          cp app/build/outputs/apk/debug/app-debug.apk downloads/VitaControl-2.6.0.apk
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add downloads/VitaControl-2.5.0.apk
+          git add downloads/VitaControl-2.6.0.apk
           if ! git diff --cached --quiet; then
             git commit -m "Publish VitaControl APK for direct anonymous download [skip ci]"
             git push origin HEAD:vitabridge-android
