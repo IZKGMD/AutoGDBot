@@ -86,6 +86,21 @@ final class PinuxNativeWindows {
     return button;
   }
 
+  private TextButton chrome(String glyph, Runnable run, boolean danger) {
+    TextButton.TextButtonStyle style = new TextButton.TextButtonStyle();
+    style.font = skin.getFont("small-font");
+    style.fontColor = danger ? Color.valueOf("e6bac4") : Color.valueOf("acb9ce");
+    style.overFontColor = Color.WHITE;
+    style.up = skin.getDrawable("title-button");
+    style.over = skin.getDrawable(danger ? "title-close-hover" : "title-button-hover");
+    style.down = style.over;
+    TextButton b = new TextButton(glyph, style);
+    b.addListener(new ChangeListener() {
+      @Override public void changed(ChangeEvent event, Actor actor) { run.run(); }
+    });
+    return b;
+  }
+
   private VisWindow make(App app, String title, int width, int height, int x, int y) {
     VisWindow window = new VisWindow(title, windowStyle);
     window.setMovable(true);
@@ -98,10 +113,14 @@ final class PinuxNativeWindows {
     window.padBottom(18);
     window.getTitleLabel().setColor(PRIMARY);
     window.getTitleLabel().setAlignment(Align.left);
+    window.getTitleTable().setBackground(skin.getDrawable("window-header"));
     window.getTitleTable().add().expandX();
-    window.getTitleTable().add(action("—", () -> minimize(app))).width(36).height(28).padRight(6);
-    window.getTitleTable().add(action("□", () -> toggleMaximize(app))).width(36).height(28).padRight(6);
-    window.getTitleTable().add(action("×", () -> close(app))).width(36).height(28).padRight(2);
+    window.getTitleTable().add(chrome("—", () -> minimize(app), false))
+        .width(33).height(25).padRight(5);
+    window.getTitleTable().add(chrome("□", () -> toggleMaximize(app), false))
+        .width(33).height(25).padRight(5);
+    window.getTitleTable().add(chrome("×", () -> close(app), true))
+        .width(33).height(25).padRight(5);
     window.setBounds(x, y, width, height);
     windows.put(app, window);
     maximized.put(app, false);
@@ -110,10 +129,10 @@ final class PinuxNativeWindows {
 
   private VisWindow create(App app) {
     int offset = sequence++ % 4;
-    int x = 220 + offset * 32, y = 115 + offset * 21;
+    int x = 195 + offset * 30, y = 122 + offset * 14;
     switch (app) {
       case TERMINAL -> {
-        VisWindow w = make(app, "Terminal", 805, 525, x, y);
+        VisWindow w = make(app, "Terminal", 800, 528, 190, 132);
         Table main = new Table();
         main.top().left();
         main.setBackground(skin.getDrawable("pane-bg"));
@@ -138,7 +157,7 @@ final class PinuxNativeWindows {
         inputStyle.cursor = skin.newDrawable("button-bg", Color.valueOf("c0f3e1"));
         inputStyle.selection = skin.newDrawable("hover-bg", Color.valueOf("514f81"));
         terminalInput = new VisTextField("", inputStyle);
-        terminalInput.setMessageText("dev@astra:~$  Введите help");
+        terminalInput.setMessageText("Введите команду");
         terminalInput.setEnterKeyFocusTraversal(false);
         terminalInput.setTextFieldListener((field, ch) -> {
           if (ch == '\r' || ch == '\n') {
@@ -146,12 +165,18 @@ final class PinuxNativeWindows {
             field.setText("");
           }
         });
-        main.add(terminalInput).height(43).growX();
+        Table prompt = new Table();
+        prompt.setBackground(skin.getDrawable("input-bg"));
+        Label prefix = text("dev@astra:~$ ", true);
+        prefix.setColor(Color.valueOf("8bdec3"));
+        prompt.add(prefix).padLeft(14).padRight(5);
+        prompt.add(terminalInput).growX().height(40).padRight(8);
+        main.add(prompt).height(44).growX();
         w.add(main).grow();
         return w;
       }
       case FILES -> {
-        VisWindow w = make(app, "Files", 816, 514, x, y);
+        VisWindow w = make(app, "Files", 705, 505, 668, 142);
         Table content = new Table();
         content.setBackground(skin.getDrawable("pane-bg"));
         content.top().left().pad(21);
@@ -166,7 +191,7 @@ final class PinuxNativeWindows {
         return w;
       }
       case MAIL -> {
-        VisWindow w = make(app, "TaskMail", 805, 518, x, y);
+        VisWindow w = make(app, "TaskMail", 735, 518, 420, 142);
         Table inbox = new Table();
         inbox.setBackground(skin.getDrawable("pane-bg"));
         inbox.top().left().pad(22);
@@ -182,7 +207,7 @@ final class PinuxNativeWindows {
         return w;
       }
       case SETTINGS -> {
-        VisWindow w = make(app, "Settings", 740, 500, x, y);
+        VisWindow w = make(app, "Settings", 635, 455, 594, 160);
         Table pane = new Table();
         pane.setBackground(skin.getDrawable("pane-bg"));
         pane.top().left().pad(23);
