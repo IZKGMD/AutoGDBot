@@ -42,8 +42,8 @@ public final class PinuxDesktopStage {
   private static final float TOP_BAR_H = 28f;
   private static final float DOCK_W = 248f;
   private static final float DOCK_H = 44f;
-  private static final float LAUNCHER_W = 368f;
-  private static final float LAUNCHER_H = 284f;
+  private static final float LAUNCHER_W = 484f;
+  private static final float LAUNCHER_H = 346f;
   private static final float SHORTCUTS_W = 86f;
   private static final float SHORTCUTS_H = 352f;
 
@@ -195,14 +195,25 @@ public final class PinuxDesktopStage {
     return f;
   }
 
-  private NinePatchDrawable patch(String id, int r, int red, int green, int blue,
-                                  int alpha, int unused) {
+  private Drawable patch(String id, int r, int red, int green, int blue,
+                         int alpha, int unused) {
     return borderedPatch(id, r, red, green, blue, alpha, red, green, blue, 0);
   }
 
-  private NinePatchDrawable borderedPatch(String id, int r, int red, int green, int blue, int alpha,
-                                          int bRed, int bGreen, int bBlue, int bAlpha) {
-    int size = 72, border = 24, radius = Math.min(22, r * 2);
+  private Drawable borderedPatch(String id, int r, int red, int green, int blue, int alpha,
+                                 int bRed, int bGreen, int bBlue, int bAlpha) {
+    // Do not use a 72px NinePatch for 1px separators / 3px indicators:
+    // its 24px stretch borders made those elements draw as huge blocks.
+    if (r <= 3) {
+      Pixmap dot = new Pixmap(1, 1, Pixmap.Format.RGBA8888);
+      dot.drawPixel(0, 0, (red << 24) | (green << 16) | (blue << 8) | alpha);
+      Texture tex = new Texture(dot);
+      dot.dispose();
+      skin.add(id + "-texture", tex);
+      return new TextureRegionDrawable(new TextureRegion(tex));
+    }
+    // A compact NinePatch supports controls as short as 19px high.
+    int size = 32, border = 8, radius = Math.min(8, r);
     Pixmap pix = new Pixmap(size, size, Pixmap.Format.RGBA8888);
     float strokeW = bAlpha > 0 ? 1.35f : 0f;
     for (int y = 0; y < size; y++) {
@@ -518,7 +529,7 @@ public final class PinuxDesktopStage {
     statusPill.pad(1, 8, 1, 8);
     Label dot = label("●", true, "7AD8A6", Align.center);
     statusPill.add(dot).padRight(5);
-    Label session = label("archcraft", true, "98A8C0", Align.center);
+    Label session = label("pinux", true, "98A8C0", Align.center);
     statusPill.add(session);
     topBar.add(statusPill).height(20).padRight(6);
 
@@ -598,7 +609,7 @@ public final class PinuxDesktopStage {
     launcher.row();
 
     Table footer = new Table();
-    footer.add(label("↑↓ выбор   Enter запуск   1-5 быстрый старт   Esc закрыть", true, "687790", Align.left))
+    footer.add(label("↑↓ выбор    Enter запуск    1–5 быстро    Esc закрыть", true, "8293AB", Align.left))
         .expandX().left();
     launcher.add(footer).growX().height(16);
 
@@ -656,9 +667,12 @@ public final class PinuxDesktopStage {
       Table textCol = new Table();
       Label nameLbl = label(appTitle(app), true, selected ? "FFFFFF" : "DCE6F6", Align.left);
       Label subLbl = label(appSubtitle(app), true, selected ? "9CC4FF" : "7A8A9E", Align.left);
-      textCol.add(nameLbl).left(). padRight(6);
-      textCol.add(subLbl).left().expandX();
-      rowBtn.add(textCol).expandX().left();
+      nameLbl.setEllipsis(true);
+      subLbl.setEllipsis(true);
+      textCol.add(nameLbl).left().width(300);
+      textCol.row();
+      textCol.add(subLbl).left().width(300).padTop(2);
+      rowBtn.add(textCol).growX().minWidth(0).left();
 
       Table tagBox = new Table();
       tagBox.setBackground(skin.getDrawable("rofi-tag"));
@@ -676,7 +690,7 @@ public final class PinuxDesktopStage {
         }
       });
 
-      launcherList.add(rowBtn).growX().height(36).padBottom(3);
+      launcherList.add(rowBtn).growX().height(42).padBottom(3);
       launcherList.row();
     }
   }
@@ -912,8 +926,8 @@ public final class PinuxDesktopStage {
     stage.getViewport().update(w, h, true);
     float width = stage.getWidth(), height = stage.getHeight();
     scale = Math.max(.67f, Math.min(1.35f, height / 810f));
-    skin.getFont("ui-font").getData().setScale(.36f * scale);
-    skin.getFont("small-font").getData().setScale(.37f * scale);
+    skin.getFont("ui-font").getData().setScale(.40f * scale);
+    skin.getFont("small-font").getData().setScale(.40f * scale);
 
     wallpaper.setBounds(0, 0, width, height);
     wallpaperDim.setBounds(0, 0, width, height);
