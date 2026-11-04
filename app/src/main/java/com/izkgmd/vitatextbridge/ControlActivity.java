@@ -127,7 +127,7 @@ public final class ControlActivity extends Activity {
         add(log,output,9);
         Button clear=button("Очистить журнал",false);
         clear.setOnClickListener(v->output.setText(""));add(log,clear,9);
-        add(root,text("VitaControl 2.2 • 4 встроенных проекта • SSH",11,MUTED,false),15);
+        add(root,text("VitaControl 2.3 • 4 встроенных проекта • SSH",11,MUTED,false),15);
         setContentView(scroller);
     }
     private void showTab(String name){
@@ -195,7 +195,7 @@ public final class ControlActivity extends Activity {
     private static final String GAME_PATH="/root/vita-games/";
     private void gamesUi(){
         LinearLayout c=card();add(content,c,0);
-        heading(c,"ИГРОВОЙ ЦЕНТР","Все 4 проекта встроены в APK. Установка через SSH прямо на Vita — никаких архивов или ручного ввода на консоли.");
+        heading(c,"ИГРОВОЙ ЦЕНТР","Автоматически откроется Sakura на Vita с подробным журналом каждого этапа установки.");
         add(c,text("Установка: исходники → /root/vita-games, зависимости → apk в Alpine. На рабочем столе появятся ярлыки. Вита должна быть подключена к Wi-Fi.",12,MUTED,false),12);
         Button install=button("↓  УСТАНОВИТЬ ВСЕ ИГРЫ НА ВИТУ",true);
         add(c,install,14);
@@ -222,7 +222,7 @@ public final class ControlActivity extends Activity {
         launch.setOnClickListener(v->launchGame(file));
         Button logs=button("Журнал запуска",false);add(c,logs,6);
         logs.setOnClickListener(v->task("Лог "+file,
-            alpine("tail -n 55 /tmp/vita-game-"+file+".log 2>&1"),15000,null));
+            alpine("tail -n 55 "+LIVE_LOG+" 2>&1"),15000,null));
     }
     private byte[] assetGame(String filename)throws Exception{
         try(InputStream raw=getAssets().open("vita_games.zip");ZipInputStream zip=new ZipInputStream(raw)){
@@ -249,6 +249,84 @@ public final class ControlActivity extends Activity {
         return out.toString();
     }
     private static boolean success(String result){return result.trim().endsWith("[exit 0]");}
+
+    // The viewer lives in the Alpine container and follows real command output.
+    private static final String LIVE_LOG="/root/vitacontrol/progress.log";
+    private static final String LIVE_VIEWER="/root/vitacontrol/watch.sh";
+
+    private String openProgressTerminal(SshClient ssh,String label,boolean clear) throws Exception {
+        String sh="#!/bin/sh\n"
+            +"printf '\\033[1;36mVITA CONTROL / LIVE PROGRESS\\033[0m\\n'\n"
+            +"printf 'Real command output from Alpine Linux.\\n\\n'\n"
+            +"exec tail -n +1 -f "+LIVE_LOG+"\n";
+        String encoded=Base64.encodeToString(sh.getBytes(StandardCharsets.UTF_8),Base64.NO_WRAP);
+        String prepare="set -eu; mkdir -p /root/vitacontrol; "
+            +"printf '%s' '"+encoded+"' | base64 -d > "+LIVE_VIEWER+"; "
+            +"chmod 755 "+LIVE_VIEWER+"; "
+            +(clear?": > "+LIVE_LOG+"; ":"touch "+LIVE_LOG+"; ")
+            +"printf '[%s] %s\\n' \"$(date '+%H:%M:%S')\" "+quote(label)+" >> "+LIVE_LOG;
+        String setup=ssh.execute(alpine(prepare),20000);
+        if(!success(setup))throw new IllegalStateException("Не удалось создать журнал: "+setup);
+        String launch="export DISPLAY=:0 HOME=/root SHELL=/bin/sh; "
+            +"if ! command -v sakura >/dev/null 2>&1; then echo 'NO_SAKURA'; "
+            +"elif [ ! -S /tmp/.X11-unix/X0 ]; then echo 'NO_X11'; "
+            +"else nohup sakura -t 'VitaControl: Progress' -e "+LIVE_VIEWER
+            +" </dev/null >/root/vitacontrol/sakura-error.log 2>&1 & "
+            +"echo 'SAKURA_STARTED'; fi";
+        String result=ssh.execute(alpine(launch),20000);
+        if(result.contains("NO_SAKURA"))return "Sakura не найдена; журнал сохранён: "+LIVE_LOG;
+        if(result.contains("NO_X11"))return "Рабочий стол IceWM выключен; журнал сохранён: "+LIVE_LOG;
+        if(!success(result))return "Открытие Sakura не подтверждено: "+result;
+        return "Открыта Sakura на Вите. Живой журнал: "+LIVE_LOG;
+    }
+
+    private String journalCommand(SshClient ssh,String description,String cmd,int timeout)throws Exception {
+        String wrapper="mkdir -p /root/vitacontrol; "
+            +"printf '\\n[%s] ▶ %s\\n' \"$(date '+%H:%M:%S')\" "
+            +quote(description)+" >> "+LIVE_LOG+"; "
+            +"( "+cmd+" ) >> "+LIVE_LOG+" 2>&1; code=$?; "
+            +"printf '[%s] %s [exit %s]\\n' \"$(date '+%H:%M:%S')\" "
+            +quote(description)+" \"$code\" >> "+LIVE_LOG+"; "
+            +"exit \"$code\"";
+        return ssh.execute(alpine(wrapper),timeout);
+    }
+
+    private void taskWithTerminal(String title,String cmd,int timeout){
+        if(busy){log("Сначала дождись завершения другой операции.");return;}
+        busy=true;status.setText("●  "+title);
+        worker.execute(()->{
+            boolean ok=false;String message;
+            try{
+                SshClient ssh=client();
+                progress(openProgressTerminal(ssh,title,true));
+                String result=journalCommand(ssh,title,cmd,timeout);
+                ok=success(result);
+                String tail=ssh.execute(alpine("tail -n 25 "+LIVE_LOG),15000);
+                message=(ok?"ГОТОВО: ":"ОШИБКА: ")+title+"\n"+tail;
+            }catch(Exception e){message="Ошибка: "+e.getMessage();}
+            final boolean done=ok;final String report=message;
+            runOnUiThread(()->{
+                if(isDestroyed()||isFinishing())return;
+                busy=false;status.setText(done?"●  Успешно":"●  Ошибка");log(report);
+            });
+        });
+    }
+
+    private void viewLog(){
+        if(busy){log("Занято: дождись завершения операции.");return;}
+        busy=true;
+        worker.execute(()->{
+            String response;
+            try{response=openProgressTerminal(client(),"VitaControl log",false);}
+            catch(Exception e){response="Ошибка Sakura: "+e.getMessage();}
+            final String result=response;
+            runOnUiThread(()->{
+                if(isDestroyed()||isFinishing())return;
+                busy=false;status.setText("●  Журнал");log(result);
+            });
+        });
+    }
+
     private void progress(String message){runOnUiThread(()->{
         if(!isFinishing()&&!isDestroyed()){status.setText("●  "+message);log("• "+message);}
     });}
@@ -258,6 +336,8 @@ public final class ControlActivity extends Activity {
         worker.execute(()->{
             String stage="Подготовка";String failure=null;
             try{
+                SshClient ssh=client();
+                progress(openProgressTerminal(ssh,"VitaGameLab / Установка игр",true));
                 progress("Подключаемся к Linux и копируем встроенные игры");
                 for(String name:GAME_FILES){
                     stage="Копирование "+name;
@@ -269,17 +349,18 @@ public final class ControlActivity extends Activity {
                         +"printf '%s' '"+encoded+"' | base64 -d > "+dest+".partial; "
                         +"test \"$(sha256sum "+dest+".partial | cut -d' ' -f1)\" = '"+digest+"'; "
                         +"mv "+dest+".partial "+dest+"; echo 'OK: "+name+"'";
-                    String answer=client().execute(alpine(script),45000);
+                    String answer=journalCommand(ssh,"Передача "+name+" / "+data.length+
+                        " байт / SHA256 "+digest.substring(0,12),script,45000);
                     if(!success(answer))throw new IllegalStateException(name+": "+answer);
                     progress("Передано: "+name);
                 }
                 stage="Обновление репозиториев";
                 progress("Обновляем каталог пакетов Alpine");
-                String update=client().execute(alpine("apk update"),120000);
+                String update=journalCommand(ssh,"apk update — обновление списков пакетов","apk update",120000);
                 if(!success(update))throw new IllegalStateException("apk update:\n"+update);
                 stage="Установка Python / Pygame / Tkinter";
                 progress("Устанавливаем Python + игровые движки");
-                String deps=client().execute(alpine("apk add python3 py3-pygame python3-tkinter"),240000);
+                String deps=journalCommand(ssh,"apk add python3 py3-pygame python3-tkinter","apk add python3 py3-pygame python3-tkinter",240000);
                 if(!success(deps))throw new IllegalStateException("apk add:\n"+deps);
                 stage="Создание ярлыков";
                 for(String name:GAME_FILES){
@@ -291,9 +372,12 @@ public final class ControlActivity extends Activity {
                     String dest="/root/Desktop/"+name.replace(".py",".desktop");
                     String cmd="mkdir -p /root/Desktop; printf '%s' '"+b64+"' | base64 -d > "
                         +dest+"; chmod 755 "+dest;
-                    String result=client().execute(alpine(cmd),20000);
+                    String result=journalCommand(ssh,"Создание ярлыка "+name,cmd,20000);
                     if(!success(result))throw new IllegalStateException(result);
                 }
+                String finished=journalCommand(ssh,"Установка завершена",
+                    "echo '4 файла и ярлыки доступны на PS Vita.'",15000);
+                if(!success(finished))throw new IllegalStateException(finished);
                 progress("Готово: 4 проекта установлены, ярлыки добавлены");
             }catch(Exception e){failure="Этап «"+stage+"»: "+e.getMessage();}
             final String result=failure;
@@ -318,16 +402,16 @@ public final class ControlActivity extends Activity {
         String file=GAME_PATH+filename;
         String script="export DISPLAY=:0 SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy; "
             +"test -f "+file+" || { echo 'Сначала установи игры из APK'; exit 127; }; "
-            +probe+"nohup python3 "+file+" </dev/null >/tmp/vita-game-"+filename+".log 2>&1 & "
+            +probe+"nohup python3 "+file+" </dev/null >>"+LIVE_LOG+" 2>&1 & "
             +"echo 'Запущен: "+filename+" (PID '$!')'; sleep 1; "
             +"if ! kill -0 $! 2>/dev/null; then echo 'Процесс завершился; открой журнал запуска'; "
-            +"tail -n 12 /tmp/vita-game-"+filename+".log; fi";
-        task("Запуск "+filename,x11(script),25000,null);
+            +"tail -n 12 "+LIVE_LOG+"; fi";
+        taskWithTerminal("Запуск "+filename,"export DISPLAY=:0 SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy; "+script,25000);
     }
 
     private void packagesUi(){
         LinearLayout c=card();add(content,c,0);
-        heading(c,"МАГАЗИН ПАКЕТОВ","Установка в Alpine Linux через alpine-chroot. Совместимость с ARMv7 проверяется на Вите.");
+        heading(c,"МАГАЗИН ПАКЕТОВ","При установке Sakura на Вите показывает реальный вывод apk в процессе выполнения.");
         packageSearch=field("Например: scrot, mpv, cmatrix",false);add(c,packageSearch,14);
         Button find=button("Найти пакет",false);
         find.setOnClickListener(v->{
@@ -338,7 +422,9 @@ public final class ControlActivity extends Activity {
         Button installCustom=button("Установить введённый пакет",true);
         installCustom.setOnClickListener(v->install(packageSearch.getText().toString().trim(),false));add(c,installCustom,9);
         Button update=button("Обновить каталог пакетов",false);
-        update.setOnClickListener(v->task("apk update",alpine("apk update"),90000,null));add(c,update,9);
+        update.setOnClickListener(v->taskWithTerminal("apk update","apk update",120000));add(c,update,9);
+        Button journal=button("Открыть Sakura с журналом",false);add(c,journal,9);
+        journal.setOnClickListener(v->viewLog());
         add(content,text("ПОПУЛЯРНЫЕ ПАКЕТЫ",15,WHITE,true),17);
         item("YouTube Lite","mpv + yt-dlp","Видео через mpv; слабое железо, 144–240p, может тормозить.",true);
         item("Удалённый экран","scrot + xdotool","Снимки экрана и нажатия с телефона.",false);
@@ -364,7 +450,7 @@ public final class ControlActivity extends Activity {
         String names=String.join(" ",packages);
         String warning=bundle?"Установка mpv/yt-dlp может занять много памяти и места на карте памяти.\n\n":"";
         confirm("Установить "+names,warning+"Пакеты будут установлены в alpine.img. Продолжить?",()->
-            task("Установка "+names,alpine("apk add "+names),180000,null));
+            taskWithTerminal("Установка "+names,"apk add "+names,240000));
     }
     private void screenUi(){
         LinearLayout c=card();add(content,c,0);
@@ -502,6 +588,8 @@ public final class ControlActivity extends Activity {
         space.setOnClickListener(v->task("Свободная память", "df -h; free -m",20000,null));
         Button wifi=button("Статус Wi-Fi",false);add(c,wifi,10);
         wifi.setOnClickListener(v->task("Состояние Wi-Fi","vita-wifi status",20000,null));
+        Button viewer=button("Открыть терминал прогресса на Вите",false);add(c,viewer,9);
+        viewer.setOnClickListener(v->viewLog());
         Button pkg=button("Проверка Alpine / apk / X11",false);add(c,pkg,10);
         pkg.setOnClickListener(v->task("Диагностика",
             "command -v alpine-chroot; alpine-chroot -c 'command -v apk; "

@@ -1,4 +1,4 @@
-# VitaControl 2.2 — Android + LinuxOnVita Game Lab
+# VitaControl 2.3 — Android + LinuxOnVita Game Lab
 
 Нативный Android-пульт для PS Vita 1000 с LinuxOnVita / Alpine Linux / IceWM. При установке APK не требуется предварительно скачивать игры отдельно.
 
@@ -13,11 +13,18 @@
 
 ## Установка
 
-1. Установи **VitaControl-2.2.0.apk** с GitHub Releases (ссылка ниже), открой приложение.
+1. Установи **VitaControl-2.3.0.apk** с GitHub Releases (ссылка ниже), открой приложение.
 2. Подключи телефон и PS Vita к одному Wi-Fi, укажи SSH/IP Vita (`192.168.1.141` ранее), порт 22, пользователь root.
-3. Нажми **Vita Control 2.2** → вкладка **Игры** → **УСТАНОВИТЬ ВСЕ ИГРЫ НА ВИТУ**. Дождись записи всех 4 файлов и установки Alpine-пакетов. Для зависимости `py3-pygame` требуется репозиторий Alpine community.
+3. Нажми **Vita Control 2.3** → вкладка **Игры** → **УСТАНОВИТЬ ВСЕ ИГРЫ НА ВИТУ**. Дождись записи всех 4 файлов и установки Alpine-пакетов. Для зависимости `py3-pygame` требуется репозиторий Alpine community.
 4. Нажми «Запустить на PS Vita». Если игра не открылась, проверь «Журнал запуска».
 
-Прямая ссылка после успешной публикации: https://github.com/IZKGMD/AutoGDBot/releases/download/vitacontrol-v2.2.0/VitaControl-2.2.0.apk
+Прямая ссылка после успешной публикации: https://github.com/IZKGMD/AutoGDBot/releases/download/vitacontrol-v2.3.0/VitaControl-2.3.0.apk
 
 Ограничения: Android-сборка проверяется GitHub Actions, реальную совместимость Panda3D, Pygame, X11 и сеанса после logout следует проверять на аппаратной PS Vita. Процедура повторного входа в IceWM из SSH может не сработать без tty. Сохраняй документы до logout. Не открывай SSH на внешний Интернет.
+
+
+## v2.3 — Живой прогресс на PS Vita
+
+При установке игр и пакетов VitaControl открывает отдельную Sakura с реальным stdout/stderr действий и apk в `/root/vitacontrol/progress.log`. Процесс установки пишет в файл по мере выполнения, а Sakura показывает его командой `tail -n +1 -f`. В журнале остаются этапы копирования, размеры файлов, SHA256, apk update, apk add и ошибки. 
+
+В разделе «Пакеты» и «Система» есть кнопка открытия журнала. Если IceWM не запущен или Sakura не найдена, лог остаётся в Alpine, но графический терминал открыть нельзя. Установка не останавливается. Игра при запуске также перенаправляет Python stdout/stderr в журнал.

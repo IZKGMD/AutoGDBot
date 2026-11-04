@@ -27,7 +27,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="vitacontrol-v2.2.0"
-          cp app/build/outputs/apk/debug/app-debug.apk VitaControl-2.2.0.apk
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "VitaControl 2.2.0" --notes "Native Android control for LinuxOnVita. APK bundles VitaGameLab projects, installs packages and files over SSH, and provides GUI session restart actions." --target "$GITHUB_SHA"
-          gh release upload "$TAG" VitaControl-2.2.0.apk --clobber
+          TAG="vitacontrol-v2.3.0"
+          cp app/build/outputs/apk/debug/app-debug.apk VitaControl-2.3.0.apk
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "VitaControl 2.3.0" --notes "Native Android controller. Live Sakura terminal for installs and game launches with logs, package manager and embedded game projects." --target "$GITHUB_SHA"
+          gh release upload "$TAG" VitaControl-2.3.0.apk --clobber
