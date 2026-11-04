@@ -382,7 +382,17 @@ final class PinuxNativeWindows {
 
   boolean hasOpen() { return front() != null; }
 
-  boolean isFrontCode() { return front() != null && front() == windows.get(App.CODE); }
+  /** Actual frontmost native app, including mouse-driven focus changes. */
+  App frontApp() {
+    Actor top = front();
+    if (top == null) return null;
+    for (var entry : windows.entrySet()) {
+      if (entry.getValue() == top) return entry.getKey();
+    }
+    return null;
+  }
+
+  boolean isFrontCode() { return frontApp() == App.CODE; }
 
   void tick() { if (codeApp != null && isVisible(App.CODE)) codeApp.tick(); }
 

@@ -115,6 +115,15 @@ public final class PinuxSmoke extends CtrlLife {
     lifeScreens().openCode();
     for (int i = 0; i < 4; i++) steps.add(() -> {});
     steps.add(() -> screenshot("desktop"));
+    // Rofi-style launcher: mouse open, text filter and Escape close.
+    steps.add(() -> {
+      mouseAbsolute(0, 47, 13);
+      mouseAbsolute(2, 47, 13);
+    });
+    steps.add(() -> screenshot("launcher"));
+    steps.add(() -> type("term"));
+    steps.add(() -> screenshot("launcher-filter"));
+    steps.add(() -> tap(Keys.ESCAPE));
     steps.add(() -> {
       // Verify an actual native Scene2D shortcut click at 1440x810.
       click(30, 27);
@@ -128,6 +137,20 @@ public final class PinuxSmoke extends CtrlLife {
     steps.add(() -> {
       if (lifeScreens().codePage != 2) throw new AssertionError("Astra Code editor not opened");
       screenshot("editor-typing");
+    });
+    // While Astra Code is focused, launcher text input must never type ByteScript.
+    steps.add(() -> {
+      mouseAbsolute(0, 47, 13);
+      mouseAbsolute(2, 47, 13);
+    });
+    steps.add(() -> screenshot("launcher-over-code"));
+    steps.add(() -> {
+      int before = world().state.typedCount;
+      tap(Keys.F);
+      type("fi");
+      if (world().state.typedCount != before)
+        throw new AssertionError("Launcher typing leaked into ByteScript");
+      tap(Keys.ESCAPE);
     });
     steps.add(() -> { for (int i = 0; i < 80; i++) tap(Keys.A); });
     steps.add(() -> nativeAction("▶ Компиляция / тесты")); // Run ByteScript tests.
