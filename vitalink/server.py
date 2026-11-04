@@ -20,7 +20,7 @@ class GitHubOIDCVerifier:
         import jwt
         self.jwt = jwt
         self.keys = jwt.PyJWKClient(self.JWKS, cache_jwk_set=True,
-                                    lifespan=300, timeout=5)
+                                    lifespan=300)
 
     def verify(self, token):
         if not isinstance(token,str) or len(token)>8192 or token.count(".")!=2:
