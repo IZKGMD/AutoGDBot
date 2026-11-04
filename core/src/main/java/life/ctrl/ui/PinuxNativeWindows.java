@@ -446,4 +446,7 @@ final class PinuxNativeWindows {
       w.setColor(1, 1, 1, 1);
     }
   }
+  void dispose() {
+    if (codeApp != null) codeApp.dispose();
+  }
 }
