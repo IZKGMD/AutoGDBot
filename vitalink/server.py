@@ -4,9 +4,51 @@ import json, sqlite3, threading, time, secrets, hmac, uuid, argparse
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
+
+class GitHubOIDCVerifier:
+    """Verify signed tokens from exactly one permitted GitHub Actions workflow."""
+    ISSUER = "https://token.actions.githubusercontent.com"
+    AUDIENCE = "vitalink.muchogdps.space"
+    REPO = "IZKGMD/AutoGDBot"
+    REPO_ID = "1407579678"
+    REF = "refs/heads/vitabridge-android"
+    WORKFLOW = ("IZKGMD/AutoGDBot/.github/workflows/"
+                "vitalink-requests.yml@refs/heads/vitabridge-android")
+    JWKS = "https://token.actions.githubusercontent.com/.well-known/jwks"
+
+    def __init__(self):
+        import jwt
+        self.jwt = jwt
+        self.keys = jwt.PyJWKClient(self.JWKS, cache_jwk_set=True,
+                                    lifespan=300, timeout=5)
+
+    def verify(self, token):
+        if not isinstance(token,str) or len(token)>8192 or token.count(".")!=2:
+            return False
+        try:
+            header=self.jwt.get_unverified_header(token)
+            if header.get("alg")!="RS256" or not isinstance(header.get("kid"),str):
+                return False
+            key=self.keys.get_signing_key_from_jwt(token).key
+            claims=self.jwt.decode(
+                token,key,algorithms=["RS256"],
+                audience=self.AUDIENCE,issuer=self.ISSUER,
+                leeway=30,options={"require":["exp","iat","iss","aud","sub"]})
+            return (
+                claims.get("sub")=="repo:"+self.REPO+":ref:"+self.REF
+                and claims.get("repository")==self.REPO
+                and str(claims.get("repository_id"))==self.REPO_ID
+                and claims.get("ref")==self.REF
+                and claims.get("workflow_ref")==self.WORKFLOW
+                and claims.get("event_name") in ("push","workflow_dispatch")
+                and 0<int(claims["exp"])-int(claims["iat"])<=600)
+        except Exception:
+            return False
+
 class Store:
     def __init__(self, config):
         self.config=config; self.lock=threading.RLock()
+        self.github_oidc=(GitHubOIDCVerifier() if config.get("enable_github_oidc",False) else None)
         self.db=sqlite3.connect(config["database"],check_same_thread=False)
         self.db.row_factory=sqlite3.Row
         with self.db:
@@ -56,7 +98,12 @@ def make_handler(store):
             self.send_header("Content-Length",str(len(raw)))
             self.end_headers();self.wfile.write(raw)
         def authorized(self,role):
-            return hmac.compare_digest(self.headers.get("Authorization",""),"Bearer "+store.config[role+"_token"])
+            authorization=self.headers.get("Authorization","")
+            if hmac.compare_digest(authorization,"Bearer "+store.config[role+"_token"]):
+                return True
+            if role=="operator" and store.github_oidc and authorization.startswith("Bearer "):
+                return store.github_oidc.verify(authorization[7:])
+            return False
         def json(self):
             n=int(self.headers.get("Content-Length","0"))
             if n<1 or n>140000:raise ValueError("Invalid Content-Length")
@@ -66,6 +113,9 @@ def make_handler(store):
         def do_GET(self):
             path=self.path.split("?",1)[0]
             if path=="/health":return self.send(200,{"ok":True,"service":"VitaLink"})
+            if path=="/v1/auth":
+                if not self.authorized("operator"):return self.send(401,{"error":"Unauthorized"})
+                return self.send(200,{"ok":True,"service":"VitaLink","auth":"operator"})
             if path=="/v1/next":
                 if not self.authorized("agent"):return self.send(401,{"error":"Unauthorized"})
                 return self.send(200,{"job":store.take()})
