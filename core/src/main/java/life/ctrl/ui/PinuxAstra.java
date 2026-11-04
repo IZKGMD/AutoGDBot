@@ -226,7 +226,8 @@ public final class PinuxAstra {
   private void drawTopBar() {
     c.rect(0, 0, 480, 17, "050e19f5");
     c.rect(0, 16, 480, 1, "38627b");
-    button(menuOpen ? "×" : "P", 3, 1, 21, 14, () -> menuOpen = !menuOpen);
+    button("", 3, 1, 21, 14, () -> menuOpen = !menuOpen);
+    c.small(menuOpen ? "x" : "P", 9, 2, accent());
     c.small("PINUX ASTRA   /   " + (wm.front() == null ? "DESKTOP" : wm.front().title),
         30, 4, TEXT);
     c.small("●  " + s().clock() + "  D" + s().day(), 373, 4, accent());
@@ -236,12 +237,12 @@ public final class PinuxAstra {
     c.rect(0, 249, 480, 21, "071321f2");
     c.rect(0, 249, 480, 1, "416781");
     int x = 5;
-    dockItem("▣", null, x, 27, () -> menuOpen = !menuOpen); x += 32;
+    dockItem("P", null, x, 27, () -> menuOpen = !menuOpen); x += 32;
     dockItem("CODE", App.CODE, x, 66, () -> launch(App.CODE)); x += 71;
     dockItem(">_", App.TERMINAL, x, 47, () -> launch(App.TERMINAL)); x += 52;
     dockItem("FILES", App.FILES, x, 58, () -> launch(App.FILES)); x += 63;
     dockItem("MAIL", App.MAIL, x, 56, () -> launch(App.MAIL)); x += 61;
-    dockItem("⚙", App.SETTINGS, x, 32, () -> launch(App.SETTINGS));
+    dockItem("S", App.SETTINGS, x, 32, () -> launch(App.SETTINGS));
     c.small("CTRL+LIFE", 373, 257, SUB);
     button("EXIT", 429, 251, 45, 16, () -> { game.switchMode(Mode.WORLD); game.refreshState(); });
   }
@@ -251,7 +252,9 @@ public final class PinuxAstra {
     boolean open = app != null && wm.get(app).visible;
     c.rect(x, 251, width, 17, active ? "23465d" : "132739");
     if (open) c.rect(x + 7, 267, width - 14, 1, active ? accent() : "577c91");
-    button(label, x, 251, width, 16, action);
+    button(width < 40 ? "" : label, x, 251, width, 16, action);
+    if (width < 40)
+      c.small(label, x + (width - c.smallWidth(label)) / 2f, 253, active ? accent() : TEXT);
   }
 
   private void drawApplicationMenu() {
