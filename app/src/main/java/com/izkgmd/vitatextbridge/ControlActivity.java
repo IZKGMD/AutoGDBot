@@ -10,6 +10,7 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
+import org.json.JSONObject;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -53,6 +54,7 @@ public final class ControlActivity extends Activity {
     private boolean busy;
     private ImageView preview; private Bitmap currentImage;
     private EditText packageSearch, videoUrl;
+    private EditText bridgeUrl, bridgeToken;
 
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
@@ -64,7 +66,7 @@ public final class ControlActivity extends Activity {
         if(password==null) password="";
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
-        buildUi(); showTab("Турбо");
+        buildUi(); showTab("Мост");
     }
 
     private int dp(float v){return Math.round(v*getResources().getDisplayMetrics().density);}
@@ -110,7 +112,7 @@ public final class ControlActivity extends Activity {
 
         HorizontalScrollView nav=new HorizontalScrollView(this);nav.setHorizontalScrollBarEnabled(false);
         tabs=new LinearLayout(this);tabs.setOrientation(LinearLayout.HORIZONTAL);
-        String[] names={"Турбо","Игры","Пакеты","Экран","YouTube","Эффекты","Система"};
+        String[] names={"Мост","Турбо","Игры","Пакеты","Экран","YouTube","Эффекты","Система"};
         tabButtons=new Button[names.length];
         for(int i=0;i<names.length;i++){
             final String n=names[i];Button b=button(n,false);tabButtons[i]=b;
@@ -127,14 +129,15 @@ public final class ControlActivity extends Activity {
         add(log,output,9);
         Button clear=button("Очистить журнал",false);
         clear.setOnClickListener(v->output.setText(""));add(log,clear,9);
-        add(root,text("VitaControl 2.4 • Vita Turbo • SSH",11,MUTED,false),15);
+        add(root,text("VitaControl 2.5 • VitaLink • SSH",11,MUTED,false),15);
         setContentView(scroller);
     }
     private void showTab(String name){
         activeTab=name; content.removeAllViews();
-        String[] names={"Турбо","Игры","Пакеты","Экран","YouTube","Эффекты","Система"};
+        String[] names={"Мост","Турбо","Игры","Пакеты","Экран","YouTube","Эффекты","Система"};
         for(int i=0;i<names.length;i++) tabButtons[i].setBackground(bg(names[i].equals(name)?Color.rgb(39,88,115):Color.rgb(39,57,82),names[i].equals(name)?CYAN:0,12));
         switch(name){
+            case "Мост":bridgeUi();break;
             case "Турбо":turboUi();break;
             case "Игры":gamesUi();break;
             case "Пакеты":packagesUi();break;
@@ -574,6 +577,83 @@ public final class ControlActivity extends Activity {
         Button game=button("▶  Открыть игровой центр",false);add(c,game,9);
         game.setOnClickListener(v->showTab("Игры"));
         add(c,text("Aurora работает на CPU без 3D-ускорения. FPS зависит от нагрузки на PS Vita.",12,MUTED,false),10);
+    }
+
+
+    // VitaLink is installed over the same SSH connection as the existing VitaControl.
+    // Operator and device tokens are separate and never written into this repository.
+    private void bridgeUi(){
+        LinearLayout c=card();add(content,c,0);
+        heading(c,"VITALINK / MUCHOVITA","Связь PS Vita ↔ VPS ↔ GitHub Actions. Вита сама подключается к VPS по HTTPS.");
+        add(c,text("Сначала установи сервер на VPS и включи HTTPS для vita.muchogdps.space. Движок не открывает SSH Виты в интернет.",12,MUTED,false),12);
+        bridgeUrl=field("https://vita.muchogdps.space",false);
+        bridgeUrl.setText("https://vita.muchogdps.space");
+        add(c,bridgeUrl,14);
+        bridgeToken=field("agent_token из /etc/vitalink/server.json",false);
+        bridgeToken.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        add(c,bridgeToken,9);
+        add(c,text("Вводи только agent_token, НЕ operator_token. Токен не сохраняется в настройках Android и не отправляется в GitHub.",12,MUTED,false),9);
+        Button install=button("ПОДКЛЮЧИТЬ ВИТУ К VPS",true);add(c,install,13);
+        install.setOnClickListener(v->installVitaLink());
+        Button log=button("Проверить журнал VitaLink на Вите",false);add(c,log,9);
+        log.setOnClickListener(v->task("VitaLink / журнал",alpine(
+            "ls -l /root/vitalink/agent.py /root/vitalink/agent.json 2>&1; "
+            +"tail -n 45 /root/vitalink/agent.log 2>&1"),20000,null));
+        Button health=button("Проверить доступ к серверу",false);add(c,health,9);
+        health.setOnClickListener(v->task("VitaLink / проверка HTTPS",alpine(
+            "if ! command -v python3 >/dev/null; then echo 'Сначала установи Python'; exit 127; fi; "
+            +"python3 -c "+quote("import urllib.request; print(urllib.request.urlopen('https://vita.muchogdps.space/health',timeout=12).read().decode())")),30000,null));
+        add(c,text("На GitHub также понадобятся два Actions Secrets: VITALINK_URL и VITALINK_OPERATOR_TOKEN. Для реальных удалённых тестов я буду отправлять задания через приватно авторизованный VPS, а не напрямую по SSH.",12,MUTED,false),14);
+    }
+    private void installVitaLink(){
+        String url=bridgeUrl.getText().toString().trim();
+        String token=bridgeToken.getText().toString().trim();
+        Uri u=Uri.parse(url);
+        if(!"https".equalsIgnoreCase(u.getScheme()) ||
+            !"vita.muchogdps.space".equalsIgnoreCase(u.getHost()) ||
+            u.getPort()!=-1 || !("/".equals(u.getPath()) || "".equals(u.getPath()))){
+            bridgeUrl.setError("Нужен адрес https://vita.muchogdps.space");return;
+        }
+        if(token.length()<32 || token.length()>160 || !token.matches("[A-Za-z0-9_-]+")){
+            bridgeToken.setError("Вставь agent_token из конфига VPS (не operator_token)");return;
+        }
+        confirm("Установить агент VitaLink?",
+            "VitaControl установит Python и сертификаты в Alpine, скачает закреплённый исходник агента с GitHub и сохранит секрет только на Вите. "
+            +"После запуска Вита начнёт опрашивать HTTPS-сервер. Удалённые shell-команды и установка пакетов по умолчанию запрещены.",
+            ()->{
+                try{
+                    JSONObject config=new JSONObject();
+                    config.put("url",url);config.put("token",token);
+                    config.put("allow_shell",false);config.put("allow_install",false);
+                    String b64=Base64.encodeToString(config.toString().getBytes(StandardCharsets.UTF_8),Base64.NO_WRAP);
+                    String source="https://raw.githubusercontent.com/IZKGMD/AutoGDBot/"
+                        +"6650dd924e299167c3ede0bb0ec50324d1a2e9e0/vitalink/agent.py";
+                    String download="import urllib.request; "
+                        +"urllib.request.urlretrieve("+quotePython(source)+", '/root/vitalink/agent.py')";
+                    String auto="\n# VITALINK_AUTOSTART\n"
+                        +"if [ -f /root/vitalink/agent.json ]; then "
+                        +"nohup /usr/bin/python3 /root/vitalink/agent.py "
+                        +">>/root/vitalink/agent.log 2>&1 </dev/null & fi\n";
+                    String auto64=Base64.encodeToString(auto.getBytes(StandardCharsets.UTF_8),Base64.NO_WRAP);
+                    String cmd="set -eu; umask 077; "
+                        +"apk add python3 ca-certificates; "
+                        +"mkdir -p /root/vitalink; "
+                        +"python3 -c "+quote(download)+"; "
+                        +"printf '%s' "+quote(b64)+" | base64 -d > /root/vitalink/agent.json; "
+                        +"chmod 600 /root/vitalink/agent.json; "
+                        +"touch /root/.profile; "
+                        +"if ! grep -q '# VITALINK_AUTOSTART' /root/.profile; then "
+                        +"printf '%s' "+quote(auto64)+" | base64 -d >> /root/.profile; fi; "
+                        +"nohup python3 /root/vitalink/agent.py </dev/null "
+                        +">/root/vitalink/agent.log 2>&1 & "
+                        +"echo 'VitaLink agent installed in Alpine. Polling VPS via HTTPS; log /root/vitalink/agent.log';";
+                    taskWithTerminal("VitaLink: установка агента и запуск",cmd,240000);
+                    bridgeToken.setText("");
+                }catch(Exception e){log("Не удалось подготовить конфигурацию: "+e.getMessage());}
+            });
+    }
+    private static String quotePython(String s){
+        return "'"+s.replace("\\","\\\\").replace("'","\\'")+"'";
     }
 
     private void turboUi(){
