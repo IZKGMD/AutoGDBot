@@ -258,7 +258,7 @@ public final class Workbench {
   }
 
   private void start(LifeContent.Job j, int choice) {
-    String result = Coding.accept(s(), j, choice, rush);
+    String result = Coding.accept(s(), j, choice, rush, true);
     if (s().jobStage < 2 || !s().activeJob.equals(j.id)) {
       scene("Проект", result);
       return;
@@ -363,7 +363,7 @@ public final class Workbench {
           150 + i * 28,
           424,
           () -> {
-            Coding.repair(s(), j, choice);
+            Coding.repair(s(), j, choice, true);
             life.report = null;
             page(2);
             save();
