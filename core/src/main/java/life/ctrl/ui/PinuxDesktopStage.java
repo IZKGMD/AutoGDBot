@@ -39,6 +39,7 @@ public final class PinuxDesktopStage {
   private Table topBar, dock, shortcuts, launcher;
   private Label clock, current;
   private Image wallpaper;
+  private PinuxNativeWindows windows;
   private boolean visible;
   private float scale = 1f;
 
@@ -53,6 +54,9 @@ public final class PinuxDesktopStage {
     skin.add("hover-bg", patch("hover-bg", 12, 20, 49, 100, 86, 154), Drawable.class);
     skin.add("button-bg", patch("button-bg", 13, 20, 43, 105, 90, 159), Drawable.class);
     skin.add("launcher-bg", patch("launcher-bg", 25, 29, 52, 95, 86, 128), Drawable.class);
+    skin.add("window-bg", patch("window-bg", 17, 14, 21, 39, 253, 0), Drawable.class);
+    skin.add("pane-bg", patch("pane-bg", 11, 10, 18, 35, 246, 0), Drawable.class);
+    skin.add("input-bg", patch("input-bg", 8, 20, 32, 53, 245, 0), Drawable.class);
 
     addIcon("code", 93, 72, 188);
     addIcon("terminal", 60, 69, 111);
@@ -65,6 +69,7 @@ public final class PinuxDesktopStage {
     wallpaper.setTouchable(Touchable.disabled);
     stage.addActor(wallpaper);
     build();
+    windows = new PinuxNativeWindows(stage, skin, shell);
     setVisible(false);
     resize(Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
   }
@@ -304,6 +309,28 @@ public final class PinuxDesktopStage {
   public Stage inputStage() { return stage; }
   public boolean isVisible() { return visible; }
 
+  public void openNativeWindow(App app) {
+    windows.open(app);
+    raiseChrome();
+  }
+
+  public void raiseChrome() {
+    topBar.toFront();
+    dock.toFront();
+    launcher.toFront();
+  }
+
+  public void setDesktopVisible(boolean showDesktop) {
+    wallpaper.setVisible(showDesktop);
+    shortcuts.setVisible(showDesktop);
+  }
+
+  public boolean hasNativeWindows() { return windows.hasOpen(); }
+
+  public void closeFrontNativeWindow() { windows.closeFront(); }
+
+  public void resetNativeWindows() { windows.reset(); }
+
   public void setVisible(boolean show) {
     visible = show;
     stage.getRoot().setVisible(show);
@@ -334,9 +361,11 @@ public final class PinuxDesktopStage {
     launcher.setScale(scale);
     launcher.setPosition(16 * scale, height - 52 * scale - 450 * scale);
     launcher.invalidateHierarchy();
+    if (windows != null) windows.resize(w, h);
   }
 
   public void show() {
+    if (windows != null) windows.reset();
     setVisible(true);
     stage.getRoot().setColor(1,1,1,0);
     stage.getRoot().addAction(Actions.fadeIn(.22f));
