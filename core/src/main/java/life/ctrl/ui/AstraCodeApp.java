@@ -26,19 +26,21 @@ import life.ctrl.model.GameState;
  * GameState, Coding and ByteScript are the single source of truth for its results.
  */
 final class AstraCodeApp {
-  private static final Color FG = Color.valueOf("dfe5ed");
-  private static final Color MUTED = Color.valueOf("8c9aab");
-  private static final Color BLUE = Color.valueOf("78b4ee");
-  private static final Color GREEN = Color.valueOf("98c379");
-  private static final Color GOLD = Color.valueOf("e5c07b");
-  private static final Color ERROR = Color.valueOf("e18a94");
+  private static final Color FG = AstraCodeVisuals.FG_PRIMARY;
+  private static final Color MUTED = AstraCodeVisuals.FG_MUTED;
+  private static final Color BLUE = AstraCodeVisuals.ACCENT_BLUE;
+  private static final Color GREEN = AstraCodeVisuals.STATUS_OK;
+  private static final Color GOLD = AstraCodeVisuals.STATUS_WARN;
+  private static final Color ERROR = AstraCodeVisuals.STATUS_ERR;
 
   private final CtrlLife game;
   private final LifeScreens life;
   private final Skin skin;
+  private final AstraCodeVisuals visuals;
   private final Table root = new Table();
   private int displayedPage = -1, boardPage, portfolioPage;
-  private String displayedKey = "", notice = "";
+  private String displayedStructuralKey = "", notice = "";
+  private int displayedTypedCount = -1;
   private boolean dirty = true, rush;
   private double[] inputs = {0};
   private String labResult = "Измени аргументы и запусти собственный тест.";
@@ -48,8 +50,9 @@ final class AstraCodeApp {
     this.game = game;
     this.life = life;
     this.skin = skin;
+    this.visuals = new AstraCodeVisuals(skin);
     root.top().left();
-    root.setBackground(skin.getDrawable("pane-bg"));
+    root.setBackground(visuals.solid(AstraCodeVisuals.BG_EDITOR));
   }
 
   Table view() { return root; }
@@ -69,90 +72,83 @@ final class AstraCodeApp {
         life.codePage == 3 || life.codePage == 4 || life.codePage == 5 ||
         life.codePage == 6 || life.codePage == 10)) life.codePage = 0;
     String report = life.report == null ? "" :
-        life.report.compiled() + ":" + life.report.passed() + ":" + life.report.message();
+        life.report.compiled() + ":" + life.report.passed() + ":" +
+        life.report.message() + ":" + life.report.cases().hashCode();
+    // The structural key deliberately excludes typedCount: text entry is updated in place.
     String key = life.codePage + "|" + state().activeJob + "|" + state().jobStage +
-        "|" + state().typedCount + "|" + state().codeSource + "|" + report +
-        "|" + state().money + "|" + state().codingXp + "|" + state().revisions.size() +
-        "|" + state().shipped.size() + "|" + state().upgrades.size();
-    if (dirty || life.codePage != displayedPage || !key.equals(displayedKey)) {
-      displayedPage = life.codePage;
-      displayedKey = key;
-      dirty = false;
-      rebuild();
+        "|" + state().codeSource + "|" + report +
+        "|" + state().money + "|" + state().codingXp + "|" +
+        state().revisions.size() + "|" + state().shipped.size() + "|" +
+        state().upgrades.size();
+    boolean structuralChange = dirty || life.codePage != displayedPage ||
+        !key.equals(displayedStructuralKey);
+    if (!structuralChange) {
+      if (state().typedCount == displayedTypedCount) return;
+      if (visuals.tryIncrementalEditorUpdate(life.codePage, state(), job(), life.report)) {
+        displayedTypedCount = state().typedCount;
+        return;
+      }
     }
+    displayedPage = life.codePage;
+    displayedStructuralKey = key;
+    displayedTypedCount = state().typedCount;
+    dirty = false;
+    rebuild();
   }
 
   private Label label(String text, Color color, boolean small) {
-    Label.LabelStyle style = new Label.LabelStyle(
-        skin.getFont(small ? "small-font" : "ui-font"), color);
-    Label result = new Label(text, style);
-    result.setAlignment(Align.left);
-    return result;
+    return visuals.label(text, color, small);
   }
 
   private Label wrap(String text, Color color) {
-    Label label = label(text, color, true);
-    label.setWrap(true);
-    label.setAlignment(Align.topLeft);
-    return label;
+    return visuals.wrapLabel(text, color);
   }
 
   private TextButton button(String text, Runnable action, boolean enabled) {
-    TextButton.TextButtonStyle style = new TextButton.TextButtonStyle();
-    style.font = skin.getFont("small-font");
-    style.fontColor = enabled ? FG : MUTED;
-    style.overFontColor = Color.WHITE;
-    style.up = skin.getDrawable("button-bg");
-    style.over = skin.getDrawable("hover-bg");
-    style.down = skin.getDrawable("hover-bg");
-    TextButton btn = new TextButton(text, style);
-    btn.setDisabled(!enabled);
-    btn.getLabel().setAlignment(Align.left);
-    btn.getLabel().setWrap(true);
-    btn.padLeft(14);
-    btn.padRight(11);
-    if (enabled) btn.addListener(new ChangeListener() {
-      @Override public void changed(ChangeEvent event, Actor actor) {
-        action.run();
-        dirty = true;
-      }
+    AstraCodeVisuals.ButtonVariant variant = AstraCodeVisuals.ButtonVariant.SECONDARY;
+    if (text.startsWith("▶") || text.contains("Принять") || text.contains("Сдать"))
+      variant = AstraCodeVisuals.ButtonVariant.PRIMARY;
+    else if (text.contains("Отложить") || text.contains("Удалить"))
+      variant = AstraCodeVisuals.ButtonVariant.DANGER;
+    TextButton b = visuals.compactButton(text, variant, enabled, () -> {
+      action.run();
+      dirty = true;
     });
-    return btn;
+    // Some existing contracts have long names; allow content to wrap without clipping.
+    b.getLabel().setWrap(true);
+    return b;
   }
 
   private void action(Table table, String caption, Runnable run) {
     action(table, caption, run, true);
   }
   private void action(Table table, String caption, Runnable run, boolean enabled) {
-    table.add(button(caption, run, enabled)).height(43).growX().minWidth(0).padBottom(8);
+    table.add(button(caption, run, enabled)).height(30).left().minWidth(160).padBottom(5);
     table.row();
   }
 
   private void note(Table table, String value) {
-    Label label = wrap(value, MUTED);
-    table.add(label).width(625).growX().minWidth(0).padBottom(16);
+    table.add(wrap(value, MUTED)).growX().minWidth(0).padBottom(8);
     table.row();
   }
 
   private void title(Table table, String category, String name, String subtitle) {
-    Label eye = label(category.toUpperCase(Locale.ROOT), BLUE, true);
-    table.add(eye).left().padBottom(12);
+    table.add(visuals.buildSectionHeader(category, name, subtitle, null))
+        .growX().minWidth(0).padBottom(10);
     table.row();
-    table.add(label(name, FG, false)).left().padBottom(7);
-    table.row();
-    note(table, subtitle);
   }
 
   private Table block() {
-    Table table = new Table();
-    table.top().left().pad(17);
-    table.setBackground(skin.getDrawable("input-bg"));
-    return table;
+    Table t = new Table();
+    t.top().left().pad(10, 12, 10, 12);
+    t.setBackground(visuals.solid(AstraCodeVisuals.BG_SURFACE));
+    return t;
   }
 
   private void addBlock(Table content, Table block) {
-    content.add(block).growX().minWidth(0).padBottom(12);
+    content.add(block).growX().minWidth(0).padBottom(6);
     content.row();
+    visuals.addHorizontalRule(content, AstraCodeVisuals.BORDER_SUBTLE, 0, 4);
   }
 
   private void header(Table bar) {
@@ -224,31 +220,43 @@ final class AstraCodeApp {
 
   private void rebuild() {
     root.clearChildren();
-    Table bar = new Table();
-    header(bar);
-    root.add(bar).height(53).growX();
+    visuals.clearEditorSessionIfNotPage(life.codePage);
+
+    Table bar = visuals.buildTopToolbar(state(), job(), life.report,
+        this::test, this::navigate);
+    root.add(bar).growX();
     root.row();
 
     Table body = new Table();
     body.top().left();
-    Table side = new Table();
-    sidebar(side);
-    body.add(side).width(208).growY().top();
-    Table content = new Table();
-    content.top().left().pad(22);
-    content.defaults().left();
-    renderPage(content);
+    Table side = visuals.buildSidebar(state(), job(), life.codePage, life.report,
+        this::navigate, this::leave);
+    body.add(side).width(AstraCodeVisuals.SIDEBAR_WIDTH).growY().top();
+
+    Table workspace = new Table();
+    workspace.top().left();
+    workspace.setBackground(visuals.solid(AstraCodeVisuals.BG_EDITOR));
     if (!notice.isEmpty()) {
-      Table info = block();
-      Label message = wrap(notice, GOLD);
-      info.add(message).width(600).growX().minWidth(0);
-      addBlock(content, info);
+      workspace.add(visuals.buildNoticeStrip(notice, () -> {
+        notice = "";
+        dirty = true;
+      })).growX();
+      workspace.row();
     }
-    ScrollPane pane = new ScrollPane(content, new ScrollPane.ScrollPaneStyle());
-    pane.setFadeScrollBars(true);
-    pane.setOverscroll(false, false);
-    pane.setScrollingDisabled(true, false);
-    body.add(pane).grow().minWidth(0);
+    if (life.codePage == 2) {
+      Table editorHost = new Table();
+      visuals.buildEditorWorkspace(editorHost, state(), job(), life.report,
+          this::test, this::commitRevision, this::navigate, () -> dirty = true);
+      workspace.add(editorHost).grow().minWidth(0).minHeight(0);
+    } else {
+      Table content = new Table();
+      content.top().left().pad(12, 16, 16, 16);
+      content.defaults().left();
+      renderPage(content);
+      ScrollPane pane = visuals.createScrollPane(content, false);
+      workspace.add(pane).grow().minWidth(0).minHeight(0);
+    }
+    body.add(workspace).grow().minWidth(0).minHeight(0);
     root.add(body).grow().minHeight(0);
   }
 
@@ -422,6 +430,12 @@ final class AstraCodeApp {
     extras.add(button("Git / версии", () -> page(6), true)).height(43).growX();
     t.add(extras).growX().minWidth(0).padTop(7);
     t.row();
+  }
+
+  private void commitRevision() {
+    if (job() == null) return;
+    message(Coding.commit(state()));
+    persist();
   }
 
   private void test() {
@@ -668,4 +682,5 @@ final class AstraCodeApp {
     }
     action(t, "← К заказам", () -> page(0));
   }
+  void dispose() { visuals.dispose(); }
 }
