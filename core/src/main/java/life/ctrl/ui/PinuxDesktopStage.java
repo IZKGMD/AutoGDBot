@@ -34,7 +34,18 @@ import life.ctrl.ui.PinuxWindowManager.App;
  */
 public final class PinuxDesktopStage {
   private final PinuxAstra shell;
-  private final Stage stage = new Stage(new ScreenViewport());
+  // The desktop owns game-IDE typing while Astra Code is focused. This prevents
+  // Scene2D controls from swallowing tactile ByteScript input on Windows.
+  private final Stage stage = new Stage(new ScreenViewport()) {
+    @Override public boolean keyDown(int keycode) {
+      if (shell != null && shell.codeTypingKey(keycode)) return true;
+      return super.keyDown(keycode);
+    }
+    @Override public boolean keyTyped(char character) {
+      if (shell != null && shell.isCodeFront()) return true;
+      return super.keyTyped(character);
+    }
+  };
   private final Skin skin = new Skin();
   private Table topBar, dock, shortcuts, launcher;
   private Label clock, current;
@@ -377,6 +388,10 @@ public final class PinuxDesktopStage {
 
   public boolean hasNativeWindows() { return windows.hasOpen(); }
 
+  public boolean isCodeFront() { return windows.isFrontCode(); }
+
+  public void cycleNativeWindows() { windows.cycleFocus(); }
+
   public void closeFrontNativeWindow() { windows.closeFront(); }
 
   public void resetNativeWindows() { windows.reset(); }
@@ -425,6 +440,7 @@ public final class PinuxDesktopStage {
   public void draw(float delta) {
     if (!visible) return;
     clock.setText(shell.clockText());
+    windows.tick();
     stage.act(Math.min(delta, .05f));
     stage.draw();
   }
