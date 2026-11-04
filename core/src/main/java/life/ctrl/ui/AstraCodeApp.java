@@ -68,6 +68,7 @@ final class AstraCodeApp {
   private void leave() { persist(); game.switchMode(Mode.WORLD); }
 
   void tick() {
+    visuals.tickLayout();
     if (job() == null && (life.codePage == 1 || life.codePage == 2 ||
         life.codePage == 3 || life.codePage == 4 || life.codePage == 5 ||
         life.codePage == 6 || life.codePage == 10)) life.codePage = 0;
@@ -302,26 +303,25 @@ final class AstraCodeApp {
     var offers = Career.offers(state(), life.data);
     int pages = Math.max(1, (offers.size() + 3) / 4);
     boardPage = Math.floorMod(boardPage, pages);
+    // Compact, scannable job rows instead of large, repetitive cards.
     for (int i = boardPage * 4; i < Math.min(offers.size(), boardPage * 4 + 4); i++) {
       LifeContent.Job j = offers.get(i);
       String reason = Career.blocked(state(), j);
-      Table card = block();
-      card.add(label(j.client + "   /   " + j.title, FG, false)).growX().left();
-      card.row();
-      card.add(label(j.pay + " ₽   •   " + Career.duration(state(), j) + " мин   •   " +
-          (reason.isEmpty() ? "Доступно" : reason), reason.isEmpty() ? GREEN : MUTED, true))
-          .padTop(7).padBottom(10).left();
-      card.row();
-      action(card, reason.isEmpty() ? "Открыть заказ" : "Недоступно",
-          () -> choose(j), reason.isEmpty());
-      addBlock(t, card);
+      String subtitle = j.client + "  ·  " + Career.duration(state(), j) + " мин" +
+          (reason.isEmpty() ? "  ·  Доступно" : "  ·  " + reason);
+      Table row = visuals.buildDataRow(i, String.format("%02d", i + 1), j.title,
+          subtitle, j.pay + " ₽", reason.isEmpty() ? GREEN : MUTED,
+          button(reason.isEmpty() ? "Открыть заказ" : "Недоступно",
+              () -> choose(j), reason.isEmpty()));
+      t.add(row).growX().minWidth(0).padBottom(5).row();
+      visuals.addHorizontalRule(t, AstraCodeVisuals.BORDER_SUBTLE, 0, 3);
     }
     Table switcher = new Table();
     switcher.add(button("←", () -> { boardPage = Math.floorMod(boardPage - 1, pages); }, pages > 1))
-        .width(70).height(42);
+        .width(45).height(29);
     switcher.add(label("   Страница " + (boardPage + 1) + " / " + pages + "   ", MUTED, true));
     switcher.add(button("→", () -> { boardPage = (boardPage + 1) % pages; }, pages > 1))
-        .width(70).height(42);
+        .width(45).height(29);
     t.add(switcher).left();
     t.row();
   }
