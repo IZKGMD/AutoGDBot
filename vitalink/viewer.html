@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VitaLink · Экран PS Vita</title>
+<style>
+:root {color-scheme:dark;background:#08101f;color:#e6f0fa;font:15px/1.5 system-ui,-apple-system,Roboto,Arial,sans-serif}
+*{box-sizing:border-box}
+body{max-width:850px;padding:22px 14px 40px;margin:auto}
+header{display:flex;align-items:center;gap:12px;margin-bottom:24px}
+.logo{width:46px;height:46px;border-radius:14px;background:#123956;display:grid;place-items:center;font-size:25px}
+h1{font-size:24px;margin:0;font-weight:750;letter-spacing:.01em}
+small,p{color:#9cb3cd}
+.panel{border:1px solid #304863;background:#111f34;border-radius:20px;padding:20px;margin:14px 0}
+label{display:block;font-weight:600;margin-bottom:6px}
+input{background:#091426;border:1px solid #35516e;border-radius:11px;color:#fff;width:100%;padding:13px;font:inherit}
+.actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:14px}
+button{border:0;border-radius:12px;min-height:47px;padding:12px 18px;color:#ecf5ff;background:#29415e;font:700 14px system-ui;cursor:pointer}
+button.primary{background:#74c4f7;color:#071421}
+button:disabled{opacity:.4;cursor:default}
+.screen{width:100%;aspect-ratio:960/544;border:1px solid #28425f;background:#04080f;border-radius:12px;display:flex;justify-content:center;align-items:center;overflow:hidden}
+.screen img{object-fit:contain;display:none;width:100%;height:100%}
+.status{margin-top:11px;color:#a4c3dd;font-size:13px}
+.ok{color:#83d6a0}
+.error{color:#f6a0a0}
+code{background:#0a1525;padding:2px 5px;border-radius:5px}
+</style>
+</head>
+<body>
+<header><div class="logo">🎮</div><div><h1>VitaLink / Экран</h1><small>Защищённые кадры через MuchoGDPS VPS</small></div></header>
+<section class="panel">
+<label for="key">Ключ только для просмотра (screen_view_token)</label>
+<input id="key" type="password" placeholder="Вставь ключ с VPS" autocomplete="off" spellcheck="false">
+<p>Ключ остаётся только в памяти этой вкладки. Он не добавляется в адрес и не передаётся GitHub. Просмотр можно остановить в любой момент.</p>
+<div class="actions">
+<button class="primary" id="start">▶ Начать просмотр</button>
+<button id="stop" disabled>■ Остановить</button>
+<button id="save" disabled>↓ Сохранить текущий кадр</button>
+</div>
+</section>
+<section class="panel">
+<div class="screen" id="screen"><span id="empty">Нет изображения. Нажми «Начать просмотр».</span><img id="frame" alt="Текущий экран PlayStation Vita"></div>
+<div class="status" id="state" role="status" aria-live="polite">Ожидание подключения</div>
+<p style="margin-bottom:0">Экран обновляется примерно раз в 3–5 секунд (зависит от нагрузки Vita). Это не видеотрансляция со звуком. Если на Вите выключена передача кадров или не запущен IceWM/X11, изображение не появится.</p>
+</section>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const url=path=>new URL("v1/screen/"+path,window.location.href).toString();
+let key="",watching=false,timer=null,sequence=-1,lastImage="";
+const setState=(msg,cls="")=>{$("state").textContent=msg;$("state").className="status "+cls;};
+async function api(path,method="GET"){
+  const response=await fetch(url(path),{method,headers:{"Authorization":"Bearer "+key},cache:"no-store",redirect:"error"});
+  if(response.status===401)throw new Error("Неправильный ключ просмотра");
+  if(!response.ok)throw new Error("Ошибка сервера: HTTP "+response.status);
+  return await response.json();
+}
+async function end(){
+  const was=watching;
+  watching=false;
+  if(timer){clearTimeout(timer);timer=null;}
+  $("start").disabled=false;$("stop").disabled=true;
+  $("save").disabled=!lastImage;
+  if(was)try{await api("stop","POST");}catch(_){}
+  setState("Просмотр остановлен","ok");
+}
+async function tick(){
+  if(!watching)return;
+  try{
+    // Lease expires without renewal. Closing this page cannot leave a camera session running.
+    await api("session","POST");
+    const frame=await api("frame");
+    if(frame.available&&frame.jpeg&&frame.seq!==sequence){
+      sequence=frame.seq;
+      lastImage="data:image/jpeg;base64,"+frame.jpeg;
+      $("frame").src=lastImage;
+      $("frame").style.display="block";
+      $("empty").style.display="none";
+      $("save").disabled=false;
+      setState("Подключено · кадр #"+sequence+" · "+frame.age_seconds+" сек назад","ok");
+    }else if(!frame.available){
+      setState("Ожидаю кадр от PS Vita… Убедись, что разрешено наблюдение и установлен scrot.");
+    }
+  }catch(error){
+    setState(error.message,"error");
+    await end();
+    return;
+  }
+  if(watching)timer=setTimeout(tick,2300);
+}
+$("start").addEventListener("click",async()=>{
+  const supplied=$("key").value.trim();
+  if(supplied.length<32||supplied.length>160){setState("Введи screen_view_token с VPS.","error");return;}
+  key=supplied;
+  $("start").disabled=true;$("stop").disabled=false;
+  watching=true;sequence=-1;lastImage="";
+  $("frame").src="";$("frame").style.display="none";$("empty").style.display="block";
+  $("save").disabled=true;
+  setState("Подключаюсь к VitaLink…");
+  tick();
+});
+$("stop").addEventListener("click",end);
+$("save").addEventListener("click",()=>{
+  if(!lastImage)return;
+  const link=document.createElement("a");
+  link.href=lastImage;link.download="vita-screen-"+Date.now()+".jpg";link.click();
+});
+document.addEventListener("visibilitychange",()=>{if(document.hidden&&watching)end();});
+window.addEventListener("pagehide",()=>{watching=false;});
+</script>
+</body>
+</html>
