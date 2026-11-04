@@ -347,7 +347,9 @@ public final class Workbench {
     } else {
       c.fitted((life.report.passed() ? "PASS: " : "FAIL: ") + life.report.message(),
           154, 191, 299, life.report.passed() ? GREEN : RED, true);
-      if (!life.report.cases().isEmpty())
+      if (!life.report.passed() && s().typedCount >= s().codeSource.length())
+        c.fitted("Жми любые клавиши: начинается исправление.", 154, 208, 299, GOLD, true);
+      else if (!life.report.cases().isEmpty())
         c.fitted(life.report.cases().get(0), 154, 208, 299, SOFT, true);
     }
     small("Тесты", 151, 229, 65, () -> {
