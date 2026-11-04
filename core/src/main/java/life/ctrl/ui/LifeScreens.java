@@ -159,6 +159,8 @@ public final class LifeScreens {
     return pinux.inputStage();
   }
 
+  public boolean isLegacyEditorOpen() { return pinux.isLegacyEditorOpen(); }
+
   public void renderPcOverlay(float delta) {
     pinux.renderNativeDesktop(delta);
   }
