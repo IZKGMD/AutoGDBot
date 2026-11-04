@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """LinuxOnVita outbound HTTPS agent. Default: diagnostics only, no remote shell."""
-import base64,fcntl,json,os,re,ssl,subprocess,time
+import base64,fcntl,json,os,re,ssl,subprocess,time,tempfile,shutil
 from pathlib import Path
 from urllib.request import Request,build_opener,HTTPSHandler,HTTPRedirectHandler
 
@@ -25,6 +25,27 @@ def filename(value):
     if not isinstance(value,str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,70}",value) or value in (".",".."):
         raise ValueError("Invalid filename")
     return value
+def capture_jpeg():
+    """Capture one X11 frame after the local user has opted in.
+    Never writes frames to logs, GitHub, or permanent storage.
+    """
+    if not shutil.which("scrot"):
+        raise RuntimeError("Install Alpine package scrot before viewing screen")
+    env=os.environ.copy()
+    env["DISPLAY"]=env.get("DISPLAY") or ":0"
+    with tempfile.TemporaryDirectory(prefix="vitalink-screen-") as temp:
+        target=Path(temp)/"frame.jpg"
+        finished=subprocess.run(
+            ["scrot","-z","-q","25",str(target)],
+            stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+            timeout=12,env=env)
+        if finished.returncode!=0:
+            raise RuntimeError("scrot cannot capture X11 (IceWM may not be running)")
+        data=target.read_bytes()
+        if not 500<=len(data)<=160000 or not data.startswith(b"\xff\xd8\xff") or not data.endswith(b"\xff\xd9"):
+            raise RuntimeError("Invalid or oversized JPEG frame")
+        return base64.b64encode(data).decode("ascii")
+
 def job_run(job,config):
     action=job["action"];args=job.get("args",{})
     if action=="diagnose":
@@ -84,5 +105,15 @@ def main():
                 api(config,"/v1/result",{"id":job["id"],"result":res})
                 print("Completed "+job["action"]+" "+job["id"][:8],flush=True)
         except Exception as e:print(type(e).__name__+": "+str(e),flush=True)
-        time.sleep(5)
+        # Only capture during an explicitly started, short-lived viewer session.
+        # The flag must be enabled locally on the Vita first.
+        if config.get("allow_screen",False):
+            try:
+                need=api(config,"/v1/screen/need")
+                if need.get("capture"):
+                    jpeg=capture_jpeg()
+                    api(config,"/v1/screen/frame",{"jpeg":jpeg})
+            except Exception as e:
+                print("Screen capture: "+type(e).__name__+": "+str(e),flush=True)
+        time.sleep(3)
 if __name__=="__main__":main()
