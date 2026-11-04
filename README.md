@@ -1,4 +1,4 @@
-# VitaTextBridge / VitaControl Android 2.0
+# VitaTextBridge / VitaControl Android 2.1
 
 Нативное Android-приложение (Java, Android 8.0+) для LinuxOnVita с IceWM и Alpine chroot на PS Vita. Основной экран совместим с 1.2; новый раздел VitaControl открывается кнопкой.
 
@@ -34,3 +34,9 @@ SSH подключается к **базовой LinuxOnVita-системе**, �
 ## Сборка
 
 Gradle 8.9, JDK 17, Android SDK 35. `gradle :app:assembleDebug`.
+
+## 2.1: быстрый перезапуск
+
+В разделе **Система** доступна кнопка «Быстрая перезагрузка PS Vita» с отдельным подтверждением. Команда LinuxOnVita `reboot` возвращает консоль в Sony VitaOS, а не в сеанс IceWM.
+
+Тестовые игры доступны отдельным архивом VitaGameLab: два прототипа — Pygame/SDL2 и Tkinter/Canvas, плюс Pygame Aurora и экспериментальный Panda3D пример (в Vita не проверен).
