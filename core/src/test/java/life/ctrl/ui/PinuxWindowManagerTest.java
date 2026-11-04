@@ -54,6 +54,26 @@ class PinuxWindowManagerTest {
   }
 
   @Test
+  void cornerResizeClampsToDesktopAndEdgeDraggingSnaps() {
+    var wm = new PinuxWindowManager();
+    wm.open(PinuxWindowManager.App.TERMINAL);
+    var w = wm.get(PinuxWindowManager.App.TERMINAL);
+    int initialWidth = w.width;
+    assertTrue(wm.pointerDown(w.right() - 3, w.bottom() - 3));
+    assertTrue(wm.pointerDragged(w.right() + 50, w.bottom() + 15));
+    assertTrue(wm.pointerUp(w.right(), w.bottom()));
+    assertTrue(w.width >= initialWidth);
+    assertTrue(w.right() <= 480);
+    assertTrue(w.bottom() <= PinuxWindowManager.BOTTOM);
+
+    assertTrue(wm.pointerDown(w.x + 40, w.y + 8));
+    assertTrue(wm.pointerDragged(1, 90));
+    assertTrue(wm.pointerUp(1, 90));
+    assertEquals(2, w.x);
+    assertEquals(236, w.width);
+  }
+
+  @Test
   void clickingBackgroundWindowFocusesBeforeItsControls() {
     var wm = new PinuxWindowManager();
     wm.open(PinuxWindowManager.App.CODE);
