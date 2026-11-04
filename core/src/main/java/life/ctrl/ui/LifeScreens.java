@@ -136,9 +136,19 @@ public final class LifeScreens {
   }
 
   public void typeKey() {
-    if (codePage == 2 && s().jobStage == 2) {
-      Coding.type(s());
+    if (codePage != 2 || s().jobStage != 2) return;
+    // Two tactile phases: after failed tests, the next real keystroke starts fixing.
+    if (report != null && !report.passed()
+        && s().typedCount >= s().codeSource.length() && !s().activeJob.isEmpty()) {
+      var job = data.job(s().activeJob);
+      for (int i = 0; i < job.solutions.length; i++)
+        if (job.source.equals(job.solutions[i])) {
+          Coding.repair(s(), job, i, true);
+          report = null;
+          break;
+        }
     }
+    Coding.type(s());
   }
 
   public void intro() {
