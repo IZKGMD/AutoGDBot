@@ -1,0 +1,22 @@
+[Unit]
+Description=VitaLink relay for LinuxOnVita
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vitalink
+Group=vitalink
+WorkingDirectory=/opt/vitalink
+ExecStart=/usr/bin/python3 /opt/vitalink/server.py --config /etc/vitalink/server.json
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/vitalink
+MemoryMax=120M
+
+[Install]
+WantedBy=multi-user.target
