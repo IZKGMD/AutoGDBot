@@ -371,6 +371,18 @@ public final class ControlActivity extends Activity {
             "command -v alpine-chroot; alpine-chroot -c 'command -v apk; "
             +"command -v xdotool; command -v xclip; command -v scrot; echo DISPLAY=$DISPLAY; "
             +"ls /tmp/.X11-unix 2>&1' ",25000,null));
+        Button reboot=button("⟳  Быстрая перезагрузка PS Vita",true);add(c,reboot,15);
+        reboot.setOnClickListener(v->confirm(
+            "Перезагрузить PS Vita?",
+            "LinuxOnVita завершит работу и вернёт консоль в Sony VitaOS / LiveArea. Графическая оболочка IceWM и SSH отключатся. Несохранённые изменения в открытых приложениях будут потеряны. Продолжить?",
+            ()->task("Перезагрузка PS Vita",
+                "sync; (sleep 2; reboot) </dev/null >/dev/null 2>&1 & echo 'Перезагрузка запланирована. SSH отключится.'",
+                15000, result->{
+                    log("▶ Быстрая перезагрузка\n"+result+
+                        "\nПосле перезагрузки нужно снова загрузить LinuxOnVita.");
+                })
+        ));
+        add(c,text("LinuxOnVita: команда reboot возвращает Виту в VitaOS, а не прямо в рабочий стол Linux. Перед перезагрузкой закрой программы и сохрани данные.",12,MUTED,false),9);
         add(c,text("Команды выполняются от пользователя, указанного в SSH. Установку и изменение пакетов приложение делает только после подтверждения.",12,MUTED,false),15);
     }
     @Override protected void onDestroy(){
