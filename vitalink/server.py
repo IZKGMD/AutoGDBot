@@ -120,8 +120,14 @@ class Store:
 
     def add(self, body):
         action=body.get("action"); args=body.get("args",{})
-        if action not in ("diagnose","search","install","game","upload","download","shell") or not isinstance(args,dict):
+        if action not in ("diagnose","search","install","game","upload","download","shell","host_status","host_cpu") or not isinstance(args,dict):
             raise ValueError("Unknown action or invalid args")
+        if action in ("host_status","host_cpu") and not self.config.get("enable_host_admin",False):
+            raise ValueError("Host admin disabled by VPS policy")
+        if action=="host_cpu" and (args.get("profile") not in ("max","balanced","ondemand") or len(args)!=1):
+            raise ValueError("Invalid stock CPU profile")
+        if action=="host_status" and args:
+            raise ValueError("Host status does not accept parameters")
         if action=="shell" and not self.config.get("enable_shell",False):
             raise ValueError("Shell disabled by VPS policy")
         encoded=json.dumps(args,ensure_ascii=False)
@@ -229,7 +235,16 @@ def make_handler(store):
                     return self.send(200,store.screen_publish(self.json()))
                 if path=="/v1/jobs":
                     if not self.authorized("operator"):return self.send(401,{"error":"Unauthorized"})
-                    return self.send(201,{"id":store.add(self.json())})
+                    request=self.json()
+                    if request.get("action") in ("host_status","host_cpu"):
+                        # Never permit a long-lived operator_token to enqueue
+                        # privileged kernel admin operations. Require signed
+                        # exact-workflow GitHub OIDC identity on each request.
+                        bearer=self.headers.get("Authorization","")
+                        if not (bearer.startswith("Bearer ") and store.github_oidc
+                                and store.github_oidc.verify(bearer[7:])):
+                            return self.send(403,{"error":"Signed GitHub OIDC required for host admin"})
+                    return self.send(201,{"id":store.add(request)})
                 if path=="/v1/result":
                     if not self.authorized("agent"):return self.send(401,{"error":"Unauthorized"})
                     store.finish(self.json());return self.send(200,{"ok":True})
