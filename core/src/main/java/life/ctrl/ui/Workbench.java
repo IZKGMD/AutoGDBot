@@ -1,6 +1,7 @@
 package life.ctrl.ui;
 
 import java.util.*;
+import com.badlogic.gdx.Gdx;
 import life.ctrl.CtrlLife;
 import life.ctrl.CtrlLife.Mode;
 import life.ctrl.bytescript.ByteScript;
@@ -21,6 +22,9 @@ public final class Workbench {
   private int baseline = -1, current = -1;
   private double cachedInput = Double.NaN, previewValue;
   private String cachedSource = "";
+  private String visualSource = "", visualJob = "";
+  private int visualTypedCount;
+  private float typewriterCarry;
   private static final String TEXT = "efe4c6",
       SOFT = "a7b5b6",
       GOLD = "edbb71",
@@ -297,18 +301,36 @@ public final class Workbench {
     c.rect(146, 76, 138, 1, "82d3e8");
     c.small("◇ main.bs   ●", 156, 59, TEXT);
     c.small("ByteScript  /  UTF-8", 334, 59, SOFT);
-    String visible = s().codeSource.substring(0, Math.min(s().typedCount, s().codeSource.length()));
+    // Input commits progress immediately, while the visible text follows with a smooth typewriter trail.
+    if (!visualSource.equals(s().codeSource) || !visualJob.equals(s().activeJob)) {
+      visualSource = s().codeSource;
+      visualJob = s().activeJob;
+      visualTypedCount = 0;
+      typewriterCarry = 0;
+    }
+    int target = Math.min(s().typedCount, s().codeSource.length());
+    visualTypedCount = Math.min(visualTypedCount, target);
+    typewriterCarry += Math.min(.05f, Gdx.graphics.getDeltaTime()) * 95;
+    if (visualTypedCount < target) {
+      int reveal = Math.max(1, (int) typewriterCarry);
+      visualTypedCount = Math.min(target, visualTypedCount + reveal);
+      typewriterCarry = Math.max(0, typewriterCarry - reveal);
+    } else typewriterCarry = 0;
+    String visible = s().codeSource.substring(0, visualTypedCount);
+    String[] visibleLines = visible.split("\n", -1);
+    int firstLine = Math.max(0, visibleLines.length - 5);
     c.clip(151, 80, 307, 80);
-    int row = 0;
-    for (String line : visible.split("\n", -1)) {
-      if (row >= 5) break;
+    for (int i = firstLine; i < visibleLines.length; i++) {
+      int row = i - firstLine;
       int y = 83 + row * 15;
-      if (row == visible.split("\n", -1).length - 1) c.rect(153, y - 2, 301, 14, "172d4055");
-      c.small(String.valueOf(row + 1), 155, y, "58758b");
+      String line = visibleLines[i];
+      if (i == visibleLines.length - 1) c.rect(153, y - 2, 301, 14, "172d4055");
+      c.small(String.valueOf(i + 1), 155, y, "58758b");
       String codeColor = line.stripLeading().startsWith("fn ") ? "86cfe0" :
           line.stripLeading().startsWith("return ") ? "c8a1e6" : GREEN;
       c.fitted(line, 177, y, 275, codeColor, true);
-      row++;
+      if (i == visibleLines.length - 1 && (System.nanoTime() / 400_000_000L) % 2 == 0)
+        c.rect(177 + Math.min(273, c.smallWidth(line)), y - 1, 1, 11, "82d3e8");
     }
     c.unclip();
     float progress = s().codeSource.isEmpty() ? 0f :
