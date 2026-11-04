@@ -1,0 +1,118 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :lwjgl3:processResources NO-SOURCE
+> Task :lwjgl3:processSmokeResources NO-SOURCE
+> Task :core:compileJava UP-TO-DATE
+> Task :core:processResources UP-TO-DATE
+> Task :core:classes UP-TO-DATE
+> Task :core:jar UP-TO-DATE
+> Task :lwjgl3:compileJava UP-TO-DATE
+> Task :lwjgl3:classes UP-TO-DATE
+> Task :lwjgl3:compileSmokeJava
+> Task :lwjgl3:smokeClasses
+
+> Task :lwjgl3:guiSmoke
+WORKBENCH: new game
+WORKBENCH: create
+WORKBENCH: intro
+WORKBENCH: intro
+WORKBENCH: intro
+WORKBENCH: career fixture
+WORKBENCH: advanced listings
+WORKBENCH: rotated offers
+WORKBENCH: profile brief
+WORKBENCH: slow program tests
+WORKBENCH: slow program rejected
+WORKBENCH: custom input
+WORKBENCH: probe one
+WORKBENCH: custom input two
+WORKBENCH: probe two
+WORKBENCH: novel cases counted
+WORKBENCH: profile patch view
+WORKBENCH: select multiplication
+WORKBENCH: git open
+WORKBENCH: commit
+WORKBENCH: close result
+WORKBENCH: two revisions
+WORKBENCH: close result
+WORKBENCH: back from git
+WORKBENCH: old code tests
+WORKBENCH: rollback actually changed execution
+WORKBENCH: restore optimized commit
+WORKBENCH: close result
+WORKBENCH: back restored
+WORKBENCH: optimized tests
+WORKBENCH: optimized profile
+WORKBENCH: profile screenshot
+WORKBENCH: preview optimized
+WORKBENCH: deliver optimized
+WORKBENCH: close result
+WORKBENCH: correct pay
+WORKBENCH: upgrade tab
+WORKBENCH: buy SSD
+WORKBENCH: close result
+WORKBENCH: buy chair
+WORKBENCH: close result
+WORKBENCH: owned upgrades
+WORKBENCH: upgraded desk
+WORKBENCH: night room
+WORKBENCH: open side project 1
+WORKBENCH: project tab
+WORKBENCH: project brief
+WORKBENCH: start stage
+WORKBENCH: stage tests
+WORKBENCH: stage debug
+WORKBENCH: stage patch
+WORKBENCH: stage re-test
+WORKBENCH: stage preview
+WORKBENCH: ship stage
+WORKBENCH: close result
+WORKBENCH: stage saved
+WORKBENCH: open side project 2
+WORKBENCH: project tab
+WORKBENCH: project brief
+WORKBENCH: start stage
+WORKBENCH: stage tests
+WORKBENCH: stage debug
+WORKBENCH: stage patch
+WORKBENCH: stage re-test
+WORKBENCH: stage preview
+WORKBENCH: ship stage
+WORKBENCH: close result
+WORKBENCH: stage saved
+WORKBENCH: open side project 3
+WORKBENCH: project tab
+WORKBENCH: project brief
+WORKBENCH: start stage
+WORKBENCH: stage tests
+WORKBENCH: stage debug
+WORKBENCH: stage patch
+WORKBENCH: stage re-test
+WORKBENCH: stage preview
+WORKBENCH: ship stage
+WORKBENCH: close result
+WORKBENCH: stage saved
+WORKBENCH: launched bot page
+WORKBENCH: launched bot tab
+WORKBENCH: bot screenshot
+WORKBENCH: save complete career
+WORKBENCH: pause
+WORKBENCH: return menu
+WORKBENCH: continue
+WORKBENCH: career survives load
+WORKBENCH: career tab
+WORKBENCH: portfolio screenshot
+WORKBENCH: portfolio list
+WORKBENCH: portfolio feedback
+WORKBENCH: back to career
+WORKBENCH: leave career
+WORKBENCH: street daylight fixture
+WORKBENCH: camera settles
+WORKBENCH: street day
+WORKBENCH: street evening fixture
+WORKBENCH: street night
+WORKBENCH_SMOKE_PASS: mid-career fixture, profiler, custom inputs, commit/rollback, payout, gear, all project stages, persistence, lighting
+WORKBENCH: complete
+
+BUILD SUCCESSFUL in 33s
+6 actionable tasks: 2 executed, 4 up-to-date

@@ -79,6 +79,20 @@ public final class World {
         || state.trackedGirl == null
         || state.jobStage < 0
         || state.jobStage > 5) throw new IllegalArgumentException("Некорректные показатели");
+    if (state.codingXp < 0
+        || state.completedOrders < 0
+        || state.shipped == null
+        || state.upgrades == null
+        || state.customCases == null
+        || state.revisions == null
+        || state.revisions.size() > 8
+        || state.customCases.size() > 20
+        || state.rushPromises == null
+        || state.lastClientMessage == null
+        || state.workNotice == null) throw new IllegalArgumentException("Некорректная карьера");
+    for (var rev : state.revisions)
+      if (rev == null || rev.source == null || rev.source.length() > 4096 || rev.label == null)
+        throw new IllegalArgumentException("Некорректная версия проекта");
     for (var item : state.items.entrySet())
       if (item.getKey() == null || item.getValue() == null || item.getValue() <= 0)
         throw new IllegalArgumentException("Некорректный инвентарь");

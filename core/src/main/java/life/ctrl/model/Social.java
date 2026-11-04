@@ -24,7 +24,7 @@ public final class Social {
     if (!r.met) meet(s, g);
     if (r.lastTalkDay == s.day())
       return "На сегодня вы уже поговорили по душам. Новая беседа — завтра; сейчас можно погулять"
-                 + " или выбрать подарок.";
+          + " или выбрать подарок.";
     var t = g.topics[topic];
     r.lastTalkDay = s.day();
     r.lastTopic = t.id;
@@ -64,7 +64,7 @@ public final class Social {
       return "Это место ей не подходит. Выбери другой вариант.";
     if (!s.partnerId.isEmpty() && !s.partnerId.equals(g.id))
       return "Сначала обсуди завершение нынешних отношений. Здесь знакомства не превращаются в"
-                 + " тайные параллельные романы.";
+          + " тайные параллельные романы.";
     s.plannedGirl = g.id;
     s.plannedVenue = venue;
     s.plannedDay = s.day();
@@ -124,7 +124,7 @@ public final class Social {
       return "Сначала заверши нынешние отношения.";
     if (r.dates < 3 || r.trust < 40 || r.affinity < 40)
       return "Ей нужно больше времени: хотя бы три свидания и достаточно доверия. Подарки не"
-                 + " заменяют общения.";
+          + " заменяют общения.";
     if (s.partnerId.equals(g.id)) return "Вы уже вместе.";
     s.partnerId = g.id;
     r.committedDay = s.day();

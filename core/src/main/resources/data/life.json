@@ -291,6 +291,34 @@
           ],
           "expected": 0
         }
+      ],
+      "kind": "feature",
+      "tier": 0,
+      "xp": 1,
+      "client": "Тамара · Ложка",
+      "feedback": "Тамара: «Касса больше не обсчитывает гостей. Заглядывай на суп».",
+      "hint": "Проверь не только обычный ввод, но и ноль или точную границу условия.",
+      "cost": 0,
+      "once": false,
+      "operationBudget": 0,
+      "solutions": [
+        "fn total(price, count) {\n  return price * count;\n}",
+        "fn total(price, count) {\n  return price + count;\n}",
+        "fn total(price, count) {\n  return count * count;\n}"
+      ],
+      "initialSources": [
+        "fn total(price, count) {\n  return prce * count;\n}",
+        "fn total(price, count) {\n  return price + count;\n}",
+        "fn total(price, count) {\n  return count * count;\n}"
+      ],
+      "patches": [
+        "price * count",
+        "price + count",
+        "count * count"
+      ],
+      "seed": [
+        70,
+        2
       ]
     },
     {
@@ -325,6 +353,33 @@
           ],
           "expected": 720
         }
+      ],
+      "kind": "feature",
+      "tier": 0,
+      "xp": 1,
+      "client": "Ася · Плёнка",
+      "feedback": "Ася: «Теперь скидка срабатывает ровно на пятистах. Спасибо, что проверил границу».",
+      "hint": "Проверь не только обычный ввод, но и ноль или точную границу условия.",
+      "cost": 0,
+      "once": false,
+      "operationBudget": 0,
+      "solutions": [
+        "fn discount(sum) {\n  return sum >= 500 ? sum * 0.9 : sum;\n}",
+        "fn discount(sum) {\n  return sum > 500 ? sum * 0.9 : sum;\n}",
+        "fn discount(sum) { return sum; }"
+      ],
+      "initialSources": [
+        "fn discount(sum) {\n  return sum >= 500 ? sum * 0.9 : sum;\n}",
+        "fn discount(sum) {\n  return sum > 500 ? sum * 0.9 : sum;\n}",
+        "fn discount(sum) { return sum; }"
+      ],
+      "patches": [
+        "sum >= 500",
+        "sum > 500",
+        "Оставить сумму без скидки"
+      ],
+      "seed": [
+        400
       ]
     },
     {
@@ -359,6 +414,600 @@
           ],
           "expected": 200
         }
+      ],
+      "kind": "feature",
+      "tier": 0,
+      "xp": 1,
+      "client": "Лев · доставка",
+      "feedback": "Лев: «Курьеры перестали спорить из-за третьего километра. Так гораздо лучше». ",
+      "hint": "Проверь не только обычный ввод, но и ноль или точную границу условия.",
+      "cost": 0,
+      "once": false,
+      "operationBudget": 0,
+      "solutions": [
+        "fn delivery(distance) {\n  return distance <= 3 ? 100 : 200;\n}",
+        "fn delivery(distance) {\n  return distance < 3 ? 100 : 200;\n}",
+        "fn delivery(distance) { return 100; }"
+      ],
+      "initialSources": [
+        "fn delivery(distance) {\n  return distance <= 3 ? 100 : 200;\n}",
+        "fn delivery(distance) {\n  return distance < 3 ? 100 : 200;\n}",
+        "fn delivery(distance) { return 100; }"
+      ],
+      "patches": [
+        "distance <= 3",
+        "distance < 3",
+        "Всегда 100 рублей"
+      ],
+      "seed": [
+        1
+      ]
+    },
+    {
+      "id": "refund",
+      "title": "Баг: лишний возврат",
+      "kind": "bug",
+      "brief": "Возврат не может быть больше суммы чека. Верни меньшее из paid и requested.",
+      "function": "refund",
+      "source": "fn refund(paid, requested) {\n  return requested > paid ? paid : requested;\n}",
+      "solutions": [
+        "fn refund(paid, requested) {\n  return requested;\n}",
+        "fn refund(paid, requested) {\n  return requested > paid ? paid : requested;\n}",
+        "fn refund(paid, requested) {\n  return requested < paid ? paid : requested;\n}"
+      ],
+      "initialSources": [
+        "fn refund(paid, requested) {\n  return requested;\n}",
+        "fn refund(paid, requested) {\n  return requested;\n}",
+        "fn refund(paid, requested) {\n  return requested;\n}"
+      ],
+      "pay": 1100,
+      "minutes": 120,
+      "tier": 1,
+      "xp": 2,
+      "client": "Тамара · Ложка",
+      "feedback": "Тамара: «Исправление уже на кассе. И ни одного лишнего списания».",
+      "hint": "В логе: paid=220, requested=500 → ушло 500. Возврат должен ограничиваться чеком.",
+      "cost": 0,
+      "once": false,
+      "operationBudget": 0,
+      "algorithms": [
+        "Вернуть всю запрошенную сумму",
+        "Ограничить возврат суммой чека",
+        "Выбрать большую сумму"
+      ],
+      "patches": [
+        "Вернуть всю запрошенную сумму",
+        "Ограничить возврат суммой чека",
+        "Выбрать большую сумму"
+      ],
+      "tests": [
+        {
+          "args": [
+            220,
+            100
+          ],
+          "expected": 100
+        },
+        {
+          "args": [
+            220,
+            500
+          ],
+          "expected": 220
+        },
+        {
+          "args": [
+            0,
+            50
+          ],
+          "expected": 0
+        }
+      ],
+      "seed": [
+        220,
+        100
+      ]
+    },
+    {
+      "id": "queue",
+      "title": "Баг: очередь фотографий",
+      "kind": "bug",
+      "brief": "Для пустой очереди ожидание 0. Иначе — 2 минуты на каждый снимок.",
+      "function": "queue",
+      "source": "fn queue(photos) {\n  return photos <= 0 ? 0 : photos * 2;\n}",
+      "solutions": [
+        "fn queue(photos) {\n  return photos * 2 + 2;\n}",
+        "fn queue(photos) {\n  return photos + 2;\n}",
+        "fn queue(photos) {\n  return photos <= 0 ? 0 : photos * 2;\n}"
+      ],
+      "initialSources": [
+        "fn queue(photos) {\n  return photos * 2 + 2;\n}",
+        "fn queue(photos) {\n  return photos * 2 + 2;\n}",
+        "fn queue(photos) {\n  return photos * 2 + 2;\n}"
+      ],
+      "pay": 1000,
+      "minutes": 110,
+      "tier": 1,
+      "xp": 2,
+      "client": "Ася · фотолаборатория",
+      "feedback": "Ася: «Пустая очередь больше не обещает вечное ожидание. Первый тестовый отпечаток — тебе».",
+      "hint": "Пользователь открыл пустую очередь. Проверь входы 0 и 1 — лишняя задержка видна сразу.",
+      "cost": 0,
+      "once": false,
+      "operationBudget": 0,
+      "algorithms": [
+        "Добавить запас в две минуты",
+        "Сложить снимки и две минуты",
+        "Пусто: 0, иначе photos * 2"
+      ],
+      "patches": [
+        "Добавить запас в две минуты",
+        "Сложить снимки и две минуты",
+        "Пусто: 0, иначе photos * 2"
+      ],
+      "tests": [
+        {
+          "args": [
+            0
+          ],
+          "expected": 0
+        },
+        {
+          "args": [
+            1
+          ],
+          "expected": 2
+        },
+        {
+          "args": [
+            12
+          ],
+          "expected": 24
+        }
+      ],
+      "seed": [
+        0
+      ]
+    },
+    {
+      "id": "booking",
+      "title": "Баг: переполненный зал",
+      "kind": "bug",
+      "brief": "Бронируем до 20 мест. Верни 1, если taken + requested <= 20; иначе 0.",
+      "function": "booking",
+      "source": "fn booking(taken, requested) {\n  return taken + requested <= 20 ? 1 : 0;\n}",
+      "solutions": [
+        "fn booking(taken, requested) {\n  return taken + requested <= 20 ? 1 : 0;\n}",
+        "fn booking(taken, requested) {\n  return taken <= 20 ? 1 : 0;\n}",
+        "fn booking(taken, requested) {\n  return taken + requested < 20 ? 1 : 0;\n}"
+      ],
+      "initialSources": [
+        "fn booking(taken, requested) {\n  return taken <= 20 ? 1 : 0;\n}",
+        "fn booking(taken, requested) {\n  return taken <= 20 ? 1 : 0;\n}",
+        "fn booking(taken, requested) {\n  return taken <= 20 ? 1 : 0;\n}"
+      ],
+      "pay": 1250,
+      "minutes": 140,
+      "tier": 1,
+      "xp": 2,
+      "client": "Ника · репетиционная",
+      "feedback": "Ника: «Наконец-то зал не вмещает сорок человек на бумаге. Теперь можно репетировать».",
+      "hint": "Лог заявки: taken=19, requested=2 → подтверждено. В условии потеряли размер новой группы.",
+      "cost": 0,
+      "once": false,
+      "operationBudget": 0,
+      "algorithms": [
+        "Проверить обе величины и границу 20",
+        "Проверить только занятые места",
+        "Считать полный зал ошибкой"
+      ],
+      "patches": [
+        "Проверить обе величины и границу 20",
+        "Проверить только занятые места",
+        "Считать полный зал ошибкой"
+      ],
+      "tests": [
+        {
+          "args": [
+            15,
+            5
+          ],
+          "expected": 1
+        },
+        {
+          "args": [
+            19,
+            2
+          ],
+          "expected": 0
+        },
+        {
+          "args": [
+            0,
+            20
+          ],
+          "expected": 1
+        }
+      ],
+      "seed": [
+        15,
+        5
+      ]
+    },
+    {
+      "id": "batch",
+      "title": "Профиль: пакет фотографий",
+      "kind": "profile",
+      "brief": "Стоимость обработки: 8 ₽ за фото. Сохрани результат, сократи вычисление до 1 операции.",
+      "function": "batch",
+      "source": "fn batch(photos) {\n  return photos * 8;\n}",
+      "solutions": [
+        "fn batch(photos) {\n  return photos + photos + photos + photos + photos + photos + photos + photos;\n}",
+        "fn batch(photos) {\n  return photos * 8;\n}",
+        "fn batch(photos) {\n  return photos * 6;\n}"
+      ],
+      "initialSources": [
+        "fn batch(photos) {\n  return photos + photos + photos + photos + photos + photos + photos + photos;\n}",
+        "fn batch(photos) {\n  return photos + photos + photos + photos + photos + photos + photos + photos;\n}",
+        "fn batch(photos) {\n  return photos + photos + photos + photos + photos + photos + photos + photos;\n}"
+      ],
+      "pay": 1450,
+      "minutes": 150,
+      "tier": 2,
+      "xp": 2,
+      "client": "Ася · выставка",
+      "feedback": "Ася: «Пакеты обрабатываются быстрее. У меня осталось время доснять вечерний свет».",
+      "hint": "Профилировщик считает реальные арифметические операции. Повторяющиеся слагаемые можно заменить умножением.",
+      "cost": 0,
+      "once": false,
+      "operationBudget": 1,
+      "algorithms": [
+        "Восемь одинаковых слагаемых",
+        "Умножить на 8",
+        "Умножить на 6"
+      ],
+      "patches": [
+        "Восемь одинаковых слагаемых",
+        "Умножить на 8",
+        "Умножить на 6"
+      ],
+      "tests": [
+        {
+          "args": [
+            0
+          ],
+          "expected": 0
+        },
+        {
+          "args": [
+            3
+          ],
+          "expected": 24
+        },
+        {
+          "args": [
+            18
+          ],
+          "expected": 144
+        }
+      ],
+      "seed": [
+        0
+      ]
+    },
+    {
+      "id": "cache",
+      "title": "Профиль: баланс абонемента",
+      "kind": "profile",
+      "brief": "Остаток = bought - used. Убери лишнюю арифметику, максимум 1 операция.",
+      "function": "cache",
+      "source": "fn cache(bought, used) {\n  return bought - used;\n}",
+      "solutions": [
+        "fn cache(bought, used) {\n  return bought - used;\n}",
+        "fn cache(bought, used) {\n  return (bought * 10 - used * 10) / 10;\n}",
+        "fn cache(bought, used) {\n  return used - bought;\n}"
+      ],
+      "initialSources": [
+        "fn cache(bought, used) {\n  return (bought * 10 - used * 10) / 10;\n}",
+        "fn cache(bought, used) {\n  return (bought * 10 - used * 10) / 10;\n}",
+        "fn cache(bought, used) {\n  return (bought * 10 - used * 10) / 10;\n}"
+      ],
+      "pay": 1500,
+      "minutes": 150,
+      "tier": 2,
+      "xp": 2,
+      "client": "Ника · репетиционная",
+      "feedback": "Ника: «Измерение до и после — вот это я уважаю. Патч маленький, эффект понятный».",
+      "hint": "Результат верный, но умножение обоих чисел на 10 и обратное деление ничего не меняют.",
+      "cost": 0,
+      "once": false,
+      "operationBudget": 1,
+      "algorithms": [
+        "Упростить до bought - used",
+        "Сохранить умножения и деление",
+        "Вычесть купленное из использованного"
+      ],
+      "patches": [
+        "Упростить до bought - used",
+        "Сохранить умножения и деление",
+        "Вычесть купленное из использованного"
+      ],
+      "tests": [
+        {
+          "args": [
+            10,
+            3
+          ],
+          "expected": 7
+        },
+        {
+          "args": [
+            4,
+            4
+          ],
+          "expected": 0
+        },
+        {
+          "args": [
+            20,
+            1
+          ],
+          "expected": 19
+        }
+      ],
+      "seed": [
+        10,
+        3
+      ]
+    },
+    {
+      "id": "fees",
+      "title": "Профиль: комиссия",
+      "kind": "profile",
+      "brief": "Комиссия равна 5% суммы. Максимум 1 операция без изменения результата.",
+      "function": "fees",
+      "source": "fn fees(sum) {\n  return sum * 0.05;\n}",
+      "solutions": [
+        "fn fees(sum) {\n  return sum / 100 * 5;\n}",
+        "fn fees(sum) {\n  return sum * 0.5;\n}",
+        "fn fees(sum) {\n  return sum * 0.05;\n}"
+      ],
+      "initialSources": [
+        "fn fees(sum) {\n  return sum / 100 * 5;\n}",
+        "fn fees(sum) {\n  return sum / 100 * 5;\n}",
+        "fn fees(sum) {\n  return sum / 100 * 5;\n}"
+      ],
+      "pay": 1350,
+      "minutes": 135,
+      "tier": 2,
+      "xp": 2,
+      "client": "Лев · доставка",
+      "feedback": "Лев: «Новая версия считает комиссию одним действием. Залил на рабочий терминал».",
+      "hint": "Два действия можно объединить. Не перепутай 0.05 с 0.5 — сравни ответ на 100.",
+      "cost": 0,
+      "once": false,
+      "operationBudget": 1,
+      "algorithms": [
+        "Разделить на 100, умножить на 5",
+        "Взять половину суммы",
+        "Умножить на 0.05"
+      ],
+      "patches": [
+        "Разделить на 100, умножить на 5",
+        "Взять половину суммы",
+        "Умножить на 0.05"
+      ],
+      "tests": [
+        {
+          "args": [
+            100
+          ],
+          "expected": 5
+        },
+        {
+          "args": [
+            600
+          ],
+          "expected": 30
+        },
+        {
+          "args": [
+            0
+          ],
+          "expected": 0
+        }
+      ],
+      "seed": [
+        100
+      ]
+    },
+    {
+      "id": "board",
+      "title": "Свой бот · объявления",
+      "kind": "project",
+      "brief": "Этап 1/3. Новые объявления живут 7 дней включительно: верни 1 при age <= 7, иначе 0.",
+      "function": "board",
+      "source": "fn board(age) {\n  return age <= 7 ? 1 : 0;\n}",
+      "solutions": [
+        "fn board(age) {\n  return age <= 7 ? 1 : 0;\n}",
+        "fn board(age) {\n  return age < 7 ? 1 : 0;\n}",
+        "fn board(age) {\n  return 1;\n}"
+      ],
+      "initialSources": [
+        "fn board(age) {\n  return age < 7 ? 1 : 0;\n}",
+        "fn board(age) {\n  return age < 7 ? 1 : 0;\n}",
+        "fn board(age) {\n  return age < 7 ? 1 : 0;\n}"
+      ],
+      "pay": 0,
+      "minutes": 100,
+      "tier": 0,
+      "xp": 1,
+      "client": "Соседи · свой проект",
+      "feedback": "В районном боте появились объявления. Мира первой разместила обмен книгами.",
+      "hint": "Это твой продукт. Отсечка в 7 дней должна включать сам седьмой день.",
+      "cost": 300,
+      "once": true,
+      "operationBudget": 0,
+      "algorithms": [
+        "Публиковать до 7 дней включительно",
+        "Убирать уже на седьмой день",
+        "Показывать всё навсегда"
+      ],
+      "patches": [
+        "Публиковать до 7 дней включительно",
+        "Убирать уже на седьмой день",
+        "Показывать всё навсегда"
+      ],
+      "tests": [
+        {
+          "args": [
+            1
+          ],
+          "expected": 1
+        },
+        {
+          "args": [
+            7
+          ],
+          "expected": 1
+        },
+        {
+          "args": [
+            8
+          ],
+          "expected": 0
+        }
+      ],
+      "seed": [
+        1
+      ]
+    },
+    {
+      "id": "remind",
+      "title": "Свой бот · напоминания",
+      "kind": "project",
+      "brief": "Этап 2/3. Напомни, если до события осталось от 0 до 2 дней включительно. Верни 1 или 0.",
+      "function": "remind",
+      "source": "fn remind(days) {\n  return days < 0 ? 0 : (days <= 2 ? 1 : 0);\n}",
+      "solutions": [
+        "fn remind(days) {\n  return days <= 2 ? 1 : 0;\n}",
+        "fn remind(days) {\n  return days < 0 ? 0 : (days <= 2 ? 1 : 0);\n}",
+        "fn remind(days) {\n  return days < 2 ? 1 : 0;\n}"
+      ],
+      "initialSources": [
+        "fn remind(days) {\n  return days <= 2 ? 1 : 0;\n}",
+        "fn remind(days) {\n  return days <= 2 ? 1 : 0;\n}",
+        "fn remind(days) {\n  return days <= 2 ? 1 : 0;\n}"
+      ],
+      "pay": 0,
+      "minutes": 120,
+      "tier": 0,
+      "xp": 1,
+      "client": "Соседи · свой проект",
+      "feedback": "Ася добавила в бот даты выставки. Соседям больше не приходится искать сообщение в чате.",
+      "hint": "Прошедшее событие — отрицательное число. Одной проверки <= 2 недостаточно.",
+      "cost": 300,
+      "once": true,
+      "operationBudget": 0,
+      "algorithms": [
+        "Напоминать обо всём, что <= 2",
+        "Проверить сначала прошлое, затем 2 дня",
+        "Не напоминать ровно за 2 дня"
+      ],
+      "patches": [
+        "Напоминать обо всём, что <= 2",
+        "Проверить сначала прошлое, затем 2 дня",
+        "Не напоминать ровно за 2 дня"
+      ],
+      "tests": [
+        {
+          "args": [
+            -1
+          ],
+          "expected": 0
+        },
+        {
+          "args": [
+            0
+          ],
+          "expected": 1
+        },
+        {
+          "args": [
+            2
+          ],
+          "expected": 1
+        },
+        {
+          "args": [
+            3
+          ],
+          "expected": 0
+        }
+      ],
+      "seed": [
+        -1
+      ]
+    },
+    {
+      "id": "support",
+      "title": "Свой бот · запуск",
+      "kind": "project",
+      "brief": "Этап 3/3. Поддержка бота: не больше 160 ₽ в день. Верни меньшее из donations и 160.",
+      "function": "support",
+      "source": "fn support(donations) {\n  return donations > 160 ? 160 : donations;\n}",
+      "solutions": [
+        "fn support(donations) {\n  return donations;\n}",
+        "fn support(donations) {\n  return 160;\n}",
+        "fn support(donations) {\n  return donations > 160 ? 160 : donations;\n}"
+      ],
+      "initialSources": [
+        "fn support(donations) {\n  return donations;\n}",
+        "fn support(donations) {\n  return donations;\n}",
+        "fn support(donations) {\n  return donations;\n}"
+      ],
+      "pay": 0,
+      "minutes": 140,
+      "tier": 0,
+      "xp": 1,
+      "client": "Соседи · свой проект",
+      "feedback": "Районный бот запущен. Поддержка жителей приносит 160 ₽ за следующий игровой день. Это дополнение к работе, а не замена ей.",
+      "hint": "Ограничение сверху нельзя превращать в фиксированную плату: на вводе 0 ответ тоже 0.",
+      "cost": 300,
+      "once": true,
+      "operationBudget": 0,
+      "algorithms": [
+        "Принимать любую сумму",
+        "Всегда считать 160",
+        "Ограничить сумму сверху: 160"
+      ],
+      "patches": [
+        "Принимать любую сумму",
+        "Всегда считать 160",
+        "Ограничить сумму сверху: 160"
+      ],
+      "tests": [
+        {
+          "args": [
+            0
+          ],
+          "expected": 0
+        },
+        {
+          "args": [
+            80
+          ],
+          "expected": 80
+        },
+        {
+          "args": [
+            500
+          ],
+          "expected": 160
+        }
+      ],
+      "seed": [
+        0
       ]
     }
   ]

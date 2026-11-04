@@ -25,6 +25,14 @@ public final class GameState {
   public ArrayList<Economy.Entry> transactions = new ArrayList<>();
   public HashMap<String, Integer> items = new HashMap<>();
   public HashMap<String, Relationship> relationships = new HashMap<>();
+  public int codingXp, completedOrders, rushDeadline = -1, projectIncomeDay = -1;
+  public boolean rushJob;
+  public ArrayList<String> shipped = new ArrayList<>(),
+      upgrades = new ArrayList<>(),
+      customCases = new ArrayList<>();
+  public ArrayList<Coding.Revision> revisions = new ArrayList<>();
+  public HashMap<String, Integer> rushPromises = new HashMap<>();
+  public String lastClientMessage = "", workNotice = "";
   public double elapsed = 0;
   public boolean inspectedPc,
       metMira,

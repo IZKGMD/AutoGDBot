@@ -45,7 +45,19 @@ public final class LifeContent {
   }
 
   public static final class Job {
-    public String id, title, brief, function, source;
+    public String id,
+        title,
+        brief,
+        function,
+        source,
+        kind = "feature",
+        client = "Клиент",
+        feedback = "",
+        hint = "";
+    public String[] solutions, initialSources, patches;
+    public double[] seed;
+    public int tier, xp = 1, cost, operationBudget;
+    public boolean once;
     public String[] algorithms;
     public int pay, minutes;
     public Case[] tests;
@@ -66,6 +78,20 @@ public final class LifeContent {
       for (var g : c.girls)
         if (g.age < 21 || !ids.add(g.id) || g.topics.length < 3 || g.dateChoices.length < 2)
           throw new IOException("Некорректная героиня");
+      ids.clear();
+      for (var j : c.jobs) {
+        if (!ids.add(j.id)
+            || j.pay < 0
+            || j.cost < 0
+            || j.minutes <= 0
+            || j.minutes > 720
+            || j.solutions == null
+            || j.solutions.length != 3
+            || j.initialSources.length != 3
+            || j.patches.length != 3
+            || j.tests.length == 0
+            || j.seed.length == 0) throw new IOException("Некорректный заказ: " + j.id);
+      }
       return c;
     } catch (IOException e) {
       throw new UncheckedIOException(e);

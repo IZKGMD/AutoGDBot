@@ -54,6 +54,9 @@ public final class PixelCanvas implements Disposable {
 
   public void preload() {
     for (String n :
+        new String[] {"desk_ssd", "chair_upgrade", "light_amber", "light_monitor", "light_window"})
+      texture(n);
+    for (String n :
         new String[] {
           "room",
           "stair",

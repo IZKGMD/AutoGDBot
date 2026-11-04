@@ -40,6 +40,8 @@ public class CtrlLife extends ApplicationAdapter {
   private List<float[]> guidePath = List.of();
   private float guideTimer;
   private AudioScene audio;
+  private final com.badlogic.gdx.graphics.Color dusk =
+      new com.badlogic.gdx.graphics.Color(.10f, .17f, .27f, 0);
   private Content content;
   private SaveStore saves;
   private Settings settings;
@@ -413,12 +415,23 @@ public class CtrlLife extends ApplicationAdapter {
         else life.openSocial(npc.id, false);
         return;
       }
+      String reaction = Career.community(world.state, world.state.map);
+      if (npc.id.equals("tamara") && !reaction.isEmpty()) {
+        life.scene(
+            "Тамара", reaction + "\n\nЕда — у стойки. Рада, что ты заглянул(а).", Mode.WORLD);
+        return;
+      }
       openDialogue(world.npcDialogue(npc));
       return;
     }
     if (prop == null) return;
     audio.click(settings);
     switch (prop.action) {
+      case "mentor" -> {
+        life.openCode();
+        life.codePage = 8;
+        return;
+      }
       case "computer" -> {
         life.openCode();
         return;
@@ -549,7 +562,11 @@ public class CtrlLife extends ApplicationAdapter {
       cameraX += (targetCameraX() - cameraX) * blend;
       cameraY += (targetCameraY() - cameraY) * blend;
     } else accumulator = 0;
-    audio.update(settings, world.state.map.equals("street"), focused);
+    audio.update(
+        settings,
+        (world.state.map.equals("street") || world.state.map.equals("park"))
+            && Atmosphere.rain(world.state),
+        focused);
     buttons.clear();
     c.begin();
     drawWorld();
@@ -613,33 +630,56 @@ public class CtrlLife extends ApplicationAdapter {
         c.rect(item.x - 7 - ox, item.y - 2 - oy, 14, 4, "172d3570");
         c.actor(item.art, item.dir, item.frame, item.x - ox, item.y - oy, item.outfit);
       } else {
-        var texture = c.texture(item.art);
+        String drawnArt =
+            item.art.equals("desk")
+                    && world.state.map.equals("room")
+                    && world.state.upgrades.contains("ssd")
+                ? "desk_ssd"
+                : item.art;
+        if (item.art.equals("desk")
+            && world.state.map.equals("room")
+            && world.state.upgrades.contains("chair")) c.art("chair_upgrade", 204 - ox, 121 - oy);
+        var texture = c.texture(drawnArt);
         if (item.artX + texture.getWidth() > ox
             && item.artX < ox + 480
             && item.artY + texture.getHeight() > oy
-            && item.artY < oy + 270) c.art(item.art, item.artX - ox, item.artY - oy);
+            && item.artY < oy + 270) c.art(drawnArt, item.artX - ox, item.artY - oy);
       }
     }
+    float night = Atmosphere.night(world.state);
+    boolean outside = world.state.map.equals("street") || world.state.map.equals("park");
+    dusk.a = night * (outside ? .28f : .13f);
+    c.rect(0, 0, 480, 270, dusk);
     if (world.state.map.equals("room")) {
-      c.art("glow_cool", 151 - ox, 85 - oy);
+      c.art("light_monitor", 107 - ox, 64 - oy);
+      if (night > .1f) c.art("light_window", 170 - ox, 40 - oy);
       c.rect(211 - ox, 121 - oy, 2, 2, ((int) (visualTime * 2) % 2 == 0) ? "c4c992" : "68756e");
+      if (!settings.reducedEffects) {
+        int lift = (int) (visualTime * 4) % 4;
+        c.rect(163 - ox, 110 - oy - lift, 1, 2, "d8d3b14a");
+      }
     }
-    if (world.state.map.equals("stair")) c.art("glow_warm", 195 - ox, 20 - oy);
-    if (world.state.map.equals("street")) {
-      c.art("glow_warm", 359 - ox, 180 - oy);
-      c.art("glow_warm", 359 - ox, 254 - oy);
-      c.art("glow_warm", 830 - ox, 303 - oy);
-      c.art("glow_warm", 830 - ox, 378 - oy);
-      c.art("glow_warm", 617 - ox, 163 - oy);
-      c.art("glow_warm", 681 - ox, 163 - oy);
-      c.rect(0, 0, 480, 270, "18304622");
-      if (!settings.reducedEffects)
-        for (int i = 0; i < 65; i++) {
-          float x = (i * 83 + visualTime * 21) % 500 - 10,
-              y = (i * 47 + visualTime * 135) % 290 - 10;
-          c.rect(x, y, 1, 5, "b8c9cc55");
-          c.rect(x - 1, y + 4, 1, 3, "b8c9cc35");
+    if (world.state.map.equals("stair") && night > .1f) c.art("light_amber", 152 - ox, 40 - oy);
+    if (world.state.map.equals("cafe") || world.state.map.equals("diner"))
+      c.art("light_amber", 90 - ox, 68 - oy);
+    if (world.state.map.equals("street") && night > .1f) {
+      for (float[] light : new float[][] {{391, 282}, {862, 405}, {649, 192}, {713, 192}})
+        c.art("light_amber", light[0] - 80 - ox, light[1] - 56 - oy);
+      for (int x : new int[] {130, 241, 445, 556, 685, 796})
+        c.art("light_window", x - 80 - ox, 118 - oy);
+    }
+    if (outside && Atmosphere.rain(world.state) && !settings.reducedEffects) {
+      for (int i = 0; i < 42; i++) {
+        float x = (i * 83 + visualTime * 19) % 500 - 10, y = (i * 47 + visualTime * 125) % 290 - 10;
+        c.rect(x, y, 1, 4, "b8c9cc42");
+        if (i < 10) {
+          float t = (visualTime * 1.7f + i * .31f) % 1;
+          if (t < .45f) {
+            float px = (i * 67 + 43 - cameraX * .2f) % 480, py = 155 + i % 4 * 12;
+            c.rect(px - 2 - t * 3, py, 4 + t * 6, 1, "bcc8bb45");
+          }
         }
+      }
     }
   }
 
@@ -656,7 +696,7 @@ public class CtrlLife extends ApplicationAdapter {
     meter("ЭНЕРГИЯ", world.state.energy, 188, "8caaa5");
     c.small(world.state.money + " ₽", 285, 13, GOLD);
     c.small("День " + world.state.day() + " · " + world.state.clock(), 365, 13, CREAM);
-    c.small(world.map().name, 12, 36, MUTED);
+    c.small(world.map().name + " · " + Atmosphere.period(world.state), 12, 36, MUTED);
     c.small("J план · M карта · R люди · B деньги", 242, 36, MUTED);
     if (mode != Mode.WORLD) return;
     var target = Navigation.goal(world, life.data);
@@ -730,7 +770,7 @@ public class CtrlLife extends ApplicationAdapter {
     button("Настройки", 245, 182, 135, 23, true, () -> openSettings(Mode.MENU));
     button("Выйти", 245, 209, 135, 23, true, () -> Gdx.app.exit());
     c.small("ПЕРВЫЕ ДЕНЬГИ. ПЕРВЫЕ ЧУВСТВА.", 32, 248, MUTED);
-    c.small("0.2.0", 419, 248, MUTED);
+    c.small("0.3.0", 419, 248, MUTED);
     // An illuminated architectural vignette cut out of the room.
     c.panel(314, 44, 120, 112);
     c.art("desk", 342, 66);

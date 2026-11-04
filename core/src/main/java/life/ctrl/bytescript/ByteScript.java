@@ -22,6 +22,20 @@ public final class ByteScript {
   }
 
   public record Program(String name, List<String> parameters, Expr expression) {
+    public int operations(double... args) {
+      run(args);
+      Map<String, Double> values = new HashMap<>();
+      for (int i = 0; i < args.length; i++) values.put(parameters.get(i), args[i]);
+      return count(expression, values);
+    }
+
+    private static int count(Expr e, Map<String, Double> v) {
+      if (e instanceof Binary b) return 1 + count(b.left, v) + count(b.right, v);
+      if (e instanceof Select t)
+        return 1 + count(t.condition, v) + count(t.condition.eval(v) != 0 ? t.yes : t.no, v);
+      return 0;
+    }
+
     public double run(double... args) {
       if (args.length != parameters.size()) throw new IllegalArgumentException("Число аргументов");
       Map<String, Double> values = new HashMap<>();

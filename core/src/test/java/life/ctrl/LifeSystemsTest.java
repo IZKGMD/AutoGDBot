@@ -20,7 +20,7 @@ class LifeSystemsTest {
     var s = new GameState();
     assertEquals(10000, s.money);
     assertEquals(3000, Economy.WEEKLY_RENT);
-    for (var j : data.jobs) assertTrue(j.pay >= 650 && j.pay <= 950);
+    for (var j : data.jobs) if (j.tier == 0 && !j.once) assertTrue(j.pay >= 650 && j.pay <= 950);
     assertTrue(data.item("soup").price < 650);
   }
 
@@ -281,13 +281,17 @@ class LifeSystemsTest {
     for (var j : data.jobs)
       for (int choice = 0; choice < j.algorithms.length; choice++) {
         var s = new GameState();
+        s.codingXp = 8;
+        s.completedOrders = 1;
+        if (j.id.equals("remind") || j.id.equals("support")) s.shipped.add("board");
+        if (j.id.equals("support")) s.shipped.add("remind");
         Coding.accept(s, j, choice);
         Coding.completeTyping(s);
-        Coding.repair(s, j, 0);
+        Coding.repair(s, j, java.util.Arrays.asList(j.solutions).indexOf(j.source));
         assertTrue(Coding.test(s, j).passed(), j.id + ":" + choice);
         Coding.preview(s, j, 2);
         Coding.deliver(s, j);
-        assertEquals(10000 + j.pay, s.money);
+        assertEquals(10000 + j.pay - j.cost, s.money);
       }
   }
 

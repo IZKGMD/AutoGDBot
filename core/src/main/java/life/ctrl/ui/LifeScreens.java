@@ -11,6 +11,7 @@ import life.ctrl.render.PixelCanvas;
 public final class LifeScreens {
   private final CtrlLife game;
   private final PixelCanvas c;
+  private final Workbench workbench;
   public final LifeContent data;
   public int introPage, codePage, shopPage;
   public String girlId = "mira", socialPage = "home", socialMessage = "", mapId = "";
@@ -31,6 +32,7 @@ public final class LifeScreens {
     this.game = game;
     c = canvas;
     data = LifeContent.load();
+    workbench = new Workbench(game, this, canvas);
   }
 
   private GameState s() {
@@ -93,6 +95,8 @@ public final class LifeScreens {
     socialMessage = "";
     var g = data.girl(id);
     if (!phone && !s().relation(id).met) socialMessage = Social.meet(s(), g);
+    if (!phone && s().relation(id).met && socialMessage.isEmpty())
+      socialMessage = Career.community(s(), s().map);
     mode(Mode.SOCIAL);
     persist();
   }
@@ -305,8 +309,8 @@ public final class LifeScreens {
         "Аренда: 3000 ₽ раз в неделю. Следующая — день "
             + (s().rentThroughDay + 1)
             + ". Еда: примерно 400–650 ₽ в день.\n"
-            + "Кодинг: 650–950 ₽ за заказ. Доставка: 240 ₽ / 35 мин.\n"
-            + "Свидание: сквер бесплатно, за столиком 850 ₽ на двоих.",
+            + "Кодинг: 650–1500 ₽, до 3 заказов/день. Бонусы отдельно.\n"
+            + "Сквер бесплатно, столик 850 ₽. Запущенный бот: +160 ₽/день.",
         28,
         66,
         420,
@@ -699,232 +703,6 @@ public final class LifeScreens {
   }
 
   private void coding() {
-    frame("BYTEOS / KEYCODE STUDIO", "Заказы · " + s().money + " ₽");
-    if (codePage == 0) {
-      c.wrap(
-          "Каждый заказ можно выполнить один раз в день. Всё работает внутри игры: исходник,"
-              + " ошибки, тесты и настоящий результат.",
-          28,
-          66,
-          420,
-          SOFT);
-      int y = 112;
-      for (var j : data.jobs) {
-        btn(
-            j.title + " · +" + j.pay + " ₽ / " + j.minutes + " мин",
-            28,
-            y,
-            424,
-            !Coding.paidToday(s(), j.id),
-            () -> {
-              if (!s().activeJob.isEmpty()
-                  && s().jobStage > 0
-                  && s().jobStage < 5
-                  && !s().activeJob.equals(j.id)) {
-                scene(
-                    "Незаконченная работа",
-                    "Текущий исходник сохранён. Сначала закончи его. Выход через Esc не удаляет"
-                        + " проект.",
-                    Mode.IDE);
-                codePage = 2;
-                return;
-              }
-              s().activeJob = j.id;
-              codePage = 1;
-              report = null;
-              game.resetSelection();
-            });
-        y += 29;
-      }
-      btn(
-          "Встать из-за ПК",
-          28,
-          226,
-          424,
-          () -> {
-            mode(Mode.WORLD);
-            persist();
-          });
-      return;
-    }
-    var job = data.job(s().activeJob);
-    if (codePage == 1) {
-      c.text(job.title, 28, 65, GOLD);
-      c.wrap(job.brief, 28, 88, 420, TEXT);
-      c.small("Какое правило должно попасть в код?", 28, 132, SOFT);
-      int y = 150;
-      for (int i = 0; i < job.algorithms.length; i++) {
-        int choice = i;
-        btn(
-            job.algorithms[i],
-            28,
-            y,
-            424,
-            () -> {
-              String result = Coding.accept(s(), job, choice);
-              codePage = 2;
-              report = null;
-              game.resetSelection();
-              persist();
-            });
-        y += 28;
-      }
-      return;
-    }
-    if (codePage == 3) {
-      c.text("Отладка: меняем конкретный исходник", 28, 66, GOLD);
-      c.wrap(
-          s().codeSource.contains("prce")
-              ? "Компилятор не знает имя prce. В аргументах функции есть price и count. Какое имя"
-                  + " нужно здесь?"
-              : job.brief,
-          28,
-          92,
-          420,
-          TEXT);
-      btn(
-          s().codeSource.contains("prce")
-              ? "prce → price"
-              : "Использовать правильную границу / умножение",
-          28,
-          157,
-          424,
-          () -> {
-            Coding.repair(s(), job, 0);
-            report = null;
-            codePage = 2;
-            persist();
-            game.resetSelection();
-          });
-      btn(
-          s().codeSource.contains("prce") ? "prce → count" : "Оставить сложение / строгую границу",
-          28,
-          185,
-          424,
-          () -> {
-            Coding.repair(s(), job, 1);
-            report = null;
-            codePage = 2;
-            persist();
-            game.resetSelection();
-          });
-      btn(
-          "Назад к исходнику",
-          28,
-          226,
-          424,
-          () -> {
-            codePage = 2;
-            game.resetSelection();
-          });
-      return;
-    }
-    if (codePage == 4) {
-      c.text("Живой предпросмотр", 28, 67, GOLD);
-      c.wrap(
-          job.id.equals("total")
-              ? "Цена блюда: 30 ₽. Меняй количество — ответ считает твоя программа."
-              : job.brief,
-          28,
-          91,
-          420,
-          TEXT);
-      if (cachedInput != previewInput || !cachedSource.equals(s().codeSource)) {
-        cachedResult = Coding.preview(s(), job, previewInput);
-        cachedInput = previewInput;
-        cachedSource = s().codeSource;
-      }
-      double value = cachedResult;
-      c.text(
-          "Ввод: " + (int) previewInput + "    Результат: " + Math.round(value * 100) / 100.0,
-          28,
-          134,
-          GREEN);
-      btn("−", 28, 164, 70, () -> previewInput = Math.max(0, previewInput - 1));
-      btn("+", 110, 164, 70, () -> previewInput += 1);
-      btn(
-          "Отправить клиенту · +" + job.pay + " ₽",
-          28,
-          199,
-          424,
-          !s().paidJobs.contains(s().activeLedger),
-          () -> {
-            String result = Coding.deliver(s(), job);
-            game.successCue();
-            scene("Заказ оплачен", result, Mode.WORLD);
-          });
-      btn(
-          "Вернуться к коду",
-          28,
-          229,
-          424,
-          () -> {
-            codePage = 2;
-            game.resetSelection();
-          });
-      return;
-    }
-    c.small(job.title.toUpperCase(), 28, 63, GOLD);
-    c.small("ТРЕБОВАНИЕ", 28, 83, SOFT);
-    c.wrap(job.brief, 28, 98, 125, TEXT);
-    c.rect(164, 81, 288, 89, "10232e");
-    String visible = s().codeSource.substring(0, Math.min(s().typedCount, s().codeSource.length()));
-    int y = 88, n = 1;
-    for (String line : visible.split("\n", -1)) {
-      c.small(n + "", 169, y, SOFT);
-      c.small(line, 183, y, GREEN);
-      y += 17;
-      n++;
-    }
-    c.small(s().typedCount + " / " + s().codeSource.length() + " символов", 169, 156, SOFT);
-    if (report != null) c.wrap(report.message(), 28, 178, 424, report.passed() ? GREEN : RED);
-    else c.small("Нажимай любые буквы — печатает редактор. [Esc] сохраняет проект.", 28, 178, SOFT);
-    if (report != null && !report.cases().isEmpty()) {
-      String test =
-          report.cases().stream()
-              .filter(t -> t.contains("ОШИБКА"))
-              .findFirst()
-              .orElse(report.cases().get(0));
-      c.small(test, 28, 210, report.passed() ? GREEN : RED);
-    }
-    btn(
-        "Допечатать",
-        28,
-        226,
-        99,
-        () -> {
-          Coding.completeTyping(s());
-          persist();
-        });
-    btn(
-        "Тесты",
-        135,
-        226,
-        88,
-        () -> {
-          report = Coding.test(s(), job);
-          persist();
-        });
-    btn(
-        report != null && report.passed() ? "Предпросмотр" : "Отладка",
-        231,
-        226,
-        128,
-        () -> {
-          if (report != null && report.passed()) {
-            codePage = 4;
-            previewInput = job.id.equals("discount") ? 500 : 2;
-          } else codePage = 3;
-          game.resetSelection();
-        });
-    btn(
-        "Выйти",
-        367,
-        226,
-        85,
-        () -> {
-          mode(Mode.WORLD);
-          persist();
-        });
+    workbench.draw();
   }
 }

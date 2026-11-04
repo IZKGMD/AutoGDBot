@@ -175,3 +175,4 @@ import runpy
 runpy.run_path(str(Path(__file__).with_name('polish_assets.py')))
 runpy.run_path(str(Path(__file__).with_name('make_soundscape.py')))
 runpy.run_path(str(Path(__file__).with_name('make_chapter2_art.py')))
+runpy.run_path(str(Path(__file__).with_name('make_chapter3_art.py')))

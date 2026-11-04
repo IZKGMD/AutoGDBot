@@ -13,6 +13,7 @@ public final class Life {
     s.hunger = Math.max(0, s.hunger - minutes * .065);
     s.energy = Math.max(0, s.energy - minutes * .045);
     if (s.hunger < 10) s.health = Math.max(15, s.health - minutes * .012);
+    Career.settleProject(s);
     Economy.rent(s);
   }
 

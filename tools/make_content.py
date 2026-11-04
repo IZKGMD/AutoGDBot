@@ -56,3 +56,4 @@ dialogues=[
 print('3 connected maps; 3 NPCs; '+str(len(dialogues))+' dialogue nodes.')
 import runpy
 runpy.run_path(str(Path(__file__).with_name('make_chapter2.py')))
+runpy.run_path(str(Path(__file__).with_name('make_chapter3.py')))
