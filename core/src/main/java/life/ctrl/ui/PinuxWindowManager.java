@@ -49,7 +49,7 @@ public final class PinuxWindowManager {
   private static final String EDGE = "4e7087", TEXT = "dceaf4", ACCENT = "8dcce0";
 
   public PinuxWindowManager() {
-    add(App.CODE, "Astra Code  |  main.bs", 10, 18, 460, 231);
+    add(App.CODE, "Astra Code  |  main.bs", 28, 27, 420, 202);
     add(App.TERMINAL, "Terminal  |  dev@astra", 99, 40, 353, 181);
     add(App.FILES, "Files  |  /home/dev", 49, 34, 370, 193);
     add(App.MAIL, "TaskMail  |  inbox", 74, 35, 352, 194);
@@ -225,8 +225,7 @@ public final class PinuxWindowManager {
 
   private static void clamp(Window w) {
     w.x = Math.max(0, Math.min(PixelCanvas.W - w.width, w.x));
-    w.y = Math.max(TOP + 1, Math.min(BOTTOM - 29, w.y));
-    if (w.y + 25 > BOTTOM) w.y = BOTTOM - 25;
+    w.y = Math.max(TOP + 1, Math.min(BOTTOM - w.height, w.y));
   }
 
   public void tick(float delta) {
