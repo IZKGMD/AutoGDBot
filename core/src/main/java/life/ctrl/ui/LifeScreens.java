@@ -135,6 +135,22 @@ public final class LifeScreens {
     pinux.keyTyped(ch);
   }
 
+  public boolean pcPointerDown(int x, int y) {
+    return pinux.pointerDown(x, y);
+  }
+
+  public boolean pcPointerDragged(int x, int y) {
+    return pinux.pointerDragged(x, y);
+  }
+
+  public boolean pcPointerUp(int x, int y) {
+    return pinux.pointerUp(x, y);
+  }
+
+  public void pcCancelPointer() {
+    pinux.cancelPointer();
+  }
+
   public void typeKey() {
     if (codePage != 2 || s().jobStage != 2) return;
     // Two tactile phases: after failed tests, the next real keystroke starts fixing.
