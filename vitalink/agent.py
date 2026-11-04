@@ -48,6 +48,11 @@ def capture_jpeg():
 
 def job_run(job,config):
     action=job["action"];args=job.get("args",{})
+    if action in ("host_status","host_cpu"):
+        if not config.get("allow_host_admin",False):
+            raise PermissionError("Host admin is not enabled locally on Vita")
+        from host_admin import dispatch
+        return dispatch(action,args)
     if action=="diagnose":
         info=[]
         for cmdline in (["uname","-a"],["uptime"],["free","-m"],["df","-h"],
