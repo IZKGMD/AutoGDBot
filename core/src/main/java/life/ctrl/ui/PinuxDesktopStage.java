@@ -315,6 +315,13 @@ public final class PinuxDesktopStage {
 
   public void openNativeWindow(App app) {
     windows.open(app);
+    current.setText(switch (app) {
+      case TERMINAL -> "Terminal";
+      case FILES -> "Files";
+      case MAIL -> "TaskMail";
+      case SETTINGS -> "Settings";
+      case CODE -> "Astra Code";
+    });
     raiseChrome();
   }
 
