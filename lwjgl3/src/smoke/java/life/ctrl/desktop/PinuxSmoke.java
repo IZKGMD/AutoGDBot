@@ -135,6 +135,18 @@ public final class PinuxSmoke extends CtrlLife {
         throw new AssertionError("Window title drag did not move VisWindow");
     });
     steps.add(() -> screenshot("visui-terminal-dragged"));
+    steps.add(() -> {
+      Window terminal = findWindow("Terminal");
+      float oldWidth = terminal.getWidth(), oldHeight = terminal.getHeight();
+      int sx = Math.round(terminal.getX() + terminal.getWidth() - 5);
+      int sy = Gdx.graphics.getHeight() - Math.round(terminal.getY() + 5);
+      mouseAbsolute(0, sx, sy);
+      mouseAbsolute(1, sx + 64, sy + 30);
+      mouseAbsolute(2, sx + 64, sy + 30);
+      if (terminal.getWidth() < oldWidth + 15 && terminal.getHeight() < oldHeight + 15)
+        throw new AssertionError("Native window resize handle did not resize VisWindow");
+    });
+    steps.add(() -> screenshot("visui-terminal-resized"));
     steps.add(() -> tap(Keys.F3));
     steps.add(() -> tap(Keys.F4));
     steps.add(() -> tap(Keys.F6));
