@@ -366,6 +366,7 @@ public class CtrlLife extends ApplicationAdapter {
 
   private void save() {
     try {
+      if(mode==Mode.IDE && life!=null)life.capturePcSession();
       saves.save(world.state);
       notify("Игра сохранена.");
     } catch (IOException | RuntimeException e) {
@@ -377,6 +378,7 @@ public class CtrlLife extends ApplicationAdapter {
   private void saveQuiet() {
     if (!hasSession) return;
     try {
+      if(mode==Mode.IDE && life!=null)life.capturePcSession();
       saves.save(world.state);
     } catch (IOException | RuntimeException e) {
       notify("Автосохранение не удалось. Нажми F5 для повтора.");

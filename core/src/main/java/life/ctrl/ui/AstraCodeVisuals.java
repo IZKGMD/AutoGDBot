@@ -228,8 +228,8 @@ public final class AstraCodeVisuals implements Disposable {
   public BitmapFont font(FontRole role) {
     return switch (role) {
       case MONO -> resolveFont("mono-font", "code-font", "small-font", "ui-font");
-      case SMALL -> resolveFont("small-font", "ui-font");
-      case UI -> resolveFont("ui-font", "small-font");
+      case SMALL -> resolveFont("app-small-font", "small-font", "ui-font");
+      case UI -> resolveFont("app-ui-font", "ui-font", "small-font");
     };
   }
 

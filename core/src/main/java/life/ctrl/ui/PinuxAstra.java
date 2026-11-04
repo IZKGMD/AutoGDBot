@@ -4,7 +4,6 @@ import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input.Keys;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 import life.ctrl.CtrlLife;
 import life.ctrl.CtrlLife.Mode;
@@ -16,8 +15,8 @@ import life.ctrl.ui.PinuxWindowManager.App;
 import life.ctrl.ui.PinuxWindowManager.Window;
 
 /**
- * Pinux Astra: a fictional, isolated GUI shell entirely rendered inside libGDX.
- * It cannot read files or execute commands on the host machine.
+ * Pinux Astra: a fictional, isolated GUI shell entirely rendered inside libGDX. It cannot read
+ * files or execute commands on the host machine.
  */
 public final class PinuxAstra {
   private final CtrlLife game;
@@ -48,8 +47,13 @@ public final class PinuxAstra {
     log("Type 'help' to see available commands.");
   }
 
-  private GameState s() { return game.world().state; }
-  private String accent() { return warmTheme ? GOLD : SKY; }
+  private GameState s() {
+    return game.world().state;
+  }
+
+  private String accent() {
+    return warmTheme ? GOLD : SKY;
+  }
 
   public void open() {
     wm.reset();
@@ -57,18 +61,38 @@ public final class PinuxAstra {
     boot = 0;
     notice = "";
     noticeTime = 0;
+    warmTheme = s().pinux.warmTheme;
+    quietMotion = s().pinux.reducedMotion;
     nativeDesktop.show();
   }
 
-  public com.badlogic.gdx.scenes.scene2d.Stage inputStage() { return nativeDesktop.inputStage(); }
+  public com.badlogic.gdx.scenes.scene2d.Stage inputStage() {
+    return nativeDesktop.inputStage();
+  }
 
-  public String clockText() { return s().clock(); }
-  public boolean isLegacyEditorOpen() { return nativeDesktop.isCodeFront(); }
-  public boolean isCodeFront() { return nativeDesktop.isCodeFront(); }
-  CtrlLife game() { return game; }
-  LifeScreens life() { return life; }
+  public String clockText() {
+    return s().clock();
+  }
 
-  public void openApp(App app) { launch(app); }
+  public boolean isLegacyEditorOpen() {
+    return nativeDesktop.isCodeFront();
+  }
+
+  public boolean isCodeFront() {
+    return nativeDesktop.isCodeFront();
+  }
+
+  CtrlLife game() {
+    return game;
+  }
+
+  LifeScreens life() {
+    return life;
+  }
+
+  public void openApp(App app) {
+    launch(app);
+  }
 
   public void openLegacyEditor() {
     // Historical entry point retained for callers; the editor is now 100% Scene2D.
@@ -76,7 +100,14 @@ public final class PinuxAstra {
     game.resetSelection();
   }
 
-  public String terminalHistory() { return String.join("\n", output); }
+  public String historyCommand(int direction) {
+    historyIndex = Math.max(0, Math.min(commandHistory.size(), historyIndex + direction));
+    return historyIndex == commandHistory.size() ? "" : commandHistory.get(historyIndex);
+  }
+
+  public String terminalHistory() {
+    return String.join("\n", output);
+  }
 
   public String terminalSubmit(String line) {
     command = line;
@@ -95,10 +126,31 @@ public final class PinuxAstra {
     openLegacyEditor();
   }
 
-  public void toggleTheme() { warmTheme = !warmTheme; }
-  public void toggleMotion() { quietMotion = !quietMotion; }
+  public boolean warmTheme() {
+    return warmTheme;
+  }
 
-  public void resizeNative(int w, int h) { nativeDesktop.resize(w, h); }
+  public boolean reducedMotion() {
+    return quietMotion;
+  }
+
+  public void toggleTheme() {
+    warmTheme = !warmTheme;
+    s().pinux.warmTheme = warmTheme;
+    game.refreshState();
+  }
+
+  public void toggleMotion() {
+    quietMotion = !quietMotion;
+    s().pinux.reducedMotion = quietMotion;
+    game.refreshState();
+  }
+
+  public void captureSession() { nativeDesktop.captureSession(); }
+
+  public void resizeNative(int w, int h) {
+    nativeDesktop.resize(w, h);
+  }
 
   public void renderNativeDesktop(float delta) {
     nativeDesktop.setVisible(true);
@@ -142,8 +194,7 @@ public final class PinuxAstra {
   }
 
   private boolean hovered(int x, int y, int w, int h) {
-    return c.mouseX() >= x && c.mouseX() < x + w
-        && c.mouseY() >= y && c.mouseY() < y + h;
+    return c.mouseX() >= x && c.mouseX() < x + w && c.mouseY() >= y && c.mouseY() < y + h;
   }
 
   private void hotspot(String label, int x, int y, int w, int h, Runnable action) {
@@ -157,8 +208,7 @@ public final class PinuxAstra {
     // One soft icon surface; the old thick dark outline is deliberately gone.
     c.roundRect(x + 22, y + (hover ? 2 : 3), 29, 27, 7, "18172d55");
     c.roundRect(x + 23, y + (hover ? 2 : 3), 27, 26, 7, color);
-    c.small(symbol, x + 35 - c.smallWidth(symbol) / 2f,
-        y + (hover ? 8 : 9), "f4efff");
+    c.small(symbol, x + 35 - c.smallWidth(symbol) / 2f, y + (hover ? 8 : 9), "f4efff");
     float textX = x + (75 - c.smallWidth(label)) / 2f;
     c.small(label, textX, y + 35, "f2ebfa");
     hotspot(label, x, y, 75, 49, () -> launch(app));
@@ -185,19 +235,28 @@ public final class PinuxAstra {
     c.small("ASTRA CODE  /  WORKSPACE", x, y, accent());
     c.rect(x, y + 15, width, 1, "38576b");
     c.small("EXPLORER       src/  main.bs", x + 4, y + 26, SUB);
-    String source = s().activeJob.isEmpty()
-        ? "// Open TaskMail or expand to start a job"
-        : s().codeSource.replace('\n', ' ');
+    String source =
+        s().activeJob.isEmpty()
+            ? "// Open TaskMail or expand to start a job"
+            : s().codeSource.replace('\n', ' ');
     c.fitted(source, x + 4, y + 44, width - 8, GREEN, true);
-    c.small(s().activeJob.isEmpty() ? "No active contract" : "Project: " + s().activeJob,
-        x + 4, y + 63, GOLD);
+    c.small(
+        s().activeJob.isEmpty() ? "No active contract" : "Project: " + s().activeJob,
+        x + 4,
+        y + 63,
+        GOLD);
     if (active) {
-      button("EXPAND IDE", x + 4, w.y + w.height - 27, 112, 18,
-          () -> wm.toggleMaximize(App.CODE));
-      button("TASKS", x + 121, w.y + w.height - 27, 77, 18, () -> {
-        life.codePage = 0;
-        wm.toggleMaximize(App.CODE);
-      });
+      button("EXPAND IDE", x + 4, w.y + w.height - 27, 112, 18, () -> wm.toggleMaximize(App.CODE));
+      button(
+          "TASKS",
+          x + 121,
+          w.y + w.height - 27,
+          77,
+          18,
+          () -> {
+            life.codePage = 0;
+            wm.toggleMaximize(App.CODE);
+          });
     }
   }
 
@@ -214,8 +273,13 @@ public final class PinuxAstra {
     c.small("README.md", x + 117, y + 73, SUB);
     c.small(".git/", x + 117, y + 92, SUB);
     if (active)
-      button("Open in Astra Code", x + 115, w.y + w.height - 26,
-          Math.min(167, w.width - 135), 18, () -> launch(App.CODE));
+      button(
+          "Open in Astra Code",
+          x + 115,
+          w.y + w.height - 26,
+          Math.min(167, w.width - 135),
+          18,
+          () -> launch(App.CODE));
   }
 
   private void mail(Window w, boolean active) {
@@ -233,10 +297,16 @@ public final class PinuxAstra {
       c.small(j.pay + " ₽", w.right() - 79, yy + 5, GOLD);
     }
     if (active)
-      button("Open job board", x, w.bottom() - 25, Math.min(172, w.width - 24), 18, () -> {
-        life.codePage = 0;
-        launch(App.CODE);
-      });
+      button(
+          "Open job board",
+          x,
+          w.bottom() - 25,
+          Math.min(172, w.width - 24),
+          18,
+          () -> {
+            life.codePage = 0;
+            launch(App.CODE);
+          });
   }
 
   private void settings(Window w, boolean active) {
@@ -262,14 +332,26 @@ public final class PinuxAstra {
     String[] lines = output.toArray(String[]::new);
     int from = Math.max(0, lines.length - rows);
     for (int i = from; i < lines.length; i++)
-      c.fitted(lines[i], x + 7, y + 25 + (i - from) * 13, width - 17,
-          lines[i].startsWith("$") ? GREEN : SUB, true);
+      c.fitted(
+          lines[i],
+          x + 7,
+          y + 25 + (i - from) * 13,
+          width - 17,
+          lines[i].startsWith("$") ? GREEN : SUB,
+          true);
     c.rect(x + 5, y + height - 22, width - 10, 17, "0d2434");
-    c.fitted("dev@astra:~$ " + command + (blink() ? "▌" : ""), x + 8,
-        y + height - 20, width - 19, TEXT, true);
+    c.fitted(
+        "dev@astra:~$ " + command + (blink() ? "▌" : ""),
+        x + 8,
+        y + height - 20,
+        width - 19,
+        TEXT,
+        true);
   }
 
-  private boolean blink() { return (int) (time * 2.2f) % 2 == 0; }
+  private boolean blink() {
+    return (int) (time * 2.2f) % 2 == 0;
+  }
 
   private void drawTopBar() {
     c.rect(0, 0, 480, 16, "0b1126db");
@@ -298,8 +380,16 @@ public final class PinuxAstra {
     boolean exitHover = hovered(425, 249, 48, 17);
     c.roundRect(422, 248, 52, 17, 7, exitHover ? "573c60dd" : "211c34a8");
     c.small("Выйти", 427, 251, exitHover ? "ffffff" : "c3b8d0");
-    hotspot("Встать из-за компьютера", 422, 248, 52, 17,
-        () -> { game.switchMode(Mode.WORLD); game.refreshState(); });
+    hotspot(
+        "Встать из-за компьютера",
+        422,
+        248,
+        52,
+        17,
+        () -> {
+          game.switchMode(Mode.WORLD);
+          game.refreshState();
+        });
   }
 
   private void dockItem(String glyph, App app, int x, Runnable action, String tint) {
@@ -308,8 +398,7 @@ public final class PinuxAstra {
     boolean hover = hovered(x, 245, 30, 22);
     if (hover) c.roundRect(x - 2, 245, 33, 21, 6, "7564b479");
     c.roundRect(x + 3, hover ? 246 : 247, 23, 18, 5, active ? "715aba" : tint);
-    c.small(glyph, x + 14.5f - c.smallWidth(glyph) / 2,
-        hover ? 247 : 248, "f8f3ff");
+    c.small(glyph, x + 14.5f - c.smallWidth(glyph) / 2, hover ? 247 : 248, "f8f3ff");
     if (opened) c.roundRect(x + 11, 265, 7, 2, 1, "c6aaff");
     hotspot(app.toString(), x - 2, 245, 33, 22, action);
   }
@@ -372,7 +461,10 @@ public final class PinuxAstra {
     if (commandHistory.size() > 50) commandHistory.remove(0);
     historyIndex = commandHistory.size();
     String cmd = raw.toLowerCase(Locale.ROOT);
-    if (cmd.equals("clear")) { output.clear(); return; }
+    if (cmd.equals("clear")) {
+      output.clear();
+      return;
+    }
     switch (cmd) {
       case "help" -> {
         log("ls pwd cat whoami date neofetch clear echo");
@@ -393,8 +485,10 @@ public final class PinuxAstra {
         else for (String line : s().codeSource.split("\n")) log(line);
       }
       case "git status" -> {
-        log(s().activeJob.isEmpty() ? "On branch main; clean working tree" :
-            "On branch main; project: " + s().activeJob);
+        log(
+            s().activeJob.isEmpty()
+                ? "On branch main; clean working tree"
+                : "On branch main; project: " + s().activeJob);
         log("Local revisions: " + s().revisions.size());
       }
       case "git log" -> {
@@ -426,16 +520,42 @@ public final class PinuxAstra {
 
   /** Only game actions are executed here; no host OS commands or filesystem access. */
   public boolean keyDown(int key) {
-    if (key == Keys.F1) { launch(App.CODE); return true; }
-    if (key == Keys.F2) { launch(App.TERMINAL); return true; }
-    if (key == Keys.F3) { launch(App.FILES); return true; }
-    if (key == Keys.F4) { launch(App.MAIL); return true; }
-    if (key == Keys.F6) { launch(App.SETTINGS); return true; }
-    if (key == Keys.TAB) { nativeDesktop.cycleNativeWindows(); return true; }
+    if (key == Keys.F1) {
+      launch(App.CODE);
+      return true;
+    }
+    if (key == Keys.F2) {
+      launch(App.TERMINAL);
+      return true;
+    }
+    if (key == Keys.F3) {
+      launch(App.FILES);
+      return true;
+    }
+    if (key == Keys.F4) {
+      launch(App.MAIL);
+      return true;
+    }
+    if (key == Keys.F5) {
+      nativeDesktop.captureSession();
+      game.refreshState();
+      return true;
+    }
+    if (key == Keys.F6) {
+      launch(App.SETTINGS);
+      return true;
+    }
+    if (key == Keys.TAB) {
+      nativeDesktop.cycleNativeWindows();
+      return true;
+    }
     if (key == Keys.ESCAPE) {
       if (nativeDesktop.hasNativeWindows()) nativeDesktop.closeFrontNativeWindow();
       else if (menuOpen) menuOpen = false;
-      else { game.switchMode(Mode.WORLD); game.refreshState(); }
+      else {
+        game.switchMode(Mode.WORLD);
+        game.refreshState();
+      }
       return true;
     }
     return true;
@@ -444,13 +564,25 @@ public final class PinuxAstra {
   /** Called before the regular game key handler by the native desktop Stage. */
   boolean codeTypingKey(int key) {
     if (game.mode() != Mode.IDE || !nativeDesktop.isCodeFront()) return false;
-    boolean character = (key >= Keys.A && key <= Keys.Z)
-        || (key >= Keys.NUM_0 && key <= Keys.NUM_9)
-        || (key >= Keys.NUMPAD_0 && key <= Keys.NUMPAD_9)
-        || key == Keys.SPACE || key == Keys.COMMA || key == Keys.PERIOD
-        || key == Keys.SLASH || key == Keys.SEMICOLON || key == Keys.MINUS
-        || key == Keys.EQUALS || key == Keys.APOSTROPHE || key == Keys.BACKSLASH
-        || key == Keys.LEFT_BRACKET || key == Keys.RIGHT_BRACKET;
+    if (Gdx.input.isKeyPressed(Keys.CONTROL_LEFT)
+        || Gdx.input.isKeyPressed(Keys.CONTROL_RIGHT)
+        || Gdx.input.isKeyPressed(Keys.ALT_LEFT)
+        || Gdx.input.isKeyPressed(Keys.ALT_RIGHT)) return false;
+    boolean character =
+        (key >= Keys.A && key <= Keys.Z)
+            || (key >= Keys.NUM_0 && key <= Keys.NUM_9)
+            || (key >= Keys.NUMPAD_0 && key <= Keys.NUMPAD_9)
+            || key == Keys.SPACE
+            || key == Keys.COMMA
+            || key == Keys.PERIOD
+            || key == Keys.SLASH
+            || key == Keys.SEMICOLON
+            || key == Keys.MINUS
+            || key == Keys.EQUALS
+            || key == Keys.APOSTROPHE
+            || key == Keys.BACKSLASH
+            || key == Keys.LEFT_BRACKET
+            || key == Keys.RIGHT_BRACKET;
     if (character && life.codePage == 2) {
       life.typeKey();
       return true;
@@ -469,8 +601,23 @@ public final class PinuxAstra {
     return wm.pointerDown(x, y);
   }
 
-  public void pointerMove(int x, int y) { wm.pointerMove(x, y); }
-  public boolean pointerDragged(int x, int y) { wm.pointerDragged(x, y); wm.pointerMove(x, y); return true; }
-  public boolean pointerUp(int x, int y) { return wm.pointerUp(x, y); }
-  public void cancelPointer() { wm.cancelDrag(); nativeDesktop.setVisible(false); }
+  public void pointerMove(int x, int y) {
+    wm.pointerMove(x, y);
+  }
+
+  public boolean pointerDragged(int x, int y) {
+    wm.pointerDragged(x, y);
+    wm.pointerMove(x, y);
+    return true;
+  }
+
+  public boolean pointerUp(int x, int y) {
+    return wm.pointerUp(x, y);
+  }
+
+  public void cancelPointer() {
+    wm.cancelDrag();
+    nativeDesktop.captureSession();
+    nativeDesktop.setVisible(false);
+  }
 }

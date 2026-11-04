@@ -25,6 +25,7 @@ public final class GameState {
   public ArrayList<Economy.Entry> transactions = new ArrayList<>();
   public HashMap<String, Integer> items = new HashMap<>();
   public HashMap<String, Relationship> relationships = new HashMap<>();
+  public PinuxSession pinux = new PinuxSession();
   public int codingXp, completedOrders, rushDeadline = -1, projectIncomeDay = -1;
   public boolean rushJob;
   public ArrayList<String> shipped = new ArrayList<>(),

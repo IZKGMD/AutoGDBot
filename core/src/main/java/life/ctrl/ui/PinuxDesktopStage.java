@@ -34,9 +34,9 @@ import life.ctrl.ui.PinuxWindowManager.App;
 /**
  * True-resolution Scene2D desktop for Pinux Astra (Archcraft / Polybar / Rofi Edition).
  *
- * The pixel-art world retains its 480x270 framebuffer; only the desktop
- * user interface renders after the game's framebuffer at native window size.
- * Scene2D owns layout, pointer hit testing, hover, focus, and animations.
+ * <p>The pixel-art world retains its 480x270 framebuffer; only the desktop user interface renders
+ * after the game's framebuffer at native window size. Scene2D owns layout, pointer hit testing,
+ * hover, focus, and animations.
  */
 public final class PinuxDesktopStage {
   private static final float TOP_BAR_H = 28f;
@@ -47,35 +47,45 @@ public final class PinuxDesktopStage {
   private static final float SHORTCUTS_W = 86f;
   private static final float SHORTCUTS_H = 352f;
 
-  private static final App[] APPS = {
-    App.CODE, App.TERMINAL, App.FILES, App.MAIL, App.SETTINGS
-  };
+  private static final App[] APPS = {App.CODE, App.TERMINAL, App.FILES, App.MAIL, App.SETTINGS};
 
   private final PinuxAstra shell;
 
   // The desktop owns game-IDE typing while Astra Code is focused. This prevents
   // Scene2D controls from swallowing tactile ByteScript input on Windows.
-  private final Stage stage = new Stage(new ScreenViewport()) {
-    @Override public boolean keyDown(int keycode) {
-      // The launcher is modal: its search/shortcuts must take priority over
-      // tactile ByteScript typing and global shell hotkeys.
-      if (visible && launcher != null && launcher.isVisible()) {
-        if (handleLauncherKey(keycode)) return true;
-        return true;
-      }
-      if (shell != null && shell.codeTypingKey(keycode)) return true;
-      return super.keyDown(keycode);
-    }
+  private final Stage stage =
+      new Stage(new ScreenViewport()) {
+        @Override
+        public boolean keyDown(int keycode) {
+          // The launcher is modal: its search/shortcuts must take priority over
+          // tactile ByteScript typing and global shell hotkeys.
+          if (visible && launcher != null && launcher.isVisible()) {
+            if (handleLauncherKey(keycode)) return true;
+            return true;
+          }
+          if (visible
+              && (keycode == Input.Keys.TAB
+                  || keycode == Input.Keys.F1
+                  || keycode == Input.Keys.F2
+                  || keycode == Input.Keys.F3
+                  || keycode == Input.Keys.F4
+                  || keycode == Input.Keys.F5
+                  || keycode == Input.Keys.F6
+                  || keycode == Input.Keys.ESCAPE)) return shell.keyDown(keycode);
+          if (shell != null && shell.codeTypingKey(keycode)) return true;
+          return super.keyDown(keycode);
+        }
 
-    @Override public boolean keyTyped(char character) {
-      if (visible && launcher != null && launcher.isVisible()) {
-        handleLauncherChar(character);
-        return true;
-      }
-      if (shell != null && shell.isCodeFront()) return true;
-      return super.keyTyped(character);
-    }
-  };
+        @Override
+        public boolean keyTyped(char character) {
+          if (visible && launcher != null && launcher.isVisible()) {
+            handleLauncherChar(character);
+            return true;
+          }
+          if (shell != null && shell.isCodeFront()) return true;
+          return super.keyTyped(character);
+        }
+      };
 
   private final Skin skin = new Skin();
   private final EnumMap<App, Image> dockDots = new EnumMap<>(App.class);
@@ -103,64 +113,128 @@ public final class PinuxDesktopStage {
     BitmapFont ui = font("fonts/hd/ui.fnt", .48f);
     BitmapFont small = font("fonts/hd/small.fnt", .48f);
     skin.add("ui-font", ui);
+    skin.add("app-ui-font", font("fonts/hd/ui.fnt", .40f));
+    skin.add("app-small-font", font("fonts/hd/small.fnt", .40f));
     skin.add("small-font", small);
 
     // Core Archcraft / TokyoNight Dark Surfaces & 1px Crisp Borders
-    skin.add("top-bg", borderedPatch("top-bg", 0, 15, 18, 25, 246, 36, 43, 58, 210), Drawable.class);
-    skin.add("dock-bg", borderedPatch("dock-bg", 8, 17, 20, 28, 242, 46, 54, 72, 220), Drawable.class);
+    skin.add(
+        "top-bg", borderedPatch("top-bg", 0, 15, 18, 25, 246, 36, 43, 58, 210), Drawable.class);
+    skin.add(
+        "dock-bg", borderedPatch("dock-bg", 8, 17, 20, 28, 242, 46, 54, 72, 220), Drawable.class);
     skin.add("wallpaper-dim", patch("wallpaper-dim", 0, 9, 12, 18, 118, 0), Drawable.class);
     skin.add("launcher-backdrop", patch("launcher-backdrop", 0, 6, 8, 13, 96, 0), Drawable.class);
 
     // Desktop Shortcuts
     skin.add("shortcut-idle", patch("shortcut-idle", 6, 20, 24, 34, 0, 0), Drawable.class);
-    skin.add("shortcut-hover", borderedPatch("shortcut-hover", 6, 28, 34, 48, 185, 86, 156, 232, 150), Drawable.class);
-    skin.add("shortcut-down", borderedPatch("shortcut-down", 6, 36, 44, 62, 225, 104, 174, 248, 210), Drawable.class);
-    skin.add("shortcut-badge", borderedPatch("shortcut-badge", 6, 20, 24, 34, 195, 45, 53, 70, 180), Drawable.class);
+    skin.add(
+        "shortcut-hover",
+        borderedPatch("shortcut-hover", 6, 28, 34, 48, 185, 86, 156, 232, 150),
+        Drawable.class);
+    skin.add(
+        "shortcut-down",
+        borderedPatch("shortcut-down", 6, 36, 44, 62, 225, 104, 174, 248, 210),
+        Drawable.class);
+    skin.add(
+        "shortcut-badge",
+        borderedPatch("shortcut-badge", 6, 20, 24, 34, 195, 45, 53, 70, 180),
+        Drawable.class);
 
     // Dock Items & Indicators
     skin.add("dock-idle", patch("dock-idle", 6, 24, 28, 38, 0, 0), Drawable.class);
-    skin.add("dock-hover", borderedPatch("dock-hover", 6, 34, 40, 56, 215, 78, 92, 122, 185), Drawable.class);
-    skin.add("dock-active", borderedPatch("dock-active", 6, 28, 35, 50, 220, 82, 148, 226, 165), Drawable.class);
+    skin.add(
+        "dock-hover",
+        borderedPatch("dock-hover", 6, 34, 40, 56, 215, 78, 92, 122, 185),
+        Drawable.class);
+    skin.add(
+        "dock-active",
+        borderedPatch("dock-active", 6, 28, 35, 50, 220, 82, 148, 226, 165),
+        Drawable.class);
     skin.add("dock-sep", patch("dock-sep", 0, 46, 54, 72, 170, 0), Drawable.class);
     skin.add("dot-off", patch("dot-off", 1, 0, 0, 0, 0, 0), Drawable.class);
     skin.add("dot-open", patch("dot-open", 2, 118, 132, 158, 220, 0), Drawable.class);
     skin.add("dot-focus", patch("dot-focus", 2, 88, 166, 255, 255, 0), Drawable.class);
 
     // Topbar Pills & Buttons
-    skin.add("pill-idle", borderedPatch("pill-idle", 4, 22, 26, 36, 215, 40, 47, 63, 180), Drawable.class);
-    skin.add("pill-hover", borderedPatch("pill-hover", 4, 32, 39, 54, 240, 82, 148, 226, 200), Drawable.class);
-    skin.add("pill-active", borderedPatch("pill-active", 4, 29, 44, 68, 245, 88, 166, 255, 235), Drawable.class);
+    skin.add(
+        "pill-idle",
+        borderedPatch("pill-idle", 4, 22, 26, 36, 215, 40, 47, 63, 180),
+        Drawable.class);
+    skin.add(
+        "pill-hover",
+        borderedPatch("pill-hover", 4, 32, 39, 54, 240, 82, 148, 226, 200),
+        Drawable.class);
+    skin.add(
+        "pill-active",
+        borderedPatch("pill-active", 4, 29, 44, 68, 245, 88, 166, 255, 235),
+        Drawable.class);
     skin.add("ws-idle", patch("ws-idle", 3, 22, 26, 36, 130, 0), Drawable.class);
-    skin.add("ws-occupied", borderedPatch("ws-occupied", 3, 25, 30, 42, 210, 52, 62, 82, 190), Drawable.class);
-    skin.add("ws-active", borderedPatch("ws-active", 3, 32, 52, 82, 245, 88, 166, 255, 240), Drawable.class);
+    skin.add(
+        "ws-occupied",
+        borderedPatch("ws-occupied", 3, 25, 30, 42, 210, 52, 62, 82, 190),
+        Drawable.class);
+    skin.add(
+        "ws-active",
+        borderedPatch("ws-active", 3, 32, 52, 82, 245, 88, 166, 255, 240),
+        Drawable.class);
 
     // Rofi Launcher & Shared Buttons
-    skin.add("launcher-bg", borderedPatch("launcher-bg", 8, 16, 19, 27, 250, 56, 67, 90, 235), Drawable.class);
-    skin.add("rofi-search", borderedPatch("rofi-search", 5, 11, 14, 20, 250, 46, 56, 76, 220), Drawable.class);
+    skin.add(
+        "launcher-bg",
+        borderedPatch("launcher-bg", 8, 16, 19, 27, 250, 56, 67, 90, 235),
+        Drawable.class);
+    skin.add(
+        "rofi-search",
+        borderedPatch("rofi-search", 5, 11, 14, 20, 250, 46, 56, 76, 220),
+        Drawable.class);
     skin.add("rofi-row-idle", patch("rofi-row-idle", 5, 22, 26, 36, 0, 0), Drawable.class);
-    skin.add("rofi-row-sel", borderedPatch("rofi-row-sel", 5, 28, 43, 66, 235, 88, 166, 255, 220), Drawable.class);
-    skin.add("rofi-tag", borderedPatch("rofi-tag", 3, 22, 27, 38, 220, 48, 58, 78, 180), Drawable.class);
+    skin.add(
+        "rofi-row-sel",
+        borderedPatch("rofi-row-sel", 5, 28, 43, 66, 235, 88, 166, 255, 220),
+        Drawable.class);
+    skin.add(
+        "rofi-tag", borderedPatch("rofi-tag", 3, 22, 27, 38, 220, 48, 58, 78, 180), Drawable.class);
     skin.add("divider-line", patch("divider-line", 0, 42, 50, 66, 165, 0), Drawable.class);
 
     // Required shared skin keys for PinuxNativeWindows compatibility
-    skin.add("hover-bg", borderedPatch("hover-bg", 5, 34, 48, 72, 235, 88, 166, 255, 210), Drawable.class);
-    skin.add("button-bg", borderedPatch("button-bg", 5, 24, 29, 40, 225, 48, 57, 76, 190), Drawable.class);
-    skin.add("window-bg", borderedPatch("window-bg", 7, 20, 23, 32, 252, 48, 56, 74, 235), Drawable.class);
-    skin.add("pane-bg", borderedPatch("pane-bg", 6, 13, 16, 24, 248, 36, 43, 58, 210), Drawable.class);
-    skin.add("input-bg", borderedPatch("input-bg", 5, 15, 20, 30, 248, 46, 56, 78, 220), Drawable.class);
-    skin.add("window-header", borderedPatch("window-header", 5, 26, 30, 41, 255, 46, 54, 72, 220), Drawable.class);
+    skin.add(
+        "hover-bg",
+        borderedPatch("hover-bg", 5, 34, 48, 72, 235, 88, 166, 255, 210),
+        Drawable.class);
+    skin.add(
+        "button-bg",
+        borderedPatch("button-bg", 5, 24, 29, 40, 225, 48, 57, 76, 190),
+        Drawable.class);
+    skin.add(
+        "window-bg",
+        borderedPatch("window-bg", 7, 20, 23, 32, 252, 48, 56, 74, 235),
+        Drawable.class);
+    skin.add(
+        "pane-bg", borderedPatch("pane-bg", 6, 13, 16, 24, 248, 36, 43, 58, 210), Drawable.class);
+    skin.add(
+        "input-bg", borderedPatch("input-bg", 5, 15, 20, 30, 248, 46, 56, 78, 220), Drawable.class);
+    skin.add(
+        "window-header",
+        borderedPatch("window-header", 5, 26, 30, 41, 255, 46, 54, 72, 220),
+        Drawable.class);
     skin.add("title-button", patch("title-button", 5, 34, 40, 54, 185, 0), Drawable.class);
-    skin.add("title-button-hover", patch("title-button-hover", 5, 58, 68, 92, 240, 0), Drawable.class);
-    skin.add("title-close-hover", patch("title-close-hover", 5, 196, 68, 82, 248, 0), Drawable.class);
+    skin.add(
+        "title-button-hover", patch("title-button-hover", 5, 58, 68, 92, 240, 0), Drawable.class);
+    skin.add(
+        "title-close-hover", patch("title-close-hover", 5, 196, 68, 82, 248, 0), Drawable.class);
 
     // OneDark / Archcraft-inspired terminal palette (kept intact for PinuxNativeWindows)
-    skin.add("term-frame", borderedPatch("term-frame", 8, 34, 39, 50, 255, 58, 67, 86, 240), Drawable.class);
+    skin.add(
+        "term-frame",
+        borderedPatch("term-frame", 8, 34, 39, 50, 255, 58, 67, 86, 240),
+        Drawable.class);
     skin.add("term-header", patch("term-header", 6, 26, 30, 39, 255, 0), Drawable.class);
     skin.add("term-surface", patch("term-surface", 6, 18, 21, 28, 255, 0), Drawable.class);
     skin.add("term-toolbar", patch("term-toolbar", 4, 23, 27, 36, 255, 0), Drawable.class);
     skin.add("term-tab", patch("term-tab", 4, 34, 40, 52, 255, 0), Drawable.class);
     skin.add("term-prompt", patch("term-prompt", 5, 28, 33, 44, 255, 0), Drawable.class);
-    skin.add("term-title-button", patch("term-title-button", 4, 34, 39, 50, 185, 0), Drawable.class);
+    skin.add(
+        "term-title-button", patch("term-title-button", 4, 34, 39, 50, 185, 0), Drawable.class);
     skin.add("term-title-hover", patch("term-title-hover", 4, 62, 72, 90, 255, 0), Drawable.class);
     skin.add("term-title-close", patch("term-title-close", 4, 186, 62, 74, 255, 0), Drawable.class);
 
@@ -191,17 +265,27 @@ public final class PinuxDesktopStage {
     BitmapFont f = new BitmapFont(Gdx.files.internal(path));
     f.getData().setScale(amount);
     f.setUseIntegerPositions(false);
-    f.getRegion().getTexture().setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
+    f.getRegion()
+        .getTexture()
+        .setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
     return f;
   }
 
-  private Drawable patch(String id, int r, int red, int green, int blue,
-                         int alpha, int unused) {
+  private Drawable patch(String id, int r, int red, int green, int blue, int alpha, int unused) {
     return borderedPatch(id, r, red, green, blue, alpha, red, green, blue, 0);
   }
 
-  private Drawable borderedPatch(String id, int r, int red, int green, int blue, int alpha,
-                                 int bRed, int bGreen, int bBlue, int bAlpha) {
+  private Drawable borderedPatch(
+      String id,
+      int r,
+      int red,
+      int green,
+      int blue,
+      int alpha,
+      int bRed,
+      int bGreen,
+      int bBlue,
+      int bAlpha) {
     // Do not use a 72px NinePatch for 1px separators / 3px indicators:
     // its 24px stretch borders made those elements draw as huge blocks.
     if (r <= 3) {
@@ -220,8 +304,10 @@ public final class PinuxDesktopStage {
       float ay = Math.abs(y + .5f - size / 2f) - (size / 2f - radius);
       for (int x = 0; x < size; x++) {
         float ax = Math.abs(x + .5f - size / 2f) - (size / 2f - radius);
-        float distance = (float) Math.hypot(Math.max(ax, 0), Math.max(ay, 0))
-            + Math.min(0, Math.max(ax, ay)) - radius;
+        float distance =
+            (float) Math.hypot(Math.max(ax, 0), Math.max(ay, 0))
+                + Math.min(0, Math.max(ax, ay))
+                - radius;
         float outerA = Math.max(0f, Math.min(1f, .5f - distance));
         if (outerA <= 0f) continue;
 
@@ -348,8 +434,7 @@ public final class PinuxDesktopStage {
 
   private static void stroke(Pixmap p, int x, int y, int ex, int ey, int size) {
     for (int dx = -size / 2; dx <= size / 2; dx++)
-      for (int dy = -size / 2; dy <= size / 2; dy++)
-        p.drawLine(x + dx, y + dy, ex + dx, ey + dy);
+      for (int dy = -size / 2; dy <= size / 2; dy++) p.drawLine(x + dx, y + dy, ex + dx, ey + dy);
   }
 
   private Label label(String text, boolean secondary) {
@@ -357,16 +442,18 @@ public final class PinuxDesktopStage {
   }
 
   private Label label(String text, boolean secondary, String hexColor, int align) {
-    Label.LabelStyle style = new Label.LabelStyle(
-        skin.getFont(secondary ? "small-font" : "ui-font"),
-        Color.valueOf(hexColor));
+    Label.LabelStyle style =
+        new Label.LabelStyle(
+            skin.getFont(secondary ? "small-font" : "ui-font"), Color.valueOf(hexColor));
     Label l = new Label(text, style);
     l.setAlignment(align);
     return l;
   }
 
   private Image icon(String name) {
-    Image img = new Image(new TextureRegionDrawable(new TextureRegion(skin.get("icon-" + name, Texture.class))));
+    Image img =
+        new Image(
+            new TextureRegionDrawable(new TextureRegion(skin.get("icon-" + name, Texture.class))));
     img.setScaling(Scaling.fit);
     return img;
   }
@@ -382,18 +469,21 @@ public final class PinuxDesktopStage {
     style.down = skin.getDrawable(downKey);
     Button b = new Button(style);
     b.setProgrammaticChangeEvents(false);
-    b.addListener(new ChangeListener() {
-      @Override public void changed(ChangeEvent e, Actor actor) {
-        if (!b.isChecked()) return;
-        b.setChecked(false);
-        action.run();
-      }
-    });
+    b.addListener(
+        new ChangeListener() {
+          @Override
+          public void changed(ChangeEvent e, Actor actor) {
+            if (!b.isChecked()) return;
+            b.setChecked(false);
+            action.run();
+          }
+        });
     return b;
   }
 
   private Button shortcut(String iconName, String title, String tag, App app) {
-    Button b = styledButton("shortcut-idle", "shortcut-hover", "shortcut-down", () -> launchApp(app));
+    Button b =
+        styledButton("shortcut-idle", "shortcut-hover", "shortcut-down", () -> launchApp(app));
     b.pad(5, 4, 5, 4);
 
     Table badge = new Table();
@@ -411,23 +501,26 @@ public final class PinuxDesktopStage {
 
     b.setTransform(true);
     b.setOrigin(SHORTCUTS_W / 2f, 40f);
-    b.addListener(new ClickListener() {
-      @Override public void enter(InputEvent e, float x, float y, int pointer, Actor fromActor) {
-        if (pointer != -1) return;
-        b.clearActions();
-        b.addAction(Actions.scaleTo(1.03f, 1.03f, .1f, Interpolation.pow2Out));
-        titleLbl.setColor(Color.valueOf("FFFFFF"));
-        tagLbl.setColor(Color.valueOf("88B8F8"));
-      }
+    b.addListener(
+        new ClickListener() {
+          @Override
+          public void enter(InputEvent e, float x, float y, int pointer, Actor fromActor) {
+            if (pointer != -1) return;
+            b.clearActions();
+            b.addAction(Actions.scaleTo(1.03f, 1.03f, .1f, Interpolation.pow2Out));
+            titleLbl.setColor(Color.valueOf("FFFFFF"));
+            tagLbl.setColor(Color.valueOf("88B8F8"));
+          }
 
-      @Override public void exit(InputEvent e, float x, float y, int pointer, Actor toActor) {
-        if (pointer != -1) return;
-        b.clearActions();
-        b.addAction(Actions.scaleTo(1f, 1f, .12f, Interpolation.pow2Out));
-        titleLbl.setColor(Color.valueOf("E4ECF8"));
-        tagLbl.setColor(Color.valueOf("6E7E98"));
-      }
-    });
+          @Override
+          public void exit(InputEvent e, float x, float y, int pointer, Actor toActor) {
+            if (pointer != -1) return;
+            b.clearActions();
+            b.addAction(Actions.scaleTo(1f, 1f, .12f, Interpolation.pow2Out));
+            titleLbl.setColor(Color.valueOf("E4ECF8"));
+            tagLbl.setColor(Color.valueOf("6E7E98"));
+          }
+        });
     return b;
   }
 
@@ -445,20 +538,23 @@ public final class PinuxDesktopStage {
 
     b.setTransform(true);
     b.setOrigin(19f, 19f);
-    b.addListener(new ClickListener() {
-      @Override public void enter(InputEvent e, float x, float y, int pointer, Actor fromActor) {
-        if (pointer != -1) return;
-        b.clearActions();
-        b.addAction(Actions.sequence(
-            Actions.scaleTo(1.09f, 1.09f, .11f, Interpolation.pow2Out)));
-      }
+    b.addListener(
+        new ClickListener() {
+          @Override
+          public void enter(InputEvent e, float x, float y, int pointer, Actor fromActor) {
+            if (pointer != -1) return;
+            b.clearActions();
+            b.addAction(
+                Actions.sequence(Actions.scaleTo(1.09f, 1.09f, .11f, Interpolation.pow2Out)));
+          }
 
-      @Override public void exit(InputEvent e, float x, float y, int pointer, Actor toActor) {
-        if (pointer != -1) return;
-        b.clearActions();
-        b.addAction(Actions.scaleTo(1f, 1f, .13f, Interpolation.pow2Out));
-      }
-    });
+          @Override
+          public void exit(InputEvent e, float x, float y, int pointer, Actor toActor) {
+            if (pointer != -1) return;
+            b.clearActions();
+            b.addAction(Actions.scaleTo(1f, 1f, .13f, Interpolation.pow2Out));
+          }
+        });
     return b;
   }
 
@@ -496,14 +592,19 @@ public final class PinuxDesktopStage {
 
     // Center module: Active Window Focus Chip (click cycles open windows)
     topBar.add().expandX();
-    Button focusChip = styledButton("pill-idle", "pill-hover", "pill-active", () -> {
-      if (windows != null && windows.hasOpen()) {
-        windows.cycleFocus();
-        raiseChrome();
-      } else {
-        toggleLauncher();
-      }
-    });
+    Button focusChip =
+        styledButton(
+            "pill-idle",
+            "pill-hover",
+            "pill-active",
+            () -> {
+              if (windows != null && windows.hasOpen()) {
+                windows.cycleFocus();
+                raiseChrome();
+              } else {
+                toggleLauncher();
+              }
+            });
     focusChip.pad(2, 10, 2, 10);
     currentIcon = icon("astra");
     focusChip.add(currentIcon).size(13, 13).padRight(6);
@@ -513,12 +614,17 @@ public final class PinuxDesktopStage {
     topBar.add().expandX();
 
     // Right module: Window Switcher / Close Quick Actions + Session Status + Clock
-    Button cycleBtn = styledButton("ws-idle", "pill-hover", "pill-active", () -> {
-      if (windows != null && windows.hasOpen()) {
-        windows.cycleFocus();
-        raiseChrome();
-      }
-    });
+    Button cycleBtn =
+        styledButton(
+            "ws-idle",
+            "pill-hover",
+            "pill-active",
+            () -> {
+              if (windows != null && windows.hasOpen()) {
+                windows.cycleFocus();
+                raiseChrome();
+              }
+            });
     cycleBtn.pad(1, 7, 1, 7);
     activeBadge = label("WM:IDLE", true, "7E8EA8", Align.center);
     cycleBtn.add(activeBadge);
@@ -571,11 +677,13 @@ public final class PinuxDesktopStage {
     // 4. ROFI APPLICATION LAUNCHER (Backdrop click-catcher + keyboard/search-ready modal)
     launcherBackdrop = new Image(skin.getDrawable("launcher-backdrop"));
     launcherBackdrop.setVisible(false);
-    launcherBackdrop.addListener(new ClickListener() {
-      @Override public void clicked(InputEvent event, float x, float y) {
-        hideLauncher();
-      }
-    });
+    launcherBackdrop.addListener(
+        new ClickListener() {
+          @Override
+          public void clicked(InputEvent event, float x, float y) {
+            hideLauncher();
+          }
+        });
     stage.addActor(launcherBackdrop);
 
     launcher = new Table();
@@ -609,8 +717,15 @@ public final class PinuxDesktopStage {
     launcher.row();
 
     Table footer = new Table();
-    footer.add(label("↑↓ выбор    Enter запуск    1–5 быстро    Esc закрыть", true, "8293AB", Align.left))
-        .expandX().left();
+    footer
+        .add(
+            label(
+                "↑↓ выбор    Enter запуск    1–5 быстро    Esc закрыть",
+                true,
+                "8293AB",
+                Align.left))
+        .expandX()
+        .left();
     launcher.add(footer).growX().height(16);
 
     rebuildLauncherList();
@@ -655,11 +770,12 @@ public final class PinuxDesktopStage {
       final App app = filteredApps[i];
       boolean selected = (i == rofiSelected);
 
-      Button rowBtn = styledButton(
-          selected ? "rofi-row-sel" : "rofi-row-idle",
-          "rofi-row-sel",
-          "rofi-row-sel",
-          () -> launchApp(app));
+      Button rowBtn =
+          styledButton(
+              selected ? "rofi-row-sel" : "rofi-row-idle",
+              "rofi-row-sel",
+              "rofi-row-sel",
+              () -> launchApp(app));
       rowBtn.pad(5, 8, 5, 8);
 
       rowBtn.add(icon(appIcon(app))).size(20, 20).padRight(9);
@@ -677,18 +793,24 @@ public final class PinuxDesktopStage {
       Table tagBox = new Table();
       tagBox.setBackground(skin.getDrawable("rofi-tag"));
       tagBox.pad(1, 6, 1, 6);
-      boolean isRunning = windows != null && windows.isVisible(app);
-      Label tagLbl = label(isRunning ? "RUN" : appBind(app), true,
-          isRunning ? "7AD8A6" : "8A9AB2", Align.center);
+      boolean isRunning = windows != null && windows.isRunning(app);
+      Label tagLbl =
+          label(
+              isRunning ? "RUN" : appBind(app),
+              true,
+              isRunning ? "7AD8A6" : "8A9AB2",
+              Align.center);
       tagBox.add(tagLbl);
       rowBtn.add(tagBox).height(18).right();
 
-      rowBtn.addListener(new ClickListener() {
-        @Override public void enter(InputEvent event, float x, float y, int pointer, Actor fromActor) {
-          if (pointer != -1 || rofiSelected == idx) return;
-          rofiSelected = idx;
-        }
-      });
+      rowBtn.addListener(
+          new ClickListener() {
+            @Override
+            public void enter(InputEvent event, float x, float y, int pointer, Actor fromActor) {
+              if (pointer != -1 || rofiSelected == idx) return;
+              rofiSelected = idx;
+            }
+          });
 
       launcherList.add(rowBtn).growX().height(42).padBottom(3);
       launcherList.row();
@@ -700,7 +822,8 @@ public final class PinuxDesktopStage {
       hideLauncher();
       return true;
     }
-    if (keycode == Input.Keys.UP || keycode == Input.Keys.TAB && Gdx.input.isKeyPressed(Input.Keys.SHIFT_LEFT)) {
+    if (keycode == Input.Keys.UP
+        || keycode == Input.Keys.TAB && Gdx.input.isKeyPressed(Input.Keys.SHIFT_LEFT)) {
       if (filteredCount > 0) {
         rofiSelected = (rofiSelected - 1 + filteredCount) % filteredCount;
         rebuildLauncherList();
@@ -768,9 +891,10 @@ public final class PinuxDesktopStage {
     launcher.clearActions();
     launcher.getColor().a = 0f;
     launcher.setScale(scale * .96f);
-    launcher.addAction(Actions.parallel(
-        Actions.fadeIn(.12f, Interpolation.pow2Out),
-        Actions.scaleTo(scale, scale, .14f, Interpolation.pow2Out)));
+    launcher.addAction(
+        Actions.parallel(
+            Actions.fadeIn(.12f, Interpolation.pow2Out),
+            Actions.scaleTo(scale, scale, .14f, Interpolation.pow2Out)));
   }
 
   private void hideLauncher() {
@@ -792,7 +916,7 @@ public final class PinuxDesktopStage {
     int openMask = 0;
     if (windows != null) {
       for (int i = 0; i < APPS.length; i++) {
-        if (windows.isVisible(APPS[i])) openMask |= 1 << i;
+        if (windows.isRunning(APPS[i])) openMask |= 1 << i;
       }
     }
     // The UI is redrawn at 60 FPS; avoid allocating Color/Drawable wrappers
@@ -803,8 +927,11 @@ public final class PinuxDesktopStage {
 
     if (current != null) current.setText(focused == null ? "Рабочий стол" : appTitle(focused));
     if (currentIcon != null) {
-      currentIcon.setDrawable(new TextureRegionDrawable(new TextureRegion(
-          skin.get("icon-" + (focused == null ? "astra" : appIcon(focused)), Texture.class))));
+      currentIcon.setDrawable(
+          new TextureRegionDrawable(
+              new TextureRegion(
+                  skin.get(
+                      "icon-" + (focused == null ? "astra" : appIcon(focused)), Texture.class))));
     }
     if (activeBadge != null) {
       int count = Integer.bitCount(openMask);
@@ -818,14 +945,17 @@ public final class PinuxDesktopStage {
       boolean isOpen = (openMask & (1 << i)) != 0;
       Image dot = dockDots.get(app);
       if (dot != null) {
-        dot.setDrawable(skin.getDrawable(isFocus ? "dot-focus" : (isOpen ? "dot-open" : "dot-off")));
+        dot.setDrawable(
+            skin.getDrawable(isFocus ? "dot-focus" : (isOpen ? "dot-open" : "dot-off")));
       }
       Button dBtn = dockButtons.get(app);
-      if (dBtn != null) dBtn.getStyle().up = skin.getDrawable(isFocus ? "dock-active" : "dock-idle");
+      if (dBtn != null)
+        dBtn.getStyle().up = skin.getDrawable(isFocus ? "dock-active" : "dock-idle");
       Button wsBtn = wsPills.get(app);
       Label wsLbl = wsLabels.get(app);
       if (wsBtn != null && wsLbl != null) {
-        wsBtn.getStyle().up = skin.getDrawable(isFocus ? "ws-active" : (isOpen ? "ws-occupied" : "ws-idle"));
+        wsBtn.getStyle().up =
+            skin.getDrawable(isFocus ? "ws-active" : (isOpen ? "ws-occupied" : "ws-idle"));
         wsLbl.setColor(Color.valueOf(isFocus ? "FFFFFF" : (isOpen ? "C2D2EA" : "7C8AA2")));
       }
     }
@@ -872,8 +1002,13 @@ public final class PinuxDesktopStage {
     };
   }
 
-  public Stage inputStage() { return stage; }
-  public boolean isVisible() { return visible; }
+  public Stage inputStage() {
+    return stage;
+  }
+
+  public boolean isVisible() {
+    return visible;
+  }
 
   public void openNativeWindow(App app) {
     windows.open(app);
@@ -896,9 +1031,13 @@ public final class PinuxDesktopStage {
     shortcuts.setVisible(showDesktop && !windows.hasOpen());
   }
 
-  public boolean hasNativeWindows() { return windows.hasOpen(); }
+  public boolean hasNativeWindows() {
+    return windows.hasOpen();
+  }
 
-  public boolean isCodeFront() { return windows.isFrontCode(); }
+  public boolean isCodeFront() {
+    return windows.isFrontCode();
+  }
 
   public void cycleNativeWindows() {
     windows.cycleFocus();
@@ -928,6 +1067,8 @@ public final class PinuxDesktopStage {
     scale = Math.max(.67f, Math.min(1.35f, height / 810f));
     skin.getFont("ui-font").getData().setScale(.40f * scale);
     skin.getFont("small-font").getData().setScale(.40f * scale);
+    skin.getFont("app-ui-font").getData().setScale(.40f * Math.max(1f, scale));
+    skin.getFont("app-small-font").getData().setScale(.40f * Math.max(1f, scale));
 
     wallpaper.setBounds(0, 0, width, height);
     wallpaperDim.setBounds(0, 0, width, height);
@@ -941,7 +1082,8 @@ public final class PinuxDesktopStage {
     shortcuts.setTransform(true);
     shortcuts.setSize(SHORTCUTS_W, SHORTCUTS_H);
     shortcuts.setScale(scale);
-    shortcuts.setPosition(18 * scale, Math.max(68 * scale, height - barH - (SHORTCUTS_H + 18) * scale));
+    shortcuts.setPosition(
+        18 * scale, Math.max(68 * scale, height - barH - (SHORTCUTS_H + 18) * scale));
 
     dock.invalidateHierarchy();
     dock.setTransform(true);
@@ -961,16 +1103,26 @@ public final class PinuxDesktopStage {
     if (windows != null) windows.resize(w, h);
   }
 
+  public void captureSession() {
+    windows.captureSession();
+  }
+
   public void show() {
-    if (windows != null) windows.reset();
+    if (windows != null) {
+      windows.reset();
+      windows.restoreSession();
+    }
     syncChromeState();
     setVisible(true);
-    stage.getRoot().setColor(1, 1, 1, 0);
-    stage.getRoot().addAction(Actions.fadeIn(.20f, Interpolation.pow2Out));
+    stage.getRoot().clearActions();
+    stage.getRoot().setColor(1, 1, 1, shell.reducedMotion() ? 1 : 0);
+    if (!shell.reducedMotion())
+      stage.getRoot().addAction(Actions.fadeIn(.20f, Interpolation.pow2Out));
   }
 
   public void draw(float delta) {
     if (!visible) return;
+    wallpaper.setColor(1f, shell.warmTheme() ? .89f : 1f, shell.warmTheme() ? .79f : 1f, 1f);
     clock.setText(shell.clockText());
     windows.tick();
     syncChromeState();
@@ -984,4 +1136,3 @@ public final class PinuxDesktopStage {
     skin.dispose();
   }
 }
-

@@ -1,3 +1,9 @@
+# Актуальная Pinux Astra
+
+[Новые сборки 0.5.1 — GitHub Releases](https://github.com/IZKGMD/AutoGDBot/releases) · [Проверки](../docs/PINUX_AUDIT_QA.md) · [План развития](../TODO/ROADMAP.md)
+
+Ниже сохранена предыдущая сборка 0.4.0.
+
 # CTRL+LIFE 0.4.0
 
 [Скачать Windows x64 с Java внутри](https://github.com/IZKGMD/AutoGDBot/raw/refs/heads/ctrl-life/downloads/CTRL-LIFE-0.4.0-Windows-x64.zip)

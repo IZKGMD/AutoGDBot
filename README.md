@@ -1,4 +1,4 @@
-# CTRL+LIFE · 0.5.0 — Pinux Astra Global Update
+# CTRL+LIFE · 0.5.1 — Pinux Astra Global Update
 
 [Сборки и релизы](https://github.com/IZKGMD/AutoGDBot/releases) · [Исходники ветки ctrl-life](https://github.com/IZKGMD/AutoGDBot/tree/ctrl-life)
 
@@ -14,9 +14,15 @@
 
 Подробнее: [документация Pinux Astra](docs/PINUX_ASTRA.md). Доступная сборка — [GitHub Releases](https://github.com/IZKGMD/AutoGDBot/releases).
 
+## Доработка Pinux Astra 0.5.1
+
+Окна подгоняются под экран при открытии, изменении размера и максимизации. Настройки оформления, уменьшение анимаций и расположение окон сохраняются в сейве v5; v1–v4 загружаются с параметрами по умолчанию. F5 сохраняет сессию ПК. Свёрнутые приложения сохраняют индикатор в доке, терминал возвращает фокус и поддерживает историю ↑/↓. Размер текста приложений больше не уменьшается вместе с панелью рабочего стола на маленьком экране.
+
+[Результаты проверки](docs/PINUX_AUDIT_QA.md) · [Приоритеты следующих этапов](TODO/ROADMAP.md)
+
 ## Windows
 
-1. Распакуйте **весь** `CTRL-LIFE-0.5.0-Pinux-Astra-Windows-x64.zip`.
+1. Распакуйте **весь** `CTRL-LIFE-0.5.1-Pinux-Astra-Windows-x64.zip`.
 2. Запустите `run.bat`.
 3. Выберите «Новая игра», чтобы увидеть новое вступление.
 
@@ -83,7 +89,7 @@
 ./gradlew :lwjgl3:run
 ```
 
-Windows: `build.bat` и `run.bat`. Обычный Gradle ZIP `lwjgl3/build/distributions/ctrl-life-0.5.0.zip` не содержит JRE. Версии зависимостей зафиксированы lock-файлами; после первой загрузки можно использовать `--offline`.
+Windows: `build.bat` и `run.bat`. Обычный Gradle ZIP `lwjgl3/build/distributions/ctrl-life-0.5.1.zip` не содержит JRE. Версии зависимостей зафиксированы lock-файлами; после первой загрузки можно использовать `--offline`.
 
 Графическая проверка требует дисплея:
 

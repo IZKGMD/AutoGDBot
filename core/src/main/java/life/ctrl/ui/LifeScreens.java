@@ -151,6 +151,8 @@ public final class LifeScreens {
     return pinux.pointerUp(x, y);
   }
 
+  public void capturePcSession() { pinux.captureSession(); }
+
   public void pcCancelPointer() {
     pinux.cancelPointer();
   }

@@ -40,6 +40,8 @@ public final class World {
   }
 
   public void validateState() {
+    if (state.pinux == null) throw new IllegalArgumentException("Pinux session");
+    state.pinux.validate();
     if (state.name == null
         || state.name.isBlank()
         || state.name.length() > 18
