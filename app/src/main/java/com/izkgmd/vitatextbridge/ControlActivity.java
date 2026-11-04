@@ -64,7 +64,7 @@ public final class ControlActivity extends Activity {
         if(password==null) password="";
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
-        buildUi(); showTab("Игры");
+        buildUi(); showTab("Турбо");
     }
 
     private int dp(float v){return Math.round(v*getResources().getDisplayMetrics().density);}
@@ -110,7 +110,7 @@ public final class ControlActivity extends Activity {
 
         HorizontalScrollView nav=new HorizontalScrollView(this);nav.setHorizontalScrollBarEnabled(false);
         tabs=new LinearLayout(this);tabs.setOrientation(LinearLayout.HORIZONTAL);
-        String[] names={"Игры","Пакеты","Экран","YouTube","Эффекты","Система"};
+        String[] names={"Турбо","Игры","Пакеты","Экран","YouTube","Эффекты","Система"};
         tabButtons=new Button[names.length];
         for(int i=0;i<names.length;i++){
             final String n=names[i];Button b=button(n,false);tabButtons[i]=b;
@@ -127,14 +127,15 @@ public final class ControlActivity extends Activity {
         add(log,output,9);
         Button clear=button("Очистить журнал",false);
         clear.setOnClickListener(v->output.setText(""));add(log,clear,9);
-        add(root,text("VitaControl 2.3 • 4 встроенных проекта • SSH",11,MUTED,false),15);
+        add(root,text("VitaControl 2.4 • Vita Turbo • SSH",11,MUTED,false),15);
         setContentView(scroller);
     }
     private void showTab(String name){
         activeTab=name; content.removeAllViews();
-        String[] names={"Игры","Пакеты","Экран","YouTube","Эффекты","Система"};
+        String[] names={"Турбо","Игры","Пакеты","Экран","YouTube","Эффекты","Система"};
         for(int i=0;i<names.length;i++) tabButtons[i].setBackground(bg(names[i].equals(name)?Color.rgb(39,88,115):Color.rgb(39,57,82),names[i].equals(name)?CYAN:0,12));
         switch(name){
+            case "Турбо":turboUi();break;
             case "Игры":gamesUi();break;
             case "Пакеты":packagesUi();break;
             case "Экран":screenUi();break;
@@ -574,6 +575,87 @@ public final class ControlActivity extends Activity {
         game.setOnClickListener(v->showTab("Игры"));
         add(c,text("Aurora работает на CPU без 3D-ускорения. FPS зависит от нагрузки на PS Vita.",12,MUTED,false),10);
     }
+
+    private void turboUi(){
+        LinearLayout c=card();add(content,c,0);
+        heading(c,"VITA TURBO","Управление штатными профилями процессора LinuxOnVita.");
+        add(c,text("Поддерживаемые частоты: 111, 166, 222, 333 и 444 МГц. Не превышаем предел 444 МГц, не изменяем напряжение и не отключаем защитные механизмы.",12,MUTED,false),12);
+        Button auto=button("⚡ АВТОТУРБО — адаптация к нагрузке",true);add(c,auto,14);
+        auto.setOnClickListener(v->confirm("Активировать Автотурбо?",
+            "Штатный режим ondemand сам повышает частоту при нагрузке и снижает в простое. После переключения Vita Turbo проверит CPU, RAM и ZRAM.",
+            ()->turboTask("Автотурбо / адаптивный режим","ondemand")));
+        Button boost=button("🚀 МАКСИМУМ — 444 МГц",false);add(c,boost,9);
+        boost.setOnClickListener(v->confirm("Максимальный штатный CPU?",
+            "vita-cpu max удерживает до 444 МГц. Возможны больший нагрев и расход батареи. Это максимум, предусмотренный LinuxOnVita, а не экстремальный разгон.",
+            ()->turboTask("Максимальная производительность","max")));
+        Button balanced=button("⚖ Сбалансированный — 333 МГц",false);add(c,balanced,9);
+        balanced.setOnClickListener(v->confirm("Сбалансированный профиль?",
+            "Переключить CPU на штатные 333 МГц?",
+            ()->turboTask("Сбалансированный профиль","balanced")));
+        Button revert=button("↩ Вернуть динамическую регулировку",false);add(c,revert,9);
+        revert.setOnClickListener(v->turboTask("Динамическая регулировка","ondemand"));
+        LinearLayout info=card();add(content,info,14);
+        heading(info,"ДИАГНОСТИКА СИСТЕМЫ","Фактическая частота, нагрузка, память, ZRAM и место на диске.");
+        Button diag=button("Проверить производительность",true);add(info,diag,12);
+        diag.setOnClickListener(v->turboTask("Диагностика Vita Turbo","status"));
+        Button viewer=button("Открыть отчёт в Sakura",false);add(info,viewer,9);
+        viewer.setOnClickListener(v->viewLog());
+        add(info,text("Диагностика ничего не меняет. ZRAM не перенастраиваем без необходимости. Прирост скорости зависит от приложения: видео и 3D могут ограничиваться графическими драйверами.",12,MUTED,false),11);
+    }
+
+    private String turboHostStage(SshClient ssh,String name,String command,int timeout) throws Exception {
+        progress("Vita Turbo: "+name);
+        String answer;
+        try{answer=ssh.execute(command,timeout);}
+        catch(Exception e){answer="SSH ОШИБКА: "+e.getMessage();}
+        String logEntry=name+"\n"+answer+"\n";
+        String encoded=Base64.encodeToString(logEntry.getBytes(StandardCharsets.UTF_8),Base64.NO_WRAP);
+        String write=journalCommand(ssh,"Отчёт: "+name,
+            "printf '%s' '"+encoded+"' | base64 -d >> "+LIVE_LOG,25000);
+        if(!success(write))throw new IllegalStateException("Не удалось сохранить журнал: "+write);
+        if(!success(answer))throw new IllegalStateException(name+": "+answer);
+        return answer;
+    }
+
+    private void turboTask(String name,String profile){
+        if(busy){log("Другая операция ещё выполняется.");return;}
+        busy=true;status.setText("● Vita Turbo...");
+        worker.execute(()->{
+            String result;boolean done=false;
+            try{
+                SshClient ssh=client();
+                progress(openProgressTerminal(ssh,"VITA TURBO: "+name,true));
+                turboHostStage(ssh,"1/5: Исходное состояние CPU",
+                    "command -v vita-cpu >/dev/null 2>&1 || { echo 'Утилита vita-cpu отсутствует'; exit 127; }; vita-cpu status",20000);
+                if(!"status".equals(profile)){
+                    if(!("max".equals(profile)||"ondemand".equals(profile)||"balanced".equals(profile)))
+                        throw new IllegalArgumentException("Недопустимый профиль CPU");
+                    turboHostStage(ssh,"2/5: Переключение CPU → "+profile,"vita-cpu "+profile,20000);
+                }else{
+                    turboHostStage(ssh,"2/5: Только диагностика",
+                        "echo 'Настройки CPU не менялись'",15000);
+                }
+                turboHostStage(ssh,"3/5: Результат настройки CPU","vita-cpu status",20000);
+                turboHostStage(ssh,"4/5: RAM и ZRAM",
+                    "free -m; if command -v vita-swap >/dev/null 2>&1; then vita-swap status; else echo 'vita-swap не найден'; fi",25000);
+                turboHostStage(ssh,"5/5: Нагрузка и накопители",
+                    "uptime; df -h /mnt/ux0 /mnt/ur0 2>/dev/null || df -h /; "
+                    +"if [ -r /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq ]; then "
+                    +"echo 'Частота (кГц):'; cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq; fi",20000);
+                done=true;
+                result=name+": выполнено. Подробные данные в Sakura на Вите, журнал: "+LIVE_LOG;
+            }catch(Exception e){
+                result="Ошибка Vita Turbo: "+e.getMessage()+
+                    "\nЕсли возникла ошибка после применения профиля, кнопка «Вернуть динамическую регулировку» переключает на ondemand.";
+            }
+            final boolean ok=done;final String message=result;
+            runOnUiThread(()->{
+                if(isFinishing()||isDestroyed())return;
+                busy=false;status.setText(ok?"● Vita Turbo готов":"● Vita Turbo: ошибка");log(message);
+            });
+        });
+    }
+
     private void systemUi(){
         LinearLayout c=card();add(content,c,0);
         heading(c,"СИСТЕМА","Статистика реального LinuxOnVita, Wi-Fi, RAM и Alpine.");
