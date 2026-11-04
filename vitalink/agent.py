@@ -48,6 +48,9 @@ def capture_jpeg():
 
 def job_run(job,config):
     action=job["action"];args=job.get("args",{})
+    if action in ("host_ping","host_shell"):
+        from host_bridge import dispatch as host_bridge_dispatch
+        return host_bridge_dispatch(action,args,config)
     if action in ("host_status","host_cpu"):
         if not config.get("allow_host_admin",False):
             raise PermissionError("Host admin is not enabled locally on Vita")
