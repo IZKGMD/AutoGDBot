@@ -161,6 +161,7 @@ public class CtrlLife extends ApplicationAdapter {
           @Override
           public boolean mouseMoved(int x, int y) {
             mouseMoved = true;
+            if (mode == Mode.IDE) life.pcPointerMove(Math.round(c.logicalX(x)), Math.round(c.logicalY(y)));
             return true;
           }
         });
