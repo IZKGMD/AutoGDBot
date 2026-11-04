@@ -49,6 +49,7 @@ final class PinuxNativeWindows {
   private final Window.WindowStyle windowStyle;
   private final Window.WindowStyle terminalWindowStyle;
   private VisTextField terminalInput;
+  private AstraCodeApp codeApp;
   private Label terminalOutput;
   private float scale = 1;
   private int sequence;
@@ -163,9 +164,11 @@ final class PinuxNativeWindows {
         if (!resizing) return;
         float dx = e.getStageX() - startStageX;
         float dy = e.getStageY() - startStageY;
-        float newW = Math.max(460, Math.min(stage.getWidth() - initialX - 10, initialW + dx));
+        float newW = Math.max(app == App.CODE ? 800 : 460,
+            Math.min(stage.getWidth() - initialX - 10, initialW + dx));
         float desiredY = Math.max(95, initialY + dy);
-        float newH = Math.max(300, initialH + initialY - desiredY);
+        float newH = Math.max(app == App.CODE ? 470 : 300,
+            initialH + initialY - desiredY);
         window.setBounds(initialX, desiredY, newW, newH);
         window.invalidateHierarchy();
       }
@@ -184,6 +187,16 @@ final class PinuxNativeWindows {
     int offset = sequence++ % 4;
     int x = 195 + offset * 30, y = 122 + offset * 14;
     switch (app) {
+      case CODE -> {
+        // All gameplay panels are native Scene2D actors; no PixelCanvas fallback.
+        int width = Math.max(800, Math.min(1180, (int)stage.getWidth() - 80));
+        int height = Math.max(470, Math.min(720, (int)stage.getHeight() - 112));
+        VisWindow w = make(app, "Astra Code", width, height, 50,
+            Math.max(45, ((int)stage.getHeight() - height) / 2));
+        codeApp = new AstraCodeApp(shell.game(), shell.life(), skin);
+        w.add(codeApp.view()).grow().minWidth(0).minHeight(0);
+        return w;
+      }
       case TERMINAL -> {
         // Archcraft/OneDark: a quiet, flat kitty-style console with a real
         // Scene2D text field. Only this application receives the new skin.
@@ -316,11 +329,12 @@ final class PinuxNativeWindows {
   }
 
   void open(App app) {
-    if (app == App.CODE) { shell.openLegacyEditor(); return; }
     VisWindow w = windows.get(app);
     if (w == null) w = create(app);
     if (w.getStage() == null) stage.addActor(w);
     w.setVisible(true);
+    if (app == App.CODE && codeApp != null) codeApp.invalidate();
+    if (app != App.TERMINAL) stage.setKeyboardFocus(null);
     w.setTouchable(com.badlogic.gdx.scenes.scene2d.Touchable.enabled);
     w.toFront();
     w.clearActions();
@@ -367,6 +381,23 @@ final class PinuxNativeWindows {
   }
 
   boolean hasOpen() { return front() != null; }
+
+  boolean isFrontCode() { return front() != null && front() == windows.get(App.CODE); }
+
+  void tick() { if (codeApp != null && isVisible(App.CODE)) codeApp.tick(); }
+
+  void cycleFocus() {
+    Actor current = front();
+    VisWindow candidate = null;
+    int lowest = Integer.MAX_VALUE;
+    for (VisWindow w : windows.values()) {
+      if (w.getStage() != null && w.isVisible() && w != current) {
+        int index = stage.getRoot().getChildren().indexOf(w, true);
+        if (index < lowest) { lowest = index; candidate = w; }
+      }
+    }
+    if (candidate != null) candidate.toFront();
+  }
 
   boolean isVisible(App app) {
     VisWindow w = windows.get(app);
