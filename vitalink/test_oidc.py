@@ -24,7 +24,7 @@ class GitHubIdentityTests(unittest.TestCase):
         claims={
             "iss":"https://token.actions.githubusercontent.com",
             "aud":"vitalink.muchogdps.space",
-            "sub":"repo:IZKGMD/AutoGDBot:ref:refs/heads/vitabridge-android",
+            "sub":"repo:IZKGMD@112145870/AutoGDBot@1407579678:ref:refs/heads/vitabridge-android",
             "repository":"IZKGMD/AutoGDBot",
             "repository_id":"1407579678",
             "ref":"refs/heads/vitabridge-android",
@@ -37,6 +37,12 @@ class GitHubIdentityTests(unittest.TestCase):
         return jwt.encode(claims,self.private,algorithm="RS256",headers={"kid":"test-key"})
     def test_valid_token(self):
         self.assertTrue(self.verifier.verify(self.make_token()))
+    def test_legacy_subject_accepted(self):
+        self.assertTrue(self.verifier.verify(self.make_token(sub="repo:IZKGMD/AutoGDBot:ref:refs/heads/vitabridge-android")))
+    def test_wrong_owner_id_in_subject(self):
+        self.assertFalse(self.verifier.verify(self.make_token(sub="repo:IZKGMD@0/AutoGDBot@1407579678:ref:refs/heads/vitabridge-android")))
+    def test_wrong_repo_id_in_subject(self):
+        self.assertFalse(self.verifier.verify(self.make_token(sub="repo:IZKGMD@112145870/AutoGDBot@0:ref:refs/heads/vitabridge-android")))
     def test_wrong_repo(self):
         self.assertFalse(self.verifier.verify(self.make_token(repository="attacker/AutoGDBot")))
     def test_wrong_id(self):
