@@ -1066,6 +1066,7 @@ public class CtrlLife extends ApplicationAdapter {
       saveQuiet();
     if (settings != null) persistSettings();
     if (audio != null) audio.dispose();
+    if (life != null) life.dispose();
     if (c != null) c.dispose();
   }
 }
