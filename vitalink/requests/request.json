@@ -1,1 +1,5 @@
-{"action":"diagnose","args":{},"note":"Read-only diagnostics example. Edit to trigger a job."}
+{
+  "action": "diagnose",
+  "args": {},
+  "note": "First live VitaLink OIDC diagnostic request after successful VPS installation, 2026-11-05"
+}
