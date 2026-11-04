@@ -90,10 +90,10 @@ public final class PinuxAstra {
   private void desktopWallpaper() {
     wallpaper.draw(c.batch, warmTheme);
     if (wm.openCount() == 0) {
-      desktopIcon("</>  ASTRA CODE", 23, 45, App.CODE);
-      desktopIcon(">_   TERMINAL", 23, 75, App.TERMINAL);
-      desktopIcon("▣   FILES", 23, 105, App.FILES);
-      desktopIcon("✉   TASKMAIL", 23, 135, App.MAIL);
+      desktopIcon("<>", "Astra Code", 18, 44, App.CODE, "6358bb");
+      desktopIcon(">_", "Terminal", 18, 95, App.TERMINAL, "394965");
+      desktopIcon("[]", "Files", 18, 146, App.FILES, "b88b56");
+      desktopIcon("@", "TaskMail", 18, 197, App.MAIL, "735c97");
     }
   }
 
@@ -101,10 +101,26 @@ public final class PinuxAstra {
     wallpaper.dispose();
   }
 
-  private void desktopIcon(String title, int x, int y, App app) {
-    c.rect(x, y, 130, 25, "08182ec0");
-    c.rect(x, y + 24, 130, 1, "4c799466");
-    button(title, x + 1, y + 1, 128, 23, () -> launch(app));
+  private boolean hovered(int x, int y, int w, int h) {
+    return c.mouseX() >= x && c.mouseX() < x + w
+        && c.mouseY() >= y && c.mouseY() < y + h;
+  }
+
+  private void hotspot(String label, int x, int y, int w, int h, Runnable action) {
+    game.uiHotspot(label, x, y, w, h, action);
+  }
+
+  /** Desktop shortcuts are composed, not rendered as generic game-menu buttons. */
+  private void desktopIcon(String symbol, String label, int x, int y, App app, String color) {
+    boolean hover = hovered(x, y, 75, 49);
+    if (hover) c.roundRect(x, y, 75, 49, 6, "20213c91");
+    c.roundRect(x + 22, y + (hover ? 1 : 3), 29, 27, 7, "0b1128ad");
+    c.roundRect(x + 23, y + (hover ? 2 : 4), 27, 25, 6, color);
+    c.small(symbol, x + 35 - c.smallWidth(symbol) / 2f,
+        y + (hover ? 8 : 10), "f4efff");
+    float textX = x + (75 - c.smallWidth(label)) / 2f;
+    c.small(label, textX, y + 35, "f2ebfa");
+    hotspot(label, x, y, 75, 49, () -> launch(app));
   }
 
   private void paintWindow(Window w, boolean active) {
@@ -215,50 +231,68 @@ public final class PinuxAstra {
   private boolean blink() { return (int) (time * 2.2f) % 2 == 0; }
 
   private void drawTopBar() {
-    c.rect(0, 0, 480, 17, "050e19f5");
-    c.rect(0, 16, 480, 1, "38627b");
-    button("", 3, 1, 21, 14, () -> menuOpen = !menuOpen);
-    c.small(menuOpen ? "x" : "P", 9, 2, accent());
-    c.small("PINUX ASTRA   /   " + (wm.front() == null ? "DESKTOP" : wm.front().title),
-        30, 4, TEXT);
-    c.small("●  " + s().clock() + "  D" + s().day(), 373, 4, accent());
+    c.rect(0, 0, 480, 16, "0b1126db");
+    c.rect(0, 15, 480, 1, "ac86de22");
+    boolean menuHover = hovered(7, 1, 18, 14);
+    c.roundRect(7, 1, 17, 14, 5, menuHover ? "51427eae" : "53428a76");
+    c.small("A", 12, 2, "ded1ff");
+    c.small("Pinux Astra", 31, 3, "e3dcef");
+    String appName = wm.front() == null ? "Рабочий стол" : wm.front().title;
+    c.fitted(appName, 153, 3, 171, "ac9dc4", true);
+    c.small("●", 365, 3, "a7c6bf");
+    c.small(s().clock() + "   •   " + s().day() + " день", 382, 3, "e8dff3");
+    hotspot("Pinux menu", 7, 1, 18, 14, () -> menuOpen = !menuOpen);
   }
 
   private void drawDock() {
-    c.rect(0, 249, 480, 21, "071321f2");
-    c.rect(0, 249, 480, 1, "416781");
-    int x = 5;
-    dockItem("P", null, x, 27, () -> menuOpen = !menuOpen); x += 32;
-    dockItem("CODE", App.CODE, x, 66, () -> launch(App.CODE)); x += 71;
-    dockItem(">_", App.TERMINAL, x, 47, () -> launch(App.TERMINAL)); x += 52;
-    dockItem("FILES", App.FILES, x, 58, () -> launch(App.FILES)); x += 63;
-    dockItem("MAIL", App.MAIL, x, 56, () -> launch(App.MAIL)); x += 61;
-    dockItem("S", App.SETTINGS, x, 32, () -> launch(App.SETTINGS));
-    c.small("CTRL+LIFE", 373, 257, SUB);
-    button("EXIT", 429, 251, 45, 16, () -> { game.switchMode(Mode.WORLD); game.refreshState(); });
+    // Compact floating dock inspired by contemporary desktop environments.
+    c.rect(0, 242, 480, 28, "080d2277");
+    c.roundRect(129, 244, 223, 24, 10, "030716b0");
+    c.roundRect(130, 245, 221, 22, 9, "292444d7");
+    dockItem("A", App.CODE, 143, () -> launch(App.CODE), "6a55b4");
+    dockItem(">_", App.TERMINAL, 180, () -> launch(App.TERMINAL), "313b5d");
+    dockItem("[]", App.FILES, 217, () -> launch(App.FILES), "aa7d4f");
+    dockItem("@", App.MAIL, 254, () -> launch(App.MAIL), "705891");
+    dockItem("S", App.SETTINGS, 291, () -> launch(App.SETTINGS), "404d69");
+    boolean exitHover = hovered(425, 249, 48, 17);
+    c.roundRect(422, 248, 52, 17, 7, exitHover ? "573c60dd" : "211c34a8");
+    c.small("Выйти", 427, 251, exitHover ? "ffffff" : "c3b8d0");
+    hotspot("Встать из-за компьютера", 422, 248, 52, 17,
+        () -> { game.switchMode(Mode.WORLD); game.refreshState(); });
   }
 
-  private void dockItem(String label, App app, int x, int width, Runnable action) {
-    boolean active = app != null && wm.isFront(app);
-    boolean open = app != null && wm.get(app).visible;
-    c.rect(x, 251, width, 17, active ? "23465d" : "132739");
-    if (open) c.rect(x + 7, 267, width - 14, 1, active ? accent() : "577c91");
-    button(width < 40 ? "" : label, x, 251, width, 16, action);
-    if (width < 40)
-      c.small(label, x + (width - c.smallWidth(label)) / 2f, 253, active ? accent() : TEXT);
+  private void dockItem(String glyph, App app, int x, Runnable action, String tint) {
+    boolean active = wm.isFront(app);
+    boolean opened = wm.get(app).visible;
+    boolean hover = hovered(x, 245, 30, 22);
+    if (hover) c.roundRect(x - 2, 245, 33, 21, 6, "7564b479");
+    c.roundRect(x + 3, hover ? 246 : 247, 23, 18, 5, active ? "715aba" : tint);
+    c.small(glyph, x + 14.5f - c.smallWidth(glyph) / 2,
+        hover ? 247 : 248, "f8f3ff");
+    if (opened) c.roundRect(x + 11, 265, 7, 2, 1, "c6aaff");
+    hotspot(app.toString(), x - 2, 245, 33, 22, action);
   }
 
   private void drawApplicationMenu() {
-    c.rect(6, 20, 189, 196, "020912aa");
-    c.rect(7, 21, 187, 193, "162d41");
-    c.rect(8, 22, 185, 38, "27485e");
-    c.text("Pinux Astra", 18, 32, TEXT);
-    c.small("APPLICATIONS", 17, 67, accent());
-    button("Astra Code   /   IDE", 14, 83, 171, 21, () -> launch(App.CODE));
-    button("Terminal", 14, 109, 171, 21, () -> launch(App.TERMINAL));
-    button("Files", 14, 135, 171, 21, () -> launch(App.FILES));
-    button("TaskMail", 14, 161, 171, 21, () -> launch(App.MAIL));
-    button("Settings", 14, 187, 171, 21, () -> launch(App.SETTINGS));
+    c.rect(10, 23, 188, 198, "04071970");
+    c.roundRect(11, 24, 183, 192, 9, "16192de9");
+    c.roundRect(13, 26, 179, 38, 7, "292442ef");
+    c.text("Pinux Astra", 24, 35, "f3ecff");
+    c.small("ПРИЛОЖЕНИЯ", 25, 72, "b9a9d6");
+    menuItem("A", "Astra Code", 91, App.CODE);
+    menuItem(">_", "Terminal", 115, App.TERMINAL);
+    menuItem("[]", "Files", 139, App.FILES);
+    menuItem("@", "TaskMail", 163, App.MAIL);
+    menuItem("S", "Settings", 187, App.SETTINGS);
+  }
+
+  private void menuItem(String glyph, String title, int y, App app) {
+    boolean hover = hovered(19, y - 4, 169, 22);
+    if (hover) c.roundRect(19, y - 4, 169, 22, 5, "52447a9b");
+    c.roundRect(24, y - 1, 19, 17, 5, hover ? "8165c2" : "353654");
+    c.small(glyph, 33.5f - c.smallWidth(glyph) / 2, y + 1, "f2ebff");
+    c.small(title, 54, y, hover ? "ffffff" : "dfd6ed");
+    hotspot(title, 19, y - 4, 169, 22, () -> launch(app));
   }
 
   private void drawNotification() {
