@@ -268,88 +268,80 @@ public final class Workbench {
     save();
   }
 
+  /**
+   * The game-native code editor borrows the familiar VS Code layout while remaining
+   * a fictional application in Pinux Astra. The current ByteScript engine stays authoritative.
+   */
   private void editor(LifeContent.Job j) {
-    c.small(
-        s().rushJob
-            ? "ДЕДЛАЙН: " + clock(s().rushDeadline)
-            : j.kind.equals("profile")
-                ? "БЮДЖЕТ: " + j.operationBudget + " ОПЕРАЦИЯ"
-                : "РАБОЧАЯ ВЕТКА / MAIN",
-        28,
-        63,
-        GOLD);
-    small("Лаборатория", 294, 59, 103, () -> openLab(j));
-    small("Git", 404, 59, 48, () -> page(6));
-    c.small("ТРЕБОВАНИЕ", 28, 83, SOFT);
-    c.wrap(j.brief, 28, 98, 125, TEXT);
-    c.rect(164, 81, 288, 89, "10232e");
-    c.rect(164, 81, 2, 89, "4b7777");
+    c.rect(16, 53, 448, 197, "0a1725");
+    c.rect(16, 53, 28, 197, "182c3e");
+    c.rect(45, 53, 100, 197, "142538");
+    c.rect(145, 53, 319, 118, "0c1928");
+    c.rect(145, 172, 319, 55, "0b1723");
+    c.rect(145, 226, 319, 24, "20384b");
+    c.rect(144, 53, 1, 197, "38516a");
+    c.rect(145, 171, 319, 1, "38516a");
+    c.small("{}", 22, 70, GREEN);
+    c.small("[]", 22, 103, SOFT);
+    c.small(">", 25, 136, GOLD);
+    c.small("EXPLORER", 52, 63, SOFT);
+    c.small("▼  PROJECT", 51, 82, TEXT);
+    c.small("   ▼ src", 52, 104, SOFT);
+    c.small("     main.bs", 52, 121, GREEN);
+    c.small("   README.md", 52, 142, SOFT);
+    c.rect(51, 161, 88, 1, "355167");
+    c.small("ACTIVE JOB", 52, 171, SOFT);
+    c.fitted(j.id, 52, 189, 84, GOLD, true);
+    c.small("XP " + s().codingXp, 52, 210, SOFT);
+    c.rect(146, 54, 138, 23, "152b40");
+    c.rect(146, 76, 138, 1, CYAN);
+    c.small("◇ main.bs   ●", 156, 59, TEXT);
+    c.small("ByteScript  /  UTF-8", 334, 59, SOFT);
     String visible = s().codeSource.substring(0, Math.min(s().typedCount, s().codeSource.length()));
-    c.clip(164, 81, 288, 72);
-    int y = 88, n = 1;
+    c.clip(151, 80, 307, 80);
+    int row = 0;
     for (String line : visible.split("\n", -1)) {
-      if (y > 140) break;
-      c.small(n++ + "", 169, y, SOFT);
-      do {
-        int take = Math.min(43, line.length());
-        c.small(line.substring(0, take), 183, y, GREEN);
-        line = line.substring(take);
-        y += 14;
-      } while (!line.isEmpty() && y < 151);
+      if (row >= 5) break;
+      int y = 83 + row * 15;
+      if (row == visible.split("\n", -1).length - 1) c.rect(153, y - 2, 301, 14, "172d4055");
+      c.small(String.valueOf(row + 1), 155, y, "58758b");
+      String codeColor = line.stripLeading().startsWith("fn ") ? "86cfe0" :
+          line.stripLeading().startsWith("return ") ? "c8a1e6" : GREEN;
+      c.fitted(line, 177, y, 275, codeColor, true);
+      row++;
     }
     c.unclip();
-    c.small(s().typedCount + " / " + s().codeSource.length() + " символов", 169, 156, SOFT);
-    if (life.report != null)
-      c.wrap(life.report.message(), 28, 178, 424, life.report.passed() ? GREEN : RED);
-    else
-      c.small("Буквы печатают код. Лаборатория: свои тесты. Git: коммит и откат.", 28, 178, SOFT);
-    if (life.report != null && !life.report.cases().isEmpty())
-      c.small(
-          life.report.cases().stream()
-              .filter(t -> t.contains("ОШИБКА"))
-              .findFirst()
-              .orElse(life.report.cases().get(0)),
-          28,
-          210,
-          life.report.passed() ? GREEN : RED);
-    button(
-        "Допечатать",
-        28,
-        226,
-        99,
-        () -> {
-          Coding.completeTyping(s());
-          save();
-        });
-    button(
-        "Тесты",
-        135,
-        226,
-        88,
-        () -> {
-          life.report = Coding.test(s(), j);
-          save();
-        });
-    button(
-        life.report != null && life.report.passed() ? "Предпросмотр" : "Отладка",
-        231,
-        226,
-        128,
-        () -> {
-          if (life.report != null && life.report.passed()) {
-            page(4);
-            life.previewInput = j.id.equals("discount") ? 500 : j.seed[j.seed.length - 1];
-          } else page(3);
-        });
-    button(
-        "Выйти",
-        367,
-        226,
-        85,
-        () -> {
-          game.switchMode(Mode.WORLD);
-          save();
-        });
+    float progress = s().codeSource.isEmpty() ? 0f :
+        s().typedCount / (float) s().codeSource.length();
+    c.rect(153, 158, 299, 2, "263e53");
+    c.rect(153, 158, 299 * Math.min(1f, progress), 2, GREEN);
+    c.small("ПРОБЛЕМЫ   ВЫВОД   ТЕСТЫ", 153, 177, SOFT);
+    if (life.report == null) {
+      c.fitted(s().typedCount < s().codeSource.length()
+          ? "ВВОД: нажимай любые клавиши — исходник печатается."
+          : "Черновик готов. Запусти тесты.", 154, 191, 299, SOFT, true);
+      c.fitted("Символов: " + s().typedCount + "/" + s().codeSource.length()
+          + "   |   " + (s().rushJob ? "СРОЧНЫЙ ЗАКАЗ" : "main"), 154, 208, 299, GOLD, true);
+    } else {
+      c.fitted((life.report.passed() ? "PASS: " : "FAIL: ") + life.report.message(),
+          154, 191, 299, life.report.passed() ? GREEN : RED, true);
+      if (!life.report.cases().isEmpty())
+        c.fitted(life.report.cases().get(0), 154, 208, 299, SOFT, true);
+    }
+    small("Тесты", 151, 229, 65, () -> {
+      life.report = Coding.test(s(), j);
+      save();
+    });
+    small(life.report != null && life.report.passed() ? "Превью" : "Отладка", 221, 229, 84, () -> {
+      if (s().typedCount < s().codeSource.length()) {
+        life.report = Coding.test(s(), j);
+      } else if (life.report != null && life.report.passed()) {
+        page(4);
+        life.previewInput = j.id.equals("discount") ? 500 : j.seed[j.seed.length - 1];
+      } else page(3);
+    });
+    small("Lab", 310, 229, 67, () -> openLab(j));
+    small("Git", 382, 229, 75, () -> page(6));
   }
 
   private void patches(LifeContent.Job j) {
