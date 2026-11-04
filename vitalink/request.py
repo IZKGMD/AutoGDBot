@@ -4,7 +4,8 @@
 Actions OIDC provides a short-lived signed JWT; the VPS verifies the GitHub
 issuer, signature, audience, exact repository ID, ref and workflow identity.
 """
-import json, os, ssl, time
+import json, os, ssl, time, base64
+from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, build_opener, HTTPSHandler, HTTPRedirectHandler
 
@@ -40,7 +41,18 @@ def call(path,token,data=None):
 
 def main():
     token=oidc_token()
-    verified=call("/v1/auth",token)
+    try:
+        verified=call("/v1/auth",token)
+    except HTTPError as exc:
+        if exc.code==401:
+            # Non-sensitive claim metadata only, for diagnosing identity mismatch.
+            # The JWT itself, its signature and GitHub's bearer are NEVER printed.
+            segment=token.split(".")[1]
+            claims=json.loads(base64.urlsafe_b64decode(segment+"="*((-len(segment))%4)))
+            for k in ("iss","aud","sub","repository","repository_id","ref","workflow_ref","event_name"):
+                print("OIDC public claim",k,"=",str(claims.get(k))[:250],flush=True)
+            print("VitaLink denied the signed GitHub identity (HTTP 401)",flush=True)
+        raise
     if verified.get("auth")!="operator":
         raise RuntimeError("VitaLink operator authentication failed")
     print("VitaLink: GitHub OIDC identity verified (zero GitHub Secrets)")
