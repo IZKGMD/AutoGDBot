@@ -769,6 +769,10 @@ public final class LifeScreens {
         () -> scene("Утро", Social.shareNight(s(), data.girl(girlId), true), Mode.WORLD));
   }
 
+  public void dispose() {
+    pinux.dispose();
+  }
+
   private void coding() {
     pinux.draw();
   }
