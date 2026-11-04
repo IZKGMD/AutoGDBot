@@ -7,12 +7,15 @@ import com.badlogic.gdx.graphics.glutils.FrameBuffer;
 import com.badlogic.gdx.utils.Disposable;
 import java.util.*;
 
-/** Render at 480 x 270, then scale only by integer factors. All API coordinates are top-down. */
+/** Stable 480×270 layout with a native-resolution framebuffer and high-density assets. */
 public final class PixelCanvas implements Disposable {
   public static final int W = 480, H = 270;
   public final SpriteBatch batch = new SpriteBatch();
   private final OrthographicCamera camera = new OrthographicCamera();
-  private final FrameBuffer frame = new FrameBuffer(Pixmap.Format.RGBA8888, W, H, false);
+  private FrameBuffer frame;
+  private int density;
+  private final ArrayDeque<com.badlogic.gdx.math.Rectangle> clips = new ArrayDeque<>();
+  private final Set<String> highDensity = new HashSet<>();
   private final Map<String, Color> colors = new HashMap<>();
 
   private Color color(String hex) {
@@ -37,25 +40,24 @@ public final class PixelCanvas implements Disposable {
     p.fill();
     white = new Texture(p);
     p.dispose();
-    font = new BitmapFont(Gdx.files.internal("fonts/ui.fnt"));
-    small = new BitmapFont(Gdx.files.internal("fonts/small.fnt"));
-    title = new BitmapFont(Gdx.files.internal("fonts/title.fnt"));
+    font = new BitmapFont(Gdx.files.internal("fonts/hd/ui.fnt"));
+    small = new BitmapFont(Gdx.files.internal("fonts/hd/small.fnt"));
+    title = new BitmapFont(Gdx.files.internal("fonts/hd/title.fnt"));
     for (BitmapFont f : new BitmapFont[] {font, small, title}) {
-      f.setUseIntegerPositions(true);
+      f.getData().setScale(.25f);
+      f.setUseIntegerPositions(false);
       f.getRegion()
           .getTexture()
-          .setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest);
+          .setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
     }
-    frame
-        .getColorBufferTexture()
-        .setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest);
     camera.setToOrtho(false, W, H);
   }
 
   public void preload() {
     for (String n :
-        new String[] {"desk_ssd", "chair_upgrade", "light_amber", "light_monitor", "light_window"})
-      texture(n);
+        new String[] {
+          "desk_ssd", "chair_upgrade", "light_amber", "light_monitor", "light_window", "shadow"
+        }) texture(n);
     for (String n :
         new String[] {
           "room",
@@ -98,6 +100,9 @@ public final class PixelCanvas implements Disposable {
           "park",
           "counter",
           "table",
+          "fridge",
+          "crt_spare",
+          "bookcase",
           "portrait_asya",
           "portrait_nika",
           "portrait_tamara",
@@ -108,21 +113,46 @@ public final class PixelCanvas implements Disposable {
     for (String n :
         new String[] {
           "hero", "hero_1", "hero_2", "mira", "arkady", "lev", "asya", "nika", "tamara"
-        }) actors.put(n, TextureRegion.split(texture(n), 16, 24));
+        }) {
+      Texture t = texture(n);
+      int d = highDensity.contains(n) ? 2 : 1;
+      actors.put(n, TextureRegion.split(t, 16 * d, 24 * d));
+    }
   }
 
   public Texture texture(String name) {
     return textures.computeIfAbsent(
         name,
         n -> {
-          Texture t = new Texture(Gdx.files.internal("art/" + n + ".png"));
-          t.setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest);
+          var hd = Gdx.files.internal("art/hd/" + n + ".png");
+          if (hd.exists()) highDensity.add(n);
+          Texture t = new Texture(hd.exists() ? hd : Gdx.files.internal("art/" + n + ".png"));
+          var filter =
+              n.startsWith("light_") || n.equals("shadow")
+                  ? Texture.TextureFilter.Linear
+                  : Texture.TextureFilter.Nearest;
+          t.setFilter(filter, filter);
           return t;
         });
   }
 
   public void begin() {
+    int target =
+        Math.max(
+            1,
+            Math.min(
+                Gdx.graphics.getBackBufferWidth() / W, Gdx.graphics.getBackBufferHeight() / H));
+    if (frame == null || target != density) {
+      if (frame != null) frame.dispose();
+      density = target;
+      frame = new FrameBuffer(Pixmap.Format.RGBA8888, W * density, H * density, false);
+      frame
+          .getColorBufferTexture()
+          .setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
+    }
+    clips.clear();
     frame.begin();
+    Gdx.gl.glDisable(GL20.GL_SCISSOR_TEST);
     Gdx.gl.glClearColor(.075f, .1f, .14f, 1);
     Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
     batch.setProjectionMatrix(camera.combined);
@@ -131,6 +161,7 @@ public final class PixelCanvas implements Disposable {
   }
 
   public void end() {
+    if (!clips.isEmpty()) throw new IllegalStateException("Unbalanced render clips");
     batch.end();
     frame.end();
     int w = Gdx.graphics.getWidth(), h = Gdx.graphics.getHeight();
@@ -149,9 +180,81 @@ public final class PixelCanvas implements Disposable {
     camera.setToOrtho(false, W, H);
   }
 
+  public float artWidth(String name) {
+    Texture t = texture(name);
+    return t.getWidth() / (highDensity.contains(name) ? 2f : 1f);
+  }
+
+  public float artHeight(String name) {
+    Texture t = texture(name);
+    return t.getHeight() / (highDensity.contains(name) ? 2f : 1f);
+  }
+
+  /** Nested framebuffer scissor; every layer is intersected with its parent. */
+  public void clip(float x, float y, float w, float h) {
+    batch.flush();
+    float x0 = Math.max(0, x),
+        y0 = Math.max(0, y),
+        x1 = Math.min(W, x + w),
+        y1 = Math.min(H, y + h);
+    if (!clips.isEmpty()) {
+      var p = clips.peek();
+      x0 = Math.max(x0, p.x);
+      y0 = Math.max(y0, p.y);
+      x1 = Math.min(x1, p.x + p.width);
+      y1 = Math.min(y1, p.y + p.height);
+    }
+    clips.push(
+        new com.badlogic.gdx.math.Rectangle(x0, y0, Math.max(0, x1 - x0), Math.max(0, y1 - y0)));
+    applyClip();
+  }
+
+  private void applyClip() {
+    if (clips.isEmpty()) {
+      Gdx.gl.glDisable(GL20.GL_SCISSOR_TEST);
+      return;
+    }
+    var p = clips.peek();
+    int x0 = (int) Math.ceil(p.x * density), y0 = (int) Math.ceil(p.y * density);
+    int x1 = (int) Math.floor((p.x + p.width) * density),
+        y1 = (int) Math.floor((p.y + p.height) * density);
+    Gdx.gl.glEnable(GL20.GL_SCISSOR_TEST);
+    Gdx.gl.glScissor(x0, H * density - y1, Math.max(0, x1 - x0), Math.max(0, y1 - y0));
+  }
+
+  public void unclip() {
+    batch.flush();
+    if (clips.isEmpty()) throw new IllegalStateException("Missing render clip");
+    clips.pop();
+    applyClip();
+  }
+
+  public void fitted(String text, float x, float y, float width, String color, boolean compact) {
+    BitmapFont f = compact ? small : font;
+    layout.setText(f, text);
+    if (layout.width > width) {
+      int end = text.length();
+      do {
+        end--;
+        layout.setText(f, text.substring(0, end) + "…");
+      } while (end > 0 && layout.width > width);
+      text = text.substring(0, end) + "…";
+    }
+    clip(x, y - 1, width, compact ? 13 : 16);
+    if (compact) small(text, x, y, color);
+    else text(text, x, y, color);
+    unclip();
+  }
+
+  public void glow(String name, float x, float y, float strength) {
+    batch.setColor(1, 1, 1, Math.max(0, Math.min(1, strength)));
+    art(name, x, y);
+    batch.setColor(Color.WHITE);
+  }
+
   public void rect(float x, float y, float w, float h, Color color) {
     batch.setColor(color);
-    batch.draw(white, Math.round(x), H - Math.round(y) - h, w, h);
+    batch.draw(white, x, H - y - h, w, h);
     batch.setColor(Color.WHITE);
   }
 
@@ -160,16 +263,16 @@ public final class PixelCanvas implements Disposable {
   }
 
   public void panel(int x, int y, int w, int h) {
-    rect(x + 2, y + 3, w, h, "101d2ac0");
-    rect(x, y, w, h, "81918a");
-    rect(x + 1, y + 1, w - 2, h - 2, "202f3d");
-    rect(x + 3, y + 3, w - 6, h - 6, "263847");
-    rect(x + 4, y + 4, w - 8, 1, "40515b");
+    rect(x + 1, y + 2, w, h, "07141cc0");
+    rect(x, y, w, h, "526b70");
+    rect(x + .5f, y + .5f, w - 1, h - 1, "172e3bf9");
+    rect(x + 1, y + 1, w - 2, .5f, "829b9160");
   }
 
   public void art(String name, float x, float y) {
     Texture t = texture(name);
-    batch.draw(t, Math.round(x), H - Math.round(y) - t.getHeight());
+    batch.draw(
+        t, Math.round(x), H - Math.round(y) - artHeight(name), artWidth(name), artHeight(name));
   }
 
   public void scaledArt(String name, float x, float y, float width, float height) {
@@ -202,15 +305,14 @@ public final class PixelCanvas implements Disposable {
   }
 
   public void wrap(String text, float x, float y, float width, String color) {
+    wrap(text, x, y, width, H - y - 8, color);
+  }
+
+  public void wrap(String text, float x, float y, float width, float height, String color) {
+    clip(x, y - 1, Math.min(width, W - x - 12), height);
     font.setColor(color(color));
-    font.draw(
-        batch,
-        text,
-        Math.round(x),
-        H - Math.round(y),
-        width,
-        com.badlogic.gdx.utils.Align.left,
-        true);
+    font.draw(batch, text, x, H - y, width, com.badlogic.gdx.utils.Align.left, true);
+    unclip();
   }
 
   public float width(String text) {
@@ -252,7 +354,7 @@ public final class PixelCanvas implements Disposable {
     title.dispose();
     textures.values().forEach(Texture::dispose);
     white.dispose();
-    frame.dispose();
+    if (frame != null) frame.dispose();
     batch.dispose();
   }
 }

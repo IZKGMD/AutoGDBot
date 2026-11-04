@@ -285,8 +285,10 @@ public final class Workbench {
     c.rect(164, 81, 288, 89, "10232e");
     c.rect(164, 81, 2, 89, "4b7777");
     String visible = s().codeSource.substring(0, Math.min(s().typedCount, s().codeSource.length()));
+    c.clip(164, 81, 288, 72);
     int y = 88, n = 1;
     for (String line : visible.split("\n", -1)) {
+      if (y > 140) break;
       c.small(n++ + "", 169, y, SOFT);
       do {
         int take = Math.min(43, line.length());
@@ -295,6 +297,7 @@ public final class Workbench {
         y += 14;
       } while (!line.isEmpty() && y < 151);
     }
+    c.unclip();
     c.small(s().typedCount + " / " + s().codeSource.length() + " символов", 169, 156, SOFT);
     if (life.report != null)
       c.wrap(life.report.message(), 28, 178, 424, life.report.passed() ? GREEN : RED);

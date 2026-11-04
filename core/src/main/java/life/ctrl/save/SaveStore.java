@@ -10,7 +10,7 @@ import life.ctrl.model.*;
 
 /** Validated, atomic single-slot saves with a previous-good backup. */
 public final class SaveStore {
-  public static final int VERSION = 3;
+  public static final int VERSION = 4;
 
   public static final class Envelope {
     public int version = VERSION;
@@ -84,6 +84,18 @@ public final class SaveStore {
         for (var ledger : e.state.paidJobs) {
           String id = ledger.substring(ledger.indexOf(':') + 1);
           if (!e.state.shipped.contains(id)) e.state.shipped.add(id);
+        }
+      }
+      if (e.version < 4) {
+        var map = content.map(e.state.map);
+        for (var prop : map.objects) {
+          if (prop.id.startsWith("v4_")
+              && prop.solid != null
+              && World.intersects(e.state.x, e.state.y, prop.solid)) {
+            e.state.x = map.spawnX;
+            e.state.y = map.spawnY;
+            break;
+          }
         }
       }
       new World(content, e.state);

@@ -137,7 +137,7 @@ public final class World {
     return false;
   }
 
-  private boolean intersects(float x, float y, float[] r) {
+  public static boolean intersects(float x, float y, float[] r) {
     return x + RADIUS > r[0] && x - RADIUS < r[0] + r[2] && y + 2 > r[1] && y - 4 < r[1] + r[3];
   }
 

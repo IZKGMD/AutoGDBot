@@ -504,7 +504,7 @@ public class CtrlLife extends ApplicationAdapter {
   }
 
   private float targetCameraY() {
-    return Math.max(0, Math.min(world.map().height - 270, world.state.y - 148));
+    return Math.max(0, Math.min(world.map().height - 270, world.state.y - 172));
   }
 
   private void snapCamera() {
@@ -520,7 +520,13 @@ public class CtrlLife extends ApplicationAdapter {
         if (p.id.equals("boxes") && world.state.unpacked) art = "boxes_open";
         if (p.id.equals("plant") && world.state.wateredPlant) art = "plant_watered";
         if (p.id.equals("post") && world.state.signedMailbox) art = "mailbox_signed";
-        drawItems.add(new DrawItem(art, p.x, p.artY + c.texture(art).getHeight(), p.artX, p.artY));
+        drawItems.add(
+            new DrawItem(
+                art,
+                p.x,
+                p.solid != null ? p.solid[1] + p.solid[3] : p.artY + c.artHeight(art),
+                p.artX,
+                p.artY));
       }
     for (var n : world.npcs()) {
       DrawItem d = new DrawItem(n.art, 0, 0, 0, 0);
@@ -591,10 +597,10 @@ public class CtrlLife extends ApplicationAdapter {
           life.draw(mode);
     }
     if (toastTimer > 0 && mode == Mode.WORLD) {
-      int w = Math.min(460, (int) c.width(toast) + 18);
+      int w = Math.min(460, (int) Math.ceil(c.width(toast)) + 18);
       int y = 57;
       c.rect((480 - w) / 2, y, w, 20, "182a35f5");
-      c.center(toast, y + 4, MINT);
+      c.fitted(toast, (480 - w) / 2f + 9, y + 4, w - 18, MINT, false);
     }
     c.end();
     activateButtons();
@@ -604,8 +610,25 @@ public class CtrlLife extends ApplicationAdapter {
   private void drawWorld() {
     float ox = Math.round(cameraX), oy = Math.round(cameraY);
     c.art(world.state.map, -ox, -oy);
-    if (world.map().signs != null)
-      for (var sign : world.map().signs) c.small(sign.text, sign.x - ox, sign.y - oy, sign.color);
+    var boundary = SceneLayout.bounds(world.state.map);
+    c.clip(boundary.x() - ox, boundary.y() - oy, boundary.width(), boundary.height());
+    if (world.state.map.equals("street")) {
+      String[] names = {"ОБЩЕЖИТИЕ № 7", "ПЛЁНКА", "МАСТЕРСКАЯ", "ЛОЖКА"};
+      int[] left = {76, 300, 411, 628}, widths = {200, 86, 185, 217};
+      for (int i = 0; i < names.length; i++) {
+        c.rect(left[i] - ox, 145 - oy, widths[i], 12, "203c46");
+        c.rect(left[i] - ox, 145 - oy, widths[i], .5f, "b7b397");
+        c.fitted(
+            names[i],
+            left[i] + (widths[i] - c.smallWidth(names[i])) / 2 - ox,
+            146 - oy,
+            widths[i] - 4,
+            "ead7ae",
+            true);
+      }
+      c.rect(850 - ox, 415 - oy, 85, 14, "203c46");
+      c.fitted("СКВЕР →", 862 - ox, 417 - oy, 69, "d6d9b5", true);
+    }
     for (var item : drawItems)
       if (item.person) {
         if (item.art.equals("hero")) {
@@ -627,7 +650,7 @@ public class CtrlLife extends ApplicationAdapter {
     drawItems.sort(depth);
     for (var item : drawItems) {
       if (item.person) {
-        c.rect(item.x - 7 - ox, item.y - 2 - oy, 14, 4, "172d3570");
+        c.scaledArt("shadow", item.x - 9 - ox, item.y - 4 - oy, 18, 7);
         c.actor(item.art, item.dir, item.frame, item.x - ox, item.y - oy, item.outfit);
       } else {
         String drawnArt =
@@ -639,79 +662,89 @@ public class CtrlLife extends ApplicationAdapter {
         if (item.art.equals("desk")
             && world.state.map.equals("room")
             && world.state.upgrades.contains("chair")) c.art("chair_upgrade", 204 - ox, 121 - oy);
-        var texture = c.texture(drawnArt);
-        if (item.artX + texture.getWidth() > ox
+        c.scaledArt("shadow", item.artX - 2 - ox, item.y - 7 - oy, c.artWidth(drawnArt) + 4, 13);
+        if (item.artX + c.artWidth(drawnArt) > ox
             && item.artX < ox + 480
-            && item.artY + texture.getHeight() > oy
+            && item.artY + c.artHeight(drawnArt) > oy
             && item.artY < oy + 270) c.art(drawnArt, item.artX - ox, item.artY - oy);
       }
     }
     float night = Atmosphere.night(world.state);
     boolean outside = world.state.map.equals("street") || world.state.map.equals("park");
-    dusk.a = night * (outside ? .28f : .13f);
+    dusk.a = night * (outside ? .32f : .18f);
     c.rect(0, 0, 480, 270, dusk);
     if (world.state.map.equals("room")) {
       c.art("light_monitor", 107 - ox, 64 - oy);
-      if (night > .1f) c.art("light_window", 170 - ox, 40 - oy);
+      c.glow("light_window", 170 - ox, 55 - oy, .3f + night * .7f);
       c.rect(211 - ox, 121 - oy, 2, 2, ((int) (visualTime * 2) % 2 == 0) ? "c4c992" : "68756e");
       if (!settings.reducedEffects) {
         int lift = (int) (visualTime * 4) % 4;
         c.rect(163 - ox, 110 - oy - lift, 1, 2, "d8d3b14a");
       }
     }
-    if (world.state.map.equals("stair") && night > .1f) c.art("light_amber", 152 - ox, 40 - oy);
+    if (world.state.map.equals("stair"))
+      c.glow("light_amber", 152 - ox, 40 - oy, .4f + night * .6f);
     if (world.state.map.equals("cafe") || world.state.map.equals("diner"))
       c.art("light_amber", 90 - ox, 68 - oy);
-    if (world.state.map.equals("street") && night > .1f) {
+    if (world.state.map.equals("street")) {
       for (float[] light : new float[][] {{391, 282}, {862, 405}, {649, 192}, {713, 192}})
-        c.art("light_amber", light[0] - 80 - ox, light[1] - 56 - oy);
+        c.glow("light_amber", light[0] - 80 - ox, light[1] - 56 - oy, night);
       for (int x : new int[] {130, 241, 445, 556, 685, 796})
-        c.art("light_window", x - 80 - ox, 118 - oy);
+        c.glow("light_window", x - 80 - ox, 118 - oy, night);
     }
     if (outside && Atmosphere.rain(world.state) && !settings.reducedEffects) {
       for (int i = 0; i < 42; i++) {
         float x = (i * 83 + visualTime * 19) % 500 - 10, y = (i * 47 + visualTime * 125) % 290 - 10;
         c.rect(x, y, 1, 4, "b8c9cc42");
         if (i < 10) {
+          c.clip(
+              -ox,
+              (world.state.map.equals("street") ? 221 : 56) - oy,
+              world.map().width,
+              world.state.map.equals("street") ? 244 : 208);
           float t = (visualTime * 1.7f + i * .31f) % 1;
           if (t < .45f) {
             float px = (i * 67 + 43 - cameraX * .2f) % 480, py = 155 + i % 4 * 12;
             c.rect(px - 2 - t * 3, py, 4 + t * 6, 1, "bcc8bb45");
           }
+          c.unclip();
         }
       }
     }
+    c.unclip();
   }
 
   private void meter(String label, double value, int x, String color) {
-    c.small(label + " " + (int) value, x, 13, CREAM);
-    c.rect(x, 27, 70, 4, "344652");
-    c.rect(x, 27, Math.max(1, (float) value * .7f), 4, value < 25 ? "df8d72" : color);
+    c.small(label + " " + (int) value, x, 8, CREAM);
+    c.rect(x, 21, 70, 3, "344652");
+    c.rect(x, 21, Math.max(1, (float) value * .7f), 3, value < 25 ? "df8d72" : color);
   }
 
   private void drawHud() {
-    c.rect(0, 0, 480, 49, "15232ef2");
+    c.rect(0, 0, 480, 41, "15232ef8");
+    c.rect(12, 40, 456, .5f, "607a7560");
     meter("ЗДОРОВЬЕ", world.state.health, 12, "b99d89");
     meter("СЫТОСТЬ", world.state.hunger, 100, "b8bd82");
     meter("ЭНЕРГИЯ", world.state.energy, 188, "8caaa5");
-    c.small(world.state.money + " ₽", 285, 13, GOLD);
-    c.small("День " + world.state.day() + " · " + world.state.clock(), 365, 13, CREAM);
-    c.small(world.map().name + " · " + Atmosphere.period(world.state), 12, 36, MUTED);
-    c.small("J план · M карта · R люди · B деньги", 242, 36, MUTED);
+    c.small(world.state.money + " ₽", 285, 8, GOLD);
+    c.small("День " + world.state.day() + " · " + world.state.clock(), 365, 8, CREAM);
+    c.fitted(world.map().name + " · " + Atmosphere.period(world.state), 12, 28, 223, MUTED, true);
+    c.small("J план · M карта · R люди · B деньги", 242, 28, MUTED);
     if (mode != Mode.WORLD) return;
     var target = Navigation.goal(world, life.data);
-    c.rect(0, 214, 480, 56, "15232ef5");
-    c.small("ТЕКУЩАЯ ЦЕЛЬ", 12, 220, GOLD);
-    c.text(target.title(), 12, 234, CREAM);
-    c.small(target.hint(), 12, 252, MUTED);
+    c.rect(0, 231, 480, 39, "15232efb");
+    c.rect(12, 231, 456, .5f, "607a7560");
+    c.small("ТЕКУЩАЯ ЦЕЛЬ", 12, 233, GOLD);
+    c.fitted(target.title(), 12, 244, 456, CREAM, false);
+    c.fitted(target.hint(), 12, 259, 456, MUTED, true);
     var n = world.interactionNpc();
     var p = world.nearestProp();
     String prompt = n != null ? "Поговорить: " + n.name.split(" · ")[0] : p != null ? p.label : "";
     if (!prompt.isEmpty()) {
       String text = Keys.toString(settings.interact) + " — " + prompt;
-      int w = Math.min(464, (int) c.width(text) + 20);
-      c.panel((480 - w) / 2, 184, w, 23);
-      c.center(text, 189, CREAM);
+      int w = Math.min(464, (int) Math.ceil(c.width(text)) + 20);
+      c.panel((480 - w) / 2, 201, w, 23);
+      c.fitted(text, (480 - w) / 2f + 10, 206, w - 20, CREAM, false);
     }
   }
 
@@ -726,16 +759,16 @@ public class CtrlLife extends ApplicationAdapter {
     for (int i = phase; i < guidePath.size(); i += 5) {
       var p = guidePath.get(i);
       float x = p[0] - cameraX, y = p[1] - cameraY;
-      if (x > 5 && x < 475 && y > 53 && y < 183) c.rect(x - 1, y - 1, 3, 2, "d8b875a0");
+      if (x > 5 && x < 475 && y > 45 && y < 200) c.rect(x - 1, y - 1, 3, 2, "d8b875a0");
     }
     float x = goal.x() - cameraX, y = goal.y() - cameraY - 29;
-    if (x > 12 && x < 468 && y > 58 && y < 174) {
+    if (x > 12 && x < 468 && y > 48 && y < 198) {
       c.rect(x - 7, y - 3, 15, 17, "192f3dde");
       c.text("!", x - 2, y - 2, GOLD);
     } else {
-      float px = Math.max(18, Math.min(462, x)), py = Math.max(69, Math.min(172, y));
+      float px = Math.max(18, Math.min(462, x)), py = Math.max(55, Math.min(198, y));
       c.rect(px - 8, py - 6, 17, 17, "192f3dde");
-      c.text(x < 18 ? "←" : x > 462 ? "→" : y < 69 ? "↑" : "↓", px - 5, py - 5, GOLD);
+      c.text(x < 18 ? "←" : x > 462 ? "→" : y < 55 ? "↑" : "↓", px - 5, py - 5, GOLD);
     }
   }
 
@@ -747,7 +780,7 @@ public class CtrlLife extends ApplicationAdapter {
     shade();
     c.small("ТИХИЙ ГОРОД. БОЛЬШОЕ НАЧАЛО.", 32, 31, MINT);
     c.title("CTRL+LIFE", 30, 57, CREAM);
-    c.text("Н У Л Е В О Й   Б И Л Д", 33, 93, GOLD);
+    c.text("РАЙОН, В КОТОРОМ ГОРИТ СВЕТ", 33, 93, GOLD);
     c.wrap(
         "Последняя маршрутка.\nКомната в общежитии.\nПервый заказ — и новые люди.",
         33,
@@ -770,7 +803,7 @@ public class CtrlLife extends ApplicationAdapter {
     button("Настройки", 245, 182, 135, 23, true, () -> openSettings(Mode.MENU));
     button("Выйти", 245, 209, 135, 23, true, () -> Gdx.app.exit());
     c.small("ПЕРВЫЕ ДЕНЬГИ. ПЕРВЫЕ ЧУВСТВА.", 32, 248, MUTED);
-    c.small("0.3.0", 419, 248, MUTED);
+    c.small("0.4.0", 419, 248, MUTED);
     // An illuminated architectural vignette cut out of the room.
     c.panel(314, 44, 120, 112);
     c.art("desk", 342, 66);
@@ -962,13 +995,21 @@ public class CtrlLife extends ApplicationAdapter {
     boolean selected = selection == index && enabled;
     boolean pressed =
         enabled && ((clicked && contains(b, clickX, clickY)) || (confirm && selected));
-    c.rect(x, y, width, height, selected ? "b69b74" : "465c65");
+    c.rect(x, y, width, height, selected ? "c8b184" : "48616b");
     c.rect(
-        x + 1, y + 1, width - 2, height - 2, pressed ? "1a303b" : selected ? "40545b" : "263847");
+        x + .5f,
+        y + .5f,
+        width - 1,
+        height - 1,
+        pressed ? "112c38" : selected ? "354f58" : "203946");
     if (selected) c.rect(x + 3, y + 3, 2, height - 6, GOLD);
-    if (height < 20) c.small(label, x + 9, y + 2, enabled ? (selected ? GOLD : CREAM) : "718387");
-    else
-      c.text(label, x + 10, y + (height - 15) / 2, enabled ? (selected ? GOLD : CREAM) : "718387");
+    c.fitted(
+        label,
+        x + 10,
+        y + (height < 20 ? 2 : (height - 15) / 2),
+        width - 19,
+        enabled ? (selected ? GOLD : CREAM) : "809597",
+        height < 20);
   }
 
   private boolean contains(Button b, float x, float y) {

@@ -171,7 +171,7 @@ public final class LifeScreens {
 
   private void scene() {
     frame("СОБЫТИЕ", sceneTitle);
-    c.wrap(sceneText, 28, 72, 420, TEXT);
+    c.wrap(sceneText, 28, 72, 420, 145, TEXT);
     btn("Продолжить", 28, 226, 424, () -> mode(sceneReturn));
   }
 
@@ -376,6 +376,32 @@ public final class LifeScreens {
         ox = 25 + (300 - w) / 2,
         oy = 65 + (151 - h) / 2;
     c.scaledArt(id, ox, oy, w, h);
+    var boundary = life.ctrl.render.SceneLayout.bounds(id);
+    c.clip(
+        ox + boundary.x() * ratio,
+        oy + boundary.y() * ratio,
+        boundary.width() * ratio,
+        boundary.height() * ratio);
+    Arrays.stream(m.objects)
+        .filter(p -> p.art != null && game.world().visible(p))
+        .sorted(
+            Comparator.comparingDouble(
+                p -> p.solid != null ? p.solid[1] + p.solid[3] : p.artY + c.artHeight(p.art)))
+        .forEach(
+            p -> {
+              String art = p.art;
+              if (p.id.equals("boxes") && s().unpacked) art = "boxes_open";
+              if (p.id.equals("post") && s().signedMailbox) art = "mailbox_signed";
+              if (p.art.equals("desk") && id.equals("room") && s().upgrades.contains("ssd"))
+                art = "desk_ssd";
+              c.scaledArt(
+                  art,
+                  ox + p.artX * ratio,
+                  oy + p.artY * ratio,
+                  c.artWidth(art) * ratio,
+                  c.artHeight(art) * ratio);
+            });
+    c.unclip();
     for (var p : m.objects)
       if (p.action.equals("door")) {
         float x = ox + p.x * ratio, y = oy + p.y * ratio;

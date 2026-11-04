@@ -640,6 +640,22 @@
             32,
             15
           ]
+        },
+        {
+          "id": "v4_books",
+          "label": "",
+          "action": "decoration",
+          "x": 342,
+          "y": 157,
+          "art": "bookcase",
+          "artX": 342,
+          "artY": 104,
+          "solid": [
+            342,
+            143,
+            30,
+            14
+          ]
         }
       ],
       "npcs": [
@@ -741,6 +757,22 @@
             32,
             15
           ]
+        },
+        {
+          "id": "v4_fridge",
+          "label": "",
+          "action": "decoration",
+          "x": 342,
+          "y": 153,
+          "art": "fridge",
+          "artX": 342,
+          "artY": 110,
+          "solid": [
+            342,
+            139,
+            28,
+            14
+          ]
         }
       ],
       "npcs": [
@@ -825,6 +857,54 @@
             128,
             64,
             20
+          ]
+        },
+        {
+          "id": "v4_crt_0",
+          "label": "",
+          "action": "decoration",
+          "x": 113,
+          "y": 217,
+          "art": "crt_spare",
+          "artX": 113,
+          "artY": 193,
+          "solid": [
+            113,
+            207,
+            24,
+            10
+          ]
+        },
+        {
+          "id": "v4_crt_1",
+          "label": "",
+          "action": "decoration",
+          "x": 305,
+          "y": 215,
+          "art": "crt_spare",
+          "artX": 305,
+          "artY": 191,
+          "solid": [
+            305,
+            205,
+            24,
+            10
+          ]
+        },
+        {
+          "id": "v4_crt_2",
+          "label": "",
+          "action": "decoration",
+          "x": 335,
+          "y": 231,
+          "art": "crt_spare",
+          "artX": 335,
+          "artY": 207,
+          "solid": [
+            335,
+            221,
+            24,
+            10
           ]
         }
       ],

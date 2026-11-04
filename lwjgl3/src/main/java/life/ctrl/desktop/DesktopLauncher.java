@@ -8,7 +8,7 @@ import life.ctrl.CtrlLife;
 public final class DesktopLauncher {
   public static void main(String[] args) {
     var config = new Lwjgl3ApplicationConfiguration();
-    config.setTitle("CTRL+LIFE — Нулевой билд");
+    config.setTitle("CTRL+LIFE — Тихий район");
     config.setWindowedMode(1440, 810);
     config.setWindowIcon("art/icon32.png", "art/icon64.png", "art/icon128.png");
     config.setWindowSizeLimits(960, 540, -1, -1);

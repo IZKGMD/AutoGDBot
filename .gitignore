@@ -9,3 +9,5 @@
 !docs/archive-0.1/*.log
 
 !docs/archive-0.2/*.log
+
+!docs/archive-0.3/*.log

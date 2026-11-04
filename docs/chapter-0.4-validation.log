@@ -1,0 +1,178 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :lwjgl3:processResources NO-SOURCE
+> Task :lwjgl3:processSmokeResources NO-SOURCE
+> Task :core:compileJava UP-TO-DATE
+> Task :core:processResources UP-TO-DATE
+> Task :core:classes UP-TO-DATE
+> Task :core:jar UP-TO-DATE
+> Task :lwjgl3:compileJava UP-TO-DATE
+> Task :lwjgl3:classes UP-TO-DATE
+> Task :lwjgl3:compileSmokeJava UP-TO-DATE
+> Task :lwjgl3:smokeClasses UP-TO-DATE
+
+> Task :lwjgl3:guiSmoke
+GUI: boot
+GUI: menu
+GUI: wait CREATE
+GUI: new game
+GUI: wait INTRO
+GUI: arrival
+GUI: budget introduction
+GUI: controls introduction
+GUI: wait WORLD
+GUI: poor room
+GUI: plan 187.0,156.0
+GUI: walk 187.0,156.0
+GUI: interact
+GUI: wait IDE
+GUI: job board
+GUI: leave before algorithm
+GUI: wait WORLD
+GUI: interact
+GUI: wait IDE
+GUI: reopen unstarted order
+GUI: algorithm choice
+GUI: typing start
+GUI: typing isolated
+GUI: real compiler error
+GUI: repair
+GUI: retest
+GUI: tests pass
+GUI: preview
+GUI: deliver
+GUI: wait SCENE
+GUI: continue scene
+GUI: wait WORLD
+GUI: payment once
+GUI: plan 230.0,247.0
+GUI: walk 230.0,247.0
+GUI: interact
+GUI: stair
+GUI: plan 246.0,262.0
+GUI: walk 246.0,262.0
+GUI: interact
+GUI: settled street
+GUI: street guide
+GUI: plan 814.0,230.0
+GUI: walk 814.0,230.0
+GUI: interact
+GUI: diner
+GUI: plan 159.0,153.0
+GUI: walk 159.0,153.0
+GUI: interact
+GUI: wait SHOP
+GUI: food prices
+GUI: wait SCENE
+GUI: return counter
+GUI: wait SHOP
+GUI: leave counter
+GUI: wait WORLD
+GUI: eat meal
+GUI: wait BAG
+GUI: eat soup
+GUI: wait SCENE
+GUI: back pockets
+GUI: wait BAG
+GUI: close pockets
+GUI: wait WORLD
+GUI: needs updated
+GUI: plan 240.0,255.0
+GUI: walk 240.0,255.0
+GUI: interact
+GUI: plan 174.0,230.0
+GUI: walk 174.0,230.0
+GUI: interact
+GUI: approach Mira
+GUI: wait SOCIAL
+GUI: unique girl
+GUI: personal conversation
+GUI: wait SCENE
+GUI: continue scene
+GUI: wait WORLD
+GUI: approach Mira
+GUI: wait SOCIAL
+GUI: invite
+GUI: free date
+GUI: wait SCENE
+GUI: continue scene
+GUI: wait WORLD
+GUI: date planned
+GUI: plan 246.0,262.0
+GUI: walk 246.0,262.0
+GUI: interact
+GUI: plan 900.0,447.0
+GUI: walk 900.0,447.0
+GUI: interact
+GUI: settled park
+GUI: park
+GUI: plan 240.0,153.0
+GUI: walk 240.0,153.0
+GUI: interact
+GUI: wait SOCIAL
+GUI: date choices
+GUI: wait SCENE
+GUI: continue scene
+GUI: wait WORLD
+GUI: relationship changed
+GUI: map
+GUI: wait MAP
+GUI: actual map
+GUI: wait WORLD
+GUI: plan 240.0,255.0
+GUI: walk 240.0,255.0
+GUI: interact
+GUI: plan 174.0,230.0
+GUI: walk 174.0,230.0
+GUI: interact
+GUI: plan 160.0,77.0
+GUI: walk 160.0,77.0
+GUI: interact
+GUI: plan 266.0,164.0
+GUI: walk 266.0,164.0
+GUI: interact
+GUI: wait REST
+GUI: sleep
+GUI: wait SCENE
+GUI: continue scene
+GUI: wait WORLD
+GUI: new morning
+GUI: wait BUDGET
+GUI: budget
+GUI: wait WORLD
+GUI: pause
+GUI: wait PAUSE
+GUI: paused time
+GUI: pause respects time
+GUI: wait MENU
+GUI: continue
+GUI: wait WORLD
+GUI: persistence
+GUI: consent fixture
+GUI: interact
+GUI: wait REST
+GUI: night invitation
+GUI: wait SOCIAL
+GUI: consent
+GUI: wait NIGHT
+GUI: fade to black
+GUI: wait SCENE
+GUI: continue scene
+GUI: wait WORLD
+GUI: morning memory
+GUI: contacts
+GUI: wait CONTACTS
+GUI: contacts portraits
+GUI: wait WORLD
+GUI: small window
+GUI: resize
+GUI: 960 shot
+GUI: large window
+GUI: resize large
+GUI: 1080 shot
+GUI: soak
+CHAPTER_SMOKE_PASS frames=5378 seconds=180.11711 first day + labelled consent fixture
+GUI: complete
+
+BUILD SUCCESSFUL in 3m 7s
+6 actionable tasks: 1 executed, 5 up-to-date

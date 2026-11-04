@@ -12,7 +12,7 @@ if not defined JAVA_CMD (
   pause
   exit /b 1
 )
-if exist "%~dp0lib\core-0.3.0.jar" goto packaged
+if exist "%~dp0lib\core-0.4.0.jar" goto packaged
 if exist "%~dp0gradlew.bat" goto source
  echo Не найдены файлы игры. Сначала извлеките ZIP целиком, затем запустите run.bat.
 pause
