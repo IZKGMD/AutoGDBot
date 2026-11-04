@@ -1539,7 +1539,10 @@ public final class AstraCodeVisuals implements Disposable {
     }
 
     if (actionButton != null) {
-      row.add(actionButton).height(COMPACT_BTN_HEIGHT).right();
+      // Scene2D Tables may otherwise shrink a wrapped label to a few pixels,
+      // rendering the action vertically when the data columns expand.
+      if (actionButton instanceof TextButton textButton) textButton.getLabel().setWrap(false);
+      row.add(actionButton).width(136f).minWidth(136f).height(COMPACT_BTN_HEIGHT).right();
     }
 
     return row;
