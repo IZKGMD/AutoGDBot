@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """VitaLink: HTTPS reverse-proxied, authenticated job queue on VPS loopback."""
-import json, sqlite3, threading, time, secrets, hmac, uuid, argparse
+import json, sqlite3, threading, time, secrets, hmac, uuid, argparse, base64
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -56,10 +56,68 @@ class Store:
     def __init__(self, config):
         self.config=config; self.lock=threading.RLock()
         self.github_oidc=(GitHubOIDCVerifier() if config.get("enable_github_oidc",False) else None)
+        # Screen data is ephemeral RAM-only. No screenshots in SQLite or logs.
+        self.screen_frame=None
+        self.screen_frame_at=0.0
+        self.screen_seq=0
+        self.screen_active_until=0.0
+        self.screen_last_capture_request=0.0
         self.db=sqlite3.connect(config["database"],check_same_thread=False)
         self.db.row_factory=sqlite3.Row
         with self.db:
             self.db.execute("CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, action TEXT, args TEXT, state TEXT, created INTEGER, result TEXT)")
+    def screen_start(self):
+        with self.lock:
+            now=time.time()
+            if now>=self.screen_active_until:
+                self.screen_frame=None
+                self.screen_frame_at=0.0
+            self.screen_active_until=now+18.0
+            return {"ok":True,"active":True,"expires_in":18}
+
+    def screen_stop(self):
+        with self.lock:
+            self.screen_active_until=0.0
+            self.screen_frame=None
+            self.screen_frame_at=0.0
+            return {"ok":True,"active":False}
+
+    def screen_need(self):
+        with self.lock:
+            now=time.time()
+            due=(now<self.screen_active_until
+                 and now-self.screen_last_capture_request>=2.5)
+            if due:
+                self.screen_last_capture_request=now
+            return {"capture":due,"active":now<self.screen_active_until}
+
+    def screen_publish(self,body):
+        encoded=body.get("jpeg")
+        if not isinstance(encoded,str) or len(encoded)>230000:
+            raise ValueError("Invalid JPEG payload")
+        try:
+            raw=base64.b64decode(encoded,validate=True)
+        except Exception:
+            raise ValueError("Invalid base64 JPEG")
+        if not (500<=len(raw)<=160000 and raw[:3]==b"\xff\xd8\xff" and raw[-2:]==b"\xff\xd9"):
+            raise ValueError("JPEG invalid or too large")
+        with self.lock:
+            if time.time()>=self.screen_active_until:
+                raise ValueError("Screen session expired")
+            self.screen_seq+=1
+            self.screen_frame=encoded
+            self.screen_frame_at=time.time()
+            return {"ok":True,"seq":self.screen_seq}
+
+    def screen_latest(self):
+        with self.lock:
+            now=time.time()
+            if now>=self.screen_active_until or self.screen_frame is None or now-self.screen_frame_at>15:
+                return {"available":False,"seq":self.screen_seq}
+            return {"available":True,"seq":self.screen_seq,
+                    "age_seconds":round(now-self.screen_frame_at,1),
+                    "jpeg":self.screen_frame}
+
     def add(self, body):
         action=body.get("action"); args=body.get("args",{})
         if action not in ("diagnose","search","install","game","upload","download","shell") or not isinstance(args,dict):
@@ -111,15 +169,44 @@ def make_handler(store):
             if role=="operator" and store.github_oidc and authorization.startswith("Bearer "):
                 return store.github_oidc.verify(authorization[7:])
             return False
+        def viewer_auth(self):
+            token=store.config.get("screen_view_token","")
+            authorization=self.headers.get("Authorization","")
+            return (isinstance(token,str) and len(token)>=32 and
+                    hmac.compare_digest(authorization,"Bearer "+token))
+        def html(self):
+            if not store.config.get("screen_view_token"):
+                return self.send(404,{"error":"Screen viewer not enabled"})
+            try:
+                data=Path(__file__).with_name("viewer.html").read_bytes()
+            except FileNotFoundError:
+                return self.send(503,{"error":"Screen viewer needs installation"})
+            self.send_response(200)
+            self.send_header("Content-Type","text/html; charset=utf-8")
+            self.send_header("Content-Length",str(len(data)))
+            self.send_header("Cache-Control","no-store")
+            self.send_header("X-Frame-Options","DENY")
+            self.send_header("X-Content-Type-Options","nosniff")
+            self.send_header("Referrer-Policy","no-referrer")
+            self.send_header("Content-Security-Policy","default-src 'none'; img-src data:; connect-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
+            self.end_headers()
+            self.wfile.write(data)
         def json(self):
             n=int(self.headers.get("Content-Length","0"))
-            if n<1 or n>140000:raise ValueError("Invalid Content-Length")
+            if n<1 or n>245000:raise ValueError("Invalid Content-Length")
             body=json.loads(self.rfile.read(n))
             if not isinstance(body,dict):raise ValueError("Expected object")
             return body
         def do_GET(self):
             path=self.path.split("?",1)[0]
             if path=="/health":return self.send(200,{"ok":True,"service":"VitaLink"})
+            if path in ("/viewer","/viewer/"):return self.html()
+            if path=="/v1/screen/need":
+                if not self.authorized("agent"):return self.send(401,{"error":"Unauthorized"})
+                return self.send(200,store.screen_need())
+            if path=="/v1/screen/frame":
+                if not self.viewer_auth():return self.send(401,{"error":"Unauthorized"})
+                return self.send(200,store.screen_latest())
             if path=="/v1/auth":
                 if not self.authorized("operator"):return self.send(401,{"error":"Unauthorized"})
                 return self.send(200,{"ok":True,"service":"VitaLink","auth":"operator"})
@@ -133,6 +220,13 @@ def make_handler(store):
         def do_POST(self):
             path=self.path.split("?",1)[0]
             try:
+                if path in ("/v1/screen/session","/v1/screen/stop"):
+                    if not self.viewer_auth():return self.send(401,{"error":"Unauthorized"})
+                    if path=="/v1/screen/stop":return self.send(200,store.screen_stop())
+                    return self.send(200,store.screen_start())
+                if path=="/v1/screen/frame":
+                    if not self.authorized("agent"):return self.send(401,{"error":"Unauthorized"})
+                    return self.send(200,store.screen_publish(self.json()))
                 if path=="/v1/jobs":
                     if not self.authorized("operator"):return self.send(401,{"error":"Unauthorized"})
                     return self.send(201,{"id":store.add(self.json())})
