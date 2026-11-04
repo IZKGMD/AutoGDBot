@@ -111,7 +111,10 @@ jobs:
           ZIP=release/CTRL-LIFE-0.5.0-Pinux-Astra-Windows-x64.zip
           SHA="$ZIP.sha256"
           if gh release view "$TAG" >/dev/null 2>&1; then
+            # A pre-release can be rebuilt; keep its tag pointing at the actual archive source.
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" -f sha="$GITHUB_SHA" -F force=true
             gh release upload "$TAG" "$ZIP" "$SHA" --clobber
+            gh release edit "$TAG" --notes-file docs/PINUX_ASTRA.md
           else
             gh release create "$TAG" "$ZIP" "$SHA" \
               --target "$GITHUB_SHA" \
