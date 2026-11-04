@@ -87,6 +87,7 @@ public final class Social {
   }
 
   public static String cancel(GameState s, LifeContent.Girl g) {
+    if (s.date.active()) return "Встреча уже началась. Продолжи её или попрощайтесь лично.";
     if (!s.plannedGirl.equals(g.id)) return "С этой девушкой встреча не назначена.";
     s.plannedGirl = "";
     s.plannedVenue = "";
@@ -100,6 +101,8 @@ public final class Social {
   }
 
   public static String reschedule(GameState s, LifeContent.Girl g, String venue, boolean tomorrow) {
+    if (s.date.active())
+      return "Встреча уже началась. Сменить место можно перед следующим свиданием.";
     if (!s.plannedGirl.equals(g.id)) return "Сначала договоритесь о встрече.";
     if (!java.util.Arrays.asList(g.venues).contains(venue)) return "Это место ей не подходит.";
     s.plannedVenue = venue;
@@ -120,11 +123,15 @@ public final class Social {
   }
 
   public static boolean canStartDate(GameState s, String venue) {
-    return !s.plannedGirl.isEmpty() && s.plannedVenue.equals(venue) && s.plannedDay == s.day();
+    return !s.plannedGirl.isEmpty()
+        && s.plannedVenue.equals(venue)
+        && (s.plannedDay == s.day() || s.date.active());
   }
 
   public static String date(GameState s, LifeContent.Girl g, int choice) {
     var r = s.relation(g.id);
+    if (s.date.active()) return "Продолжи начатую встречу: решения уже сохраняются.";
+    if (choice < 0 || choice >= g.dateChoices.length) return "Выбери ответ.";
     if (!s.plannedGirl.equals(g.id) || s.plannedDay != s.day())
       return "Сначала договоритесь о встрече.";
     if (!s.map.equals(s.plannedVenue))
@@ -209,7 +216,7 @@ public final class Social {
 
   public static void expire(GameState s) {
     RelationshipJourney.expire(s);
-    if (!s.plannedGirl.isEmpty() && s.day() > s.plannedDay) {
+    if (!s.date.active() && !s.plannedGirl.isEmpty() && s.day() > s.plannedDay) {
       var r = s.relation(s.plannedGirl);
       change(r, 0, -2);
       RelationshipJourney.remember(

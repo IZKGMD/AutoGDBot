@@ -246,7 +246,11 @@ class RelationshipJourneyTest {
         Social.talk(s, g, 0);
         Social.invite(s, g, "park");
         s.map = "park";
-        Social.date(s, g, 0);
+        assertEquals("", DateStory.start(s, g));
+        for (int moment = 0; moment < 3; moment++) {
+          DateStory.choose(s, (day + moment) % 2);
+          DateStory.next(s);
+        }
         Social.commit(s, g);
         s.map = g.homeMap;
         var r = s.relation(g.id);

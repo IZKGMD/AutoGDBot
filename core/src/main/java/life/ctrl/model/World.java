@@ -26,7 +26,9 @@ public final class World {
       activeNpcs.clear();
       for (var m : content.maps)
         for (var n : m.npcs) {
-          boolean meeting = n.id.equals(state.plannedGirl) && state.plannedDay == state.day();
+          boolean meeting =
+              n.id.equals(state.plannedGirl)
+                  && (state.plannedDay == state.day() || state.date.active());
           if (meeting ? state.map.equals(state.plannedVenue) : m.id.equals(state.map))
             activeNpcs.add(n);
         }
@@ -47,6 +49,7 @@ public final class World {
   public void validateState() {
     if (state.pinux == null) throw new IllegalArgumentException("Pinux session");
     state.pinux.validate();
+    DateStory.validate(state);
     if (state.name == null
         || state.name.isBlank()
         || state.name.length() > 18
@@ -111,6 +114,13 @@ public final class World {
           || relation.trust > 100
           || relation.dates < 0
           || relation.sharedNights < 0
+          || relation.dateExperiences == null
+          || relation.dateExperiences.size() > 3
+          || relation.knownDetails == null
+          || relation.knownDetails.size() > 9
+          || relation.knownDetails.stream().anyMatch(d -> d == null || d.length() > 200)
+          || relation.dateExperiences.entrySet().stream()
+              .anyMatch(e -> e.getKey() == null || e.getValue() == null || e.getValue() < 1)
           || relation.memory == null
           || relation.arcStep < 0
           || relation.arcStep > 3

@@ -15,6 +15,7 @@ public final class RelationshipSmoke extends CtrlLife {
 
   final ArrayDeque<Step> steps = new ArrayDeque<>();
   float timer;
+  int settleFrames;
   boolean failed;
 
   public static void main(String[] args) throws Exception {
@@ -43,7 +44,7 @@ public final class RelationshipSmoke extends CtrlLife {
   }
 
   void click(int x, int y) {
-    int sx = canvas().offsetX + x * canvas().scale, sy = canvas().offsetY + y * canvas().scale;
+    int sx = canvas().screenX(x), sy = canvas().screenY(y);
     Gdx.input.getInputProcessor().touchDown(sx, sy, 0, Input.Buttons.LEFT);
     Gdx.input.getInputProcessor().touchUp(sx, sy, 0, Input.Buttons.LEFT);
   }
@@ -61,7 +62,7 @@ public final class RelationshipSmoke extends CtrlLife {
         "continue scene",
         () -> {
           check(mode() == Mode.SCENE, "Missing scene");
-          click(240, 237);
+          click(300, 247);
         });
   }
 
@@ -103,32 +104,32 @@ public final class RelationshipSmoke extends CtrlLife {
           id + " home",
           () -> {
             shot(id + "-home");
-            click(100, 214);
+            click(230, 210);
           });
       step(
           id + " journey",
           () -> {
             check(lifeScreens().socialPage.equals("journey"), "Missing journey");
             shot(id + "-journey");
-            click(100, 174);
+            click(230, 174);
           });
       step(
           id + " chapter",
           () -> {
             check(lifeScreens().socialPage.equals("chapter"), "Missing chapter");
             shot(id + "-chapter-1");
-            click(240, 194);
+            click(300, 177);
           });
       step(
           id + " durable choice",
           () -> check(world().state.relation(id).arcStep == 1, "Choice did not advance"));
       continueScene();
-      step(id + " choose shared activity", () -> click(330, 174));
+      step(id + " choose shared activity", () -> click(390, 174));
       step(
           id + " activity UI",
           () -> {
             shot(id + "-activities");
-            click(240, 139);
+            click(300, 139);
           });
       step(
           id + " activity completed",
@@ -136,15 +137,15 @@ public final class RelationshipSmoke extends CtrlLife {
               check(
                   world().state.relation(id).activities.size() == 1, "Activity did not complete"));
       continueScene();
-      step(id + " back home", () -> click(100, 242));
-      step(id + " history hub", () -> click(100, 214));
-      step(id + " journal", () -> click(100, 202));
+      step(id + " back home", () -> click(300, 246));
+      step(id + " history hub", () -> click(230, 210));
+      step(id + " journal", () -> click(230, 202));
       step(
           id + " memory screenshot",
           () -> {
             check(lifeScreens().socialPage.equals("memories"), "Journal missing");
             shot(id + "-memory");
-            click(240, 244);
+            click(420, 246);
           });
       step(
           id + " meeting fixture",
@@ -153,19 +154,19 @@ public final class RelationshipSmoke extends CtrlLife {
             Social.invite(world().state, g, "park");
             lifeScreens().openSocial(id, true);
           });
-      step(id + " meeting controls", () -> click(330, 214));
+      step(id + " meeting controls", () -> click(390, 210));
       step(
           id + " meeting screenshot",
           () -> {
             shot(id + "-meeting");
-            click(240, 158);
+            click(300, 158);
           });
       continueScene();
       step(
           id + " tomorrow",
           () -> {
             check(world().state.plannedDay == world().state.day() + 1, "Tomorrow not scheduled");
-            click(240, 214);
+            click(300, 214);
           });
       continueScene();
       step(
@@ -217,7 +218,9 @@ public final class RelationshipSmoke extends CtrlLife {
   public void render() {
     super.render();
     timer += Gdx.graphics.getDeltaTime();
-    if (timer < .25f || steps.isEmpty()) return;
+    settleFrames++;
+    if (timer < .25f || settleFrames < 3 || steps.isEmpty()) return;
+    settleFrames = 0;
     timer = 0;
     var step = steps.remove();
     try {

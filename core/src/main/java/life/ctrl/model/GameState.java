@@ -26,6 +26,7 @@ public final class GameState {
   public HashMap<String, Integer> items = new HashMap<>();
   public HashMap<String, Relationship> relationships = new HashMap<>();
   public PinuxSession pinux = new PinuxSession();
+  public DateStory.Session date = new DateStory.Session();
   public int codingXp, completedOrders, rushDeadline = -1, projectIncomeDay = -1;
   public boolean rushJob;
   public ArrayList<String> shipped = new ArrayList<>(),

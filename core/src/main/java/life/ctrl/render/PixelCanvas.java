@@ -33,7 +33,8 @@ public final class PixelCanvas implements Disposable {
   private final Texture white;
   public final BitmapFont font, small, title;
   private final GlyphLayout layout = new GlyphLayout();
-  public int scale = 1, offsetX, offsetY;
+  public float scale = 1;
+  public int offsetX, offsetY;
 
   public PixelCanvas() {
     Pixmap p = new Pixmap(1, 1, Pixmap.Format.RGBA8888);
@@ -129,7 +130,7 @@ public final class PixelCanvas implements Disposable {
           if (hd.exists()) highDensity.add(n);
           Texture t = new Texture(hd.exists() ? hd : Gdx.files.internal("art/" + n + ".png"));
           var filter =
-              n.startsWith("light_") || n.equals("shadow")
+              n.startsWith("illustrations/") || n.startsWith("light_") || n.equals("shadow")
                   ? Texture.TextureFilter.Linear
                   : Texture.TextureFilter.Nearest;
           t.setFilter(filter, filter);
@@ -142,7 +143,8 @@ public final class PixelCanvas implements Disposable {
         Math.max(
             1,
             Math.min(
-                Gdx.graphics.getBackBufferWidth() / W, Gdx.graphics.getBackBufferHeight() / H));
+                (int) Math.ceil(Gdx.graphics.getBackBufferWidth() / (float) W),
+                (int) Math.ceil(Gdx.graphics.getBackBufferHeight() / (float) H)));
     if (frame == null || target != density) {
       if (frame != null) frame.dispose();
       density = target;
@@ -166,9 +168,10 @@ public final class PixelCanvas implements Disposable {
     batch.end();
     frame.end();
     int w = Gdx.graphics.getWidth(), h = Gdx.graphics.getHeight();
-    scale = Math.max(1, Math.min(w / W, h / H));
-    offsetX = (w - W * scale) / 2;
-    offsetY = (h - H * scale) / 2;
+    var viewport = CanvasViewport.fit(w, h);
+    scale = viewport.scale();
+    offsetX = viewport.x();
+    offsetY = viewport.y();
     Gdx.gl.glViewport(0, 0, Gdx.graphics.getBackBufferWidth(), Gdx.graphics.getBackBufferHeight());
     Gdx.gl.glClearColor(.045f, .06f, .085f, 1);
     Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
@@ -313,6 +316,62 @@ public final class PixelCanvas implements Disposable {
         t, Math.round(x), H - Math.round(y) - artHeight(name), artWidth(name), artHeight(name));
   }
 
+  /** Crop an atlas panel to a viewport without stretching or sampling adjacent panels. */
+  public void portrait(String id, float x, float y, float width, float height) {
+    Texture t = texture("illustrations/relationships");
+    int column =
+        switch (id) {
+          case "mira" -> 0;
+          case "asya" -> 1;
+          default -> 2;
+        };
+    int panel = t.getWidth() / 3;
+    int sw = panel - 2, sh = t.getHeight() - 2;
+    float aspect = width / height;
+    if (sw / (float) sh > aspect) sw = Math.round(sh * aspect);
+    else sh = Math.round(sw / aspect);
+    int sx = column * panel + (panel - sw) / 2, sy = 1;
+    batch.draw(t, x, H - y - height, width, height, sx, sy, sw, sh, false, false);
+  }
+
+  public float paragraphHeight(String text, float width, boolean compact) {
+    layout.setText(
+        compact ? small : font, text, Color.WHITE, width, com.badlogic.gdx.utils.Align.left, true);
+    return layout.height;
+  }
+
+  /** Measured paragraphs used by narrative screens; visual QA rejects clipping. */
+  public void paragraph(
+      String text, float x, float y, float width, float height, String tint, boolean compact) {
+    BitmapFont f = compact ? small : font;
+    layout.setText(f, text, Color.WHITE, width, com.badlogic.gdx.utils.Align.left, true);
+    if (Boolean.getBoolean("ctrl.uiAudit") && layout.height > height + 1)
+      throw new IllegalStateException(
+          "Narrative text clipped: " + text + " height=" + layout.height + " available=" + height);
+    clip(x, y - 1, width, height + 2);
+    f.setColor(color(tint));
+    f.draw(batch, text, x, H - y, width, com.badlogic.gdx.utils.Align.left, true);
+    unclip();
+  }
+
+  public java.util.List<String> pages(String text, float width, float height, boolean compact) {
+    BitmapFont f = compact ? small : font;
+    java.util.ArrayList<String> result = new java.util.ArrayList<>();
+    StringBuilder page = new StringBuilder();
+    for (String word : text.split("(?<=\\s)")) {
+      String next = page.toString() + word;
+      layout.setText(f, next, Color.WHITE, width, com.badlogic.gdx.utils.Align.left, true);
+      if (layout.height > height && !page.isEmpty()) {
+        result.add(page.toString().strip());
+        page.setLength(0);
+      }
+      page.append(word);
+    }
+    if (!page.isEmpty()) result.add(page.toString().strip());
+    if (result.isEmpty()) result.add("");
+    return result;
+  }
+
   public void scaledArt(String name, float x, float y, float width, float height) {
     batch.draw(texture(name), Math.round(x), H - Math.round(y) - height, width, height);
   }
@@ -362,12 +421,20 @@ public final class PixelCanvas implements Disposable {
     text(text, Math.round((W - width(text)) / 2), y, color);
   }
 
+  public int screenX(float x) {
+    return Math.round(offsetX + x * scale);
+  }
+
+  public int screenY(float y) {
+    return Math.round(offsetY + y * scale);
+  }
+
   public float logicalX(int x) {
-    return (x - offsetX) / (float) scale;
+    return (x - offsetX) / scale;
   }
 
   public float logicalY(int y) {
-    return (y - offsetY) / (float) scale;
+    return (y - offsetY) / scale;
   }
 
   public float mouseX() {

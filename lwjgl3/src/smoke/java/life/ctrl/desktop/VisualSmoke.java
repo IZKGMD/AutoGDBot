@@ -68,8 +68,8 @@ public final class VisualSmoke extends CtrlLife {
             0, 0, Gdx.graphics.getBackBufferWidth(), Gdx.graphics.getBackBufferHeight());
     try {
       for (int x : new int[] {80, 400}) {
-        int sx = canvas().offsetX + x * canvas().scale,
-            sy = p.getHeight() - 1 - (canvas().offsetY + 135 * canvas().scale);
+        int sx = canvas().screenX(x),
+            sy = p.getHeight() - 1 - (canvas().screenY(135));
         int rgb = p.getPixel(sx, sy) >>> 8;
         if (rgb != 0x0e1a24)
           throw new AssertionError(
@@ -131,6 +131,30 @@ public final class VisualSmoke extends CtrlLife {
         });
     step("settle", () -> {});
     step("room upgraded", () -> shot("upgraded"));
+    step(
+        "keepsakes fixture",
+        () -> {
+          world().state.relation("mira").dateExperiences.put("mira-margins", 1);
+          world().state.relation("asya").dateExperiences.put("asya-contact", 1);
+          world().state.relation("nika").dateExperiences.put("nika-offline", 1);
+          fixture("room", 22, 240, 190);
+        });
+    step("settle keepsakes", () -> {});
+    step(
+        "keepsakes capture",
+        () -> {
+          shot("room-keepsakes");
+          noLightInVoid();
+        });
+    step(
+        "clear park",
+        () -> {
+          fixture("park", 18, 240, 190);
+          world().state.gameMinutes = 1440 + 18 * 60;
+          refreshState();
+        });
+    step("settle clear park", () -> {});
+    step("clear park capture", () -> shot("park-clear-evening"));
     step("open map", () -> tap(Keys.M));
     step(
         "map geometry",

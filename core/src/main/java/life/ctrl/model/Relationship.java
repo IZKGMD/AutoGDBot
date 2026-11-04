@@ -3,6 +3,9 @@ package life.ctrl.model;
 /** Durable relationship history. Affection cannot substitute for trust or consent. */
 public final class Relationship {
   public boolean met;
+  public java.util.HashMap<String, Integer> dateExperiences = new java.util.HashMap<>();
+  public java.util.ArrayList<String> knownDetails = new java.util.ArrayList<>();
+  public int lastPlanDay = -1;
   public int arcStep, lastArcDay = -1, lastActivityDay = -1, promiseDue = -1;
   public String promise = "", brokenPromise = "";
   public java.util.ArrayList<String> decisions = new java.util.ArrayList<>();

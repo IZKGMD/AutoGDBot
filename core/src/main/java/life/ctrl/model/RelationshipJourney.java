@@ -17,7 +17,9 @@ public final class RelationshipJourney {
   public static boolean present(GameState s, LifeContent.Girl g) {
     return s.map.equals(g.homeMap)
         || (s.partnerId.equals(g.id) && s.map.equals("room"))
-        || (s.plannedGirl.equals(g.id) && s.plannedDay == s.day() && s.map.equals(s.plannedVenue));
+        || (s.plannedGirl.equals(g.id)
+            && (s.plannedDay == s.day() || s.date.active())
+            && s.map.equals(s.plannedVenue));
   }
 
   public static String nextReason(GameState s, LifeContent.Girl g) {
@@ -127,6 +129,48 @@ public final class RelationshipJourney {
       text += " Ты сдержал(а) обещание. Это оказалось важнее красивых слов.";
     }
     remember(s, r, a.label, text);
+    return text;
+  }
+
+  public static String planReason(GameState s, LifeContent.Girl g) {
+    var r = s.relation(g.id);
+    if (!s.partnerId.equals(g.id)) return "Общие планы доступны, когда вы стали парой.";
+    if (!present(s, g)) return "Договориться о вашем времени лучше при встрече.";
+    if (!r.brokenPromise.isEmpty()) return "Сначала обсудите невыполненное обещание.";
+    if (!r.promise.isEmpty())
+      return "У вас уже есть план: "
+          + promiseLabel(g.id, r.promise)
+          + ". До конца дня "
+          + r.promiseDue
+          + ".";
+    if (r.lastPlanDay >= 1 && s.day() < r.lastPlanDay + 3)
+      return "Новый общий план — с дня "
+          + (r.lastPlanDay + 3)
+          + ". Можно просто встретиться или выбрать занятие.";
+    return "";
+  }
+
+  public static String plan(GameState s, LifeContent.Girl g, int option) {
+    String reason = planReason(s, g);
+    if (!reason.isEmpty()) return reason;
+    if (option < 0 || option >= 3) return "Выбери общий план.";
+    var r = s.relation(g.id);
+    var a = DATA.arc(g.id).activities[option];
+    r.promise = a.id;
+    r.promiseDue = s.day() + 3;
+    r.lastPlanDay = s.day();
+    String text =
+        g.name
+            + ": «Давай найдём для этого время». Ваш план: "
+            + a.label
+            + ". До конца дня "
+            + r.promiseDue
+            + ". Занятие занимает "
+            + a.minutes
+            + " мин и стоит "
+            + a.cost
+            + " ₽. Выполни через «Общие занятия» при встрече.";
+    remember(s, r, "Общий план", text);
     return text;
   }
 

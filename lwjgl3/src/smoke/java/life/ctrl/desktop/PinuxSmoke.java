@@ -50,8 +50,8 @@ public final class PinuxSmoke extends CtrlLife {
   }
 
   private void mouse(int operation, int x, int y) {
-    int sx = canvas().offsetX + x * canvas().scale;
-    int sy = canvas().offsetY + y * canvas().scale;
+    int sx = canvas().screenX(x);
+    int sy = canvas().screenY(y);
     switch (operation) {
       case 0 -> Gdx.input.getInputProcessor().touchDown(sx, sy, 0, Input.Buttons.LEFT);
       case 1 -> Gdx.input.getInputProcessor().touchDragged(sx, sy, 0);

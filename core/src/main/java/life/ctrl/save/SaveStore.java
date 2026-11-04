@@ -10,7 +10,7 @@ import life.ctrl.model.*;
 
 /** Validated, atomic single-slot saves with a previous-good backup. */
 public final class SaveStore {
-  public static final int VERSION = 6;
+  public static final int VERSION = 7;
 
   public static final class Envelope {
     public int version = VERSION;

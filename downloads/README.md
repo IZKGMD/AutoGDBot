@@ -1,3 +1,7 @@
+# Актуальная сборка 0.7.0
+
+[Скачать на GitHub с Java](https://github.com/IZKGMD/AutoGDBot/releases/tag/v0.7.0-close-to-home) · [Что нового](../docs/CLOSE_TO_HOME.md) · [Проверки](../docs/CLOSE_TO_HOME_QA.md)
+
 # Актуальное исправление 0.6.1
 
 [Скачать на GitHub](https://github.com/IZKGMD/AutoGDBot/releases/tag/v0.6.1-astra-layout) · [Проверка разметки](../docs/ASTRA_LAYOUT_QA.md)

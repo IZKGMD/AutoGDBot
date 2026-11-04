@@ -60,8 +60,8 @@ public final class GuiSmoke extends CtrlLife {
     Gdx.input
         .getInputProcessor()
         .touchDown(
-            canvas().offsetX + x * canvas().scale,
-            canvas().offsetY + y * canvas().scale,
+            canvas().screenX(x),
+            canvas().screenY(y),
             0,
             Input.Buttons.LEFT);
   }

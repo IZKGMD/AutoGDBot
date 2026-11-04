@@ -24,6 +24,7 @@ public final class LifeScreens {
   private String cachedSource = "";
   public String sceneTitle = "", sceneText = "";
   public Mode sceneReturn = Mode.WORLD;
+  public boolean relationshipScene;
   private static final String TEXT = "efe4c6",
       SOFT = "a7b5b6",
       GOLD = "edbb71",
@@ -67,6 +68,7 @@ public final class LifeScreens {
   }
 
   public void scene(String title, String text, Mode back) {
+    relationshipScene = false;
     sceneTitle = title;
     sceneText = text;
     sceneReturn = back;
@@ -235,6 +237,10 @@ public final class LifeScreens {
   }
 
   private void scene() {
+    if (relationshipScene) {
+      relationships.drawResult();
+      return;
+    }
     frame("СОБЫТИЕ", sceneTitle);
     c.wrap(sceneText, 28, 72, 420, 145, TEXT);
     btn("Продолжить", 28, 226, 424, () -> mode(sceneReturn));
@@ -496,305 +502,11 @@ public final class LifeScreens {
   }
 
   private void contacts() {
-    frame("КОНТАКТЫ  [R]", "Люди, ради которых хочется выйти из дома");
-    int y = 76;
-    for (var g : data.girls) {
-      var r = s().relation(g.id);
-      c.art("portrait_" + g.portrait, 28, y - 4);
-      String status =
-          s().partnerId.equals(g.id)
-              ? "вместе"
-              : r.met ? "знакомы · свиданий " + r.dates : "ещё не знакомы";
-      btn(g.name + ", " + g.age + " · " + status, 69, y, 383, () -> openSocial(g.id, true));
-      y += 46;
-    }
-    btn("Вернуться", 28, 226, 424, () -> mode(Mode.WORLD));
+    relationships.contacts();
   }
 
   private void social() {
-    var g = data.girl(girlId);
-    var r = s().relation(g.id);
-    if (relationships.draw(g)) return;
-    frame(
-        g.name.toUpperCase() + " · " + g.age + " ЛЕТ",
-        switch (socialPage) {
-          case "date" -> "Свидание · " + Social.venueName(s().plannedVenue);
-          case "night" -> "Остаться вдвоём?";
-          default ->
-              s().partnerId.equals(g.id) ? "Вы вместе" : "Знакомство, которое может стать важным";
-        });
-    c.art("portrait_" + g.portrait, 28, 67);
-    c.small(
-        "Симпатия " + r.affinity + "  Доверие " + r.trust + "  Свидания " + r.dates, 72, 68, GOLD);
-    String body =
-        socialMessage.isEmpty()
-            ? (socialPage.equals("home")
-                ? g.about
-                : socialPage.equals("night")
-                    ? g.nightLine
-                    : socialPage.equals("date")
-                        ? "Это время для вас двоих. Выбери, как провести разговор."
-                        : g.likes)
-            : socialMessage;
-    c.wrap(body, 72, 85, 378, TEXT);
-    switch (socialPage) {
-      case "home" -> {
-        if (remote) {
-          btn(
-              "Найти в городе →",
-              28,
-              150,
-              424,
-              () -> {
-                s().trackedGirl = g.id;
-                s().goalChoice = 2;
-                mode(Mode.WORLD);
-                persist();
-              });
-          btn(
-              "Договориться о встрече",
-              28,
-              176,
-              424,
-              r.met,
-              () -> {
-                socialPage = "invite";
-                game.resetSelection();
-              });
-        } else {
-          btn(
-              "Поговорить по душам",
-              28,
-              150,
-              206,
-              () -> {
-                socialPage = "talk";
-                socialMessage = "";
-                game.resetSelection();
-              });
-          btn(
-              "Передать подарок",
-              246,
-              150,
-              206,
-              () -> {
-                socialPage = "gift";
-                socialMessage = "";
-                game.resetSelection();
-              });
-          btn(
-              "Пригласить на свидание",
-              28,
-              176,
-              206,
-              () -> {
-                socialPage = "invite";
-                socialMessage = "";
-                game.resetSelection();
-              });
-          btn(
-              "Об отношениях",
-              246,
-              176,
-              206,
-              () -> {
-                socialPage = "commit";
-                socialMessage = "";
-                game.resetSelection();
-              });
-        }
-        game.uiButton(
-            "Ваша история",
-            28,
-            204,
-            206,
-            20,
-            r.met,
-            () -> {
-              socialPage = "journey";
-              game.resetSelection();
-            });
-        game.uiButton(
-            "Встреча / перенос",
-            246,
-            204,
-            206,
-            20,
-            s().plannedGirl.equals(g.id),
-            () -> {
-              socialPage = "meeting";
-              game.resetSelection();
-            });
-        btn("До встречи", 28, 231, 424, () -> mode(remote ? Mode.CONTACTS : Mode.WORLD));
-      }
-      case "talk" -> {
-        int y = 151;
-        for (int i = 0; i < g.topics.length; i++) {
-          int index = i;
-          btn(
-              g.topics[i].label,
-              28,
-              y,
-              424,
-              () -> scene(g.name, Social.talk(s(), g, index), Mode.WORLD));
-          y += 26;
-        }
-      }
-      case "gift" -> {
-        int y = 139;
-        for (var item : data.items) {
-          if (!item.kind.equals("gift") || s().count(item.id) < 1) continue;
-          if (y > 218) break;
-          game.uiButton(
-              item.name + " ×" + s().count(item.id),
-              28,
-              y,
-              424,
-              18,
-              true,
-              () -> scene(g.name, Social.gift(s(), g, item), Mode.WORLD));
-          y += 18;
-        }
-        if (y == 139) c.small("Подарков нет. Купить можно в кофейне.", 28, 164, SOFT);
-        btn(
-            "Назад",
-            28,
-            231,
-            424,
-            () -> {
-              socialPage = "home";
-              socialMessage = "";
-              game.resetSelection();
-            });
-      }
-      case "invite" -> {
-        int y = 151;
-        for (String venue : g.venues) {
-          btn(
-              Social.venueName(venue) + (venue.equals("park") ? " · бесплатно" : " · 850 ₽"),
-              28,
-              y,
-              424,
-              () -> {
-                String result = Social.invite(s(), g, venue);
-                scene(g.name, result, Mode.WORLD);
-              });
-          y += 26;
-        }
-        btn(
-            "Назад",
-            28,
-            231,
-            424,
-            () -> {
-              socialPage = "home";
-              game.resetSelection();
-            });
-      }
-      case "date" -> {
-        int y = 151;
-        for (int i = 0; i < g.dateChoices.length; i++) {
-          int index = i;
-          btn(
-              g.dateChoices[i].label,
-              28,
-              y,
-              424,
-              () -> scene(g.name, Social.date(s(), g, index), Mode.WORLD));
-          y += 28;
-        }
-        if (!s().plannedVenue.equals("park"))
-          btn(
-              "Перенести в сквер · бесплатно",
-              28,
-              211,
-              424,
-              () -> {
-                if (Arrays.asList(g.venues).contains("park")) {
-                  Social.reschedule(s(), g, "park", false);
-                  scene(
-                      "Перенос встречи",
-                      "Вы договорились встретиться в сквере. Золотой маршрут покажет путь.",
-                      Mode.WORLD);
-                }
-              });
-      }
-      case "commit" -> {
-        btn(
-            "Предложить быть парой",
-            28,
-            151,
-            424,
-            () -> scene(g.name, Social.commit(s(), g), Mode.WORLD));
-        btn(
-            "Честно обсудить расставание",
-            28,
-            179,
-            424,
-            s().partnerId.equals(g.id),
-            () -> {
-              socialPage = "breakup";
-              game.resetSelection();
-            });
-        btn(
-            "Не торопиться",
-            28,
-            231,
-            424,
-            () -> {
-              socialPage = "home";
-              game.resetSelection();
-            });
-      }
-      case "breakup" -> {
-        c.wrap(
-            "Это завершит отношения. Доверие и симпатия уменьшатся; новая встреча не отменит"
-                + " разговор автоматически.",
-            28,
-            150,
-            424,
-            SOFT);
-        btn(
-            "Да, сказать честно",
-            28,
-            205,
-            206,
-            () -> scene(g.name, Social.breakup(s(), g), Mode.WORLD));
-        btn(
-            "Пока не говорить",
-            246,
-            205,
-            206,
-            () -> {
-              socialPage = "home";
-              game.resetSelection();
-            });
-      }
-      case "night" -> {
-        c.wrap(
-            Social.canShareNight(s(), g)
-                ? "Вы оба этого хотите. Если передумаешь, можно отказаться — без обид и объяснений."
-                : "Для этого нужны устойчивые отношения, доверие и вечернее время. Сейчас можно"
-                    + " просто побыть рядом.",
-            28,
-            144,
-            424,
-            SOFT);
-        btn(
-            "Да, мы оба этого хотим",
-            28,
-            205,
-            206,
-            Social.canShareNight(s(), g),
-            () -> mode(Mode.NIGHT));
-        btn(
-            "Давай не сегодня",
-            246,
-            205,
-            206,
-            () -> scene(g.name, Social.shareNight(s(), g, false), Mode.WORLD));
-      }
-    }
+    relationships.draw(data.girl(girlId));
   }
 
   private void night() {

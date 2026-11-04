@@ -181,6 +181,27 @@ public class CtrlLife extends ApplicationAdapter {
     button(text, x, y, w, h, enabled, run);
   }
 
+  /** Narrative actions retain keyboard focus and show their whole caption on two lines. */
+  public void narrativeButton(
+      String label, int x, int y, int w, int h, boolean enabled, Runnable action) {
+    int index = buttons.size();
+    Button b = new Button(label, x, y, w, h, enabled, action);
+    buttons.add(b);
+    if (mouseMoved && contains(b, c.mouseX(), c.mouseY()) && enabled) selection = index;
+    boolean selected = enabled && selection == index;
+    c.roundRect(x, y, w, h, 4, selected ? "b99869" : "31404d");
+    c.roundRect(x + .5f, y + .5f, w - 1, h - 1, 4, selected ? "3c3c39" : "1c2935");
+    if (selected) c.rect(x + 4, y + 5, 1.5f, h - 10, "e5bd81");
+    c.paragraph(
+        label,
+        x + 11,
+        y + (h - c.paragraphHeight(label, w - 20, true)) / 2,
+        w - 20,
+        h - 5,
+        enabled ? (selected ? "f2d2a1" : "e7e1d8") : "778793",
+        true);
+  }
+
   /** Register a native game UI hit-target without painting a legacy rectangular button. */
   public void uiHotspot(String label, int x, int y, int w, int h, Runnable action) {
     int index = buttons.size();
@@ -657,6 +678,7 @@ public class CtrlLife extends ApplicationAdapter {
       c.rect(850 - ox, 415 - oy, 85, 14, "203c46");
       c.fitted("СКВЕР →", 862 - ox, 417 - oy, 69, "d6d9b5", true);
     }
+    SceneDetails.ground(c, world.state, ox, oy, visualTime, settings.reducedEffects);
     for (var item : drawItems)
       if (item.person) {
         if (item.art.equals("hero")) {
@@ -720,6 +742,7 @@ public class CtrlLife extends ApplicationAdapter {
       for (int x : new int[] {130, 241, 445, 556, 685, 796})
         c.glow("light_window", x - 80 - ox, 118 - oy, night);
     }
+    SceneDetails.foreground(c, world.state, ox, oy, visualTime, settings.reducedEffects);
     if (outside && Atmosphere.rain(world.state) && !settings.reducedEffects) {
       for (int i = 0; i < 42; i++) {
         float x = (i * 83 + visualTime * 19) % 500 - 10, y = (i * 47 + visualTime * 125) % 290 - 10;
@@ -831,7 +854,7 @@ public class CtrlLife extends ApplicationAdapter {
     button("Настройки", 245, 182, 135, 23, true, () -> openSettings(Mode.MENU));
     button("Выйти", 245, 209, 135, 23, true, () -> Gdx.app.exit());
     c.small("ПЕРВЫЕ ДЕНЬГИ. ПЕРВЫЕ ЧУВСТВА.", 32, 248, MUTED);
-    c.small("0.6.1", 419, 248, MUTED);
+    c.small("0.7.0", 419, 248, MUTED);
     // An illuminated architectural vignette cut out of the room.
     c.panel(314, 44, 120, 112);
     c.art("desk", 342, 66);
