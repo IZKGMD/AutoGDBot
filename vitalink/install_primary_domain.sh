@@ -12,6 +12,10 @@ if command -v caddy >/dev/null 2>&1 && systemctl is-active --quiet caddy; then
   bash "$SOURCE_DIR/install_vps.sh" "$SOURCE_DIR"
   exec bash "$SOURCE_DIR/install_caddy_primary.sh"
 fi
+if command -v docker >/dev/null 2>&1 && docker inspect mucho-core-caddy-1 >/dev/null 2>&1; then
+  echo 'Docker Caddy found; applying private bridge route.'
+  exec bash "$SOURCE_DIR/install_docker_caddy.sh"
+fi
 if ! command -v nginx >/dev/null 2>&1; then
   echo 'Nginx was not detected; existing webserver remains unchanged.'
   echo 'Manually reverse proxy /vitalink/ to http://127.0.0.1:8765/ (remove prefix).'

@@ -1,3 +1,31 @@
+# Dockerized MuchoGDPS / main-domain VitaLink
+
+The actual VPS uses Docker Caddy container `mucho-core-caddy-1`, not host Nginx.
+Its bind-mounted Caddyfile lives in the existing MuchoCore project, and
+the localhost VitaLink service is running normally.
+
+One-time Docker fix (no VPS reinstallation, no subdomain):
+
+```bash
+WORKDIR="$(mktemp -d)"
+git clone --depth 1 --branch vitabridge-android https://github.com/IZKGMD/AutoGDBot.git "$WORKDIR/source"
+sudo bash "$WORKDIR/source/vitalink/install_docker_caddy.sh"
+```
+
+The fixer reads the actual Docker bind mount and bridge gateway, updates the
+existing VitaLink Python process to listen on private Docker gateway as well
+as 127.0.0.1, and adds one canonical-domain Caddy handle for /vitalink/*.
+It validates and hot-reloads Caddy without restarting any MuchoCore containers.
+It backs up Caddyfile, server.py, and server.json and restores them on failure.
+
+Test: https://muchogdps.space/vitalink/health should return JSON with
+ok=true and service=VitaLink. Docker port 8765 is not published publicly.
+
+**Note:** The route is in the MuchoCore Caddyfile which is tracked in its Git
+repository; a future git checkout/update could overwrite this manual change.
+Preserve the Caddyfile or incorporate the route in source before upgrades.
+
+
 # VitaLink at muchogdps.space — one-domain installation
 
 This deployment uses the **existing main domain**, not a subdomain:

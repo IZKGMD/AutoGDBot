@@ -93,7 +93,17 @@ def main():
         if len(conf.get(key,""))<32:raise SystemExit("Missing strong "+key)
     if conf["operator_token"]==conf["agent_token"]:raise SystemExit("Tokens must differ")
     store=Store(conf)
-    host="127.0.0.1";port=int(conf.get("port",8765))
-    print("VitaLink localhost bridge active",flush=True)
-    ThreadingHTTPServer((host,port),make_handler(store)).serve_forever()
+    port=int(conf.get("port",8765))
+    handler=make_handler(store)
+    docker_gateway=conf.get("docker_gateway_host")
+    if docker_gateway:
+        import ipaddress
+        addr=ipaddress.ip_address(docker_gateway)
+        if addr.version!=4 or not addr.is_private or addr.is_loopback or addr.is_unspecified:
+            raise SystemExit("Invalid Docker gateway IPv4 address")
+        bridge_server=ThreadingHTTPServer((str(addr),port),handler)
+        threading.Thread(target=bridge_server.serve_forever,daemon=True).start()
+        print("Docker bridge listener ready: "+str(addr)+":"+str(port),flush=True)
+    print("Local VitaLink listener ready: 127.0.0.1:"+str(port),flush=True)
+    ThreadingHTTPServer(("127.0.0.1",port),handler).serve_forever()
 if __name__=="__main__":main()
