@@ -57,6 +57,10 @@ public final class PinuxDesktopStage {
     skin.add("window-bg", patch("window-bg", 17, 14, 21, 39, 253, 0), Drawable.class);
     skin.add("pane-bg", patch("pane-bg", 11, 10, 18, 35, 246, 0), Drawable.class);
     skin.add("input-bg", patch("input-bg", 8, 20, 32, 53, 245, 0), Drawable.class);
+    skin.add("window-header", patch("window-header", 10, 23, 30, 49, 255, 0), Drawable.class);
+    skin.add("title-button", patch("title-button", 7, 32, 40, 60, 176, 0), Drawable.class);
+    skin.add("title-button-hover", patch("title-button-hover", 7, 61, 71, 105, 235, 0), Drawable.class);
+    skin.add("title-close-hover", patch("title-close-hover", 7, 123, 52, 74, 248, 0), Drawable.class);
 
     addIcon("code", 93, 72, 188);
     addIcon("terminal", 60, 69, 111);
