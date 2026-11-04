@@ -192,39 +192,27 @@ final class PinuxNativeWindows {
         surface.top().left();
         surface.setBackground(skin.getDrawable("term-surface"));
 
+        // A single quiet tab strip, as in Archcraft's terminal layouts.
         Table toolbar = new Table();
-        toolbar.left().padLeft(17).padRight(17);
+        toolbar.left().padLeft(15).padRight(18);
         toolbar.setBackground(skin.getDrawable("term-toolbar"));
-        Label appMark = text("●", true);
-        appMark.setColor(TERM_BLUE);
-        toolbar.add(appMark).width(23).left();
-        Label header = text("PINUX  /  TERMINAL", true);
-        header.setColor(TERM_FG);
-        toolbar.add(header).left();
+        Table shellTab = new Table();
+        shellTab.setBackground(skin.getDrawable("term-tab"));
+        Label dot = text("●", true);
+        dot.setColor(TERM_GREEN);
+        shellTab.add(dot).padLeft(14).padRight(9);
+        Label activeSession = text("shell  /  dev@astra", true);
+        activeSession.setColor(TERM_FG);
+        shellTab.add(activeSession).padRight(15);
+        toolbar.add(shellTab).height(30).left();
         toolbar.add().expandX();
-        Label place = text("~/projects", true);
-        place.setColor(TERM_MUTED);
-        toolbar.add(place).padRight(15);
-        Label session = text("01  /  01", true);
-        session.setColor(TERM_MUTED);
-        toolbar.add(session).right();
+        Label workingDirectory = text("~ / projects", true);
+        workingDirectory.setColor(TERM_MUTED);
+        toolbar.add(workingDirectory).padRight(14);
+        Label indicator = text("●", true);
+        indicator.setColor(TERM_GREEN);
+        toolbar.add(indicator);
         surface.add(toolbar).height(44).growX();
-        surface.row();
-
-        Table tabLine = new Table();
-        tabLine.left().padLeft(14);
-        tabLine.setBackground(skin.getDrawable("term-surface"));
-        Table selectedTab = new Table();
-        selectedTab.setBackground(skin.getDrawable("term-tab"));
-        Label tabTitle = text("●   dev@astra: ~", true);
-        tabTitle.setColor(TERM_FG);
-        selectedTab.add(tabTitle).padLeft(17).padRight(17);
-        tabLine.add(selectedTab).height(34).width(205).left().padTop(9);
-        tabLine.add().expandX();
-        Label tabHint = text("astra-sh  0.5", true);
-        tabHint.setColor(TERM_MUTED);
-        tabLine.add(tabHint).padRight(20).padTop(9);
-        surface.add(tabLine).height(48).growX();
         surface.row();
 
         terminalOutput = text(shell.terminalHistory(), false);
@@ -270,23 +258,7 @@ final class PinuxNativeWindows {
           }
         });
         prompt.add(terminalInput).growX().height(37).padRight(8);
-        surface.add(prompt).height(49).growX().padLeft(18).padRight(18).padBottom(13);
-        surface.row();
-
-        Table statusBar = new Table();
-        statusBar.left().padLeft(18).padRight(18);
-        statusBar.setBackground(skin.getDrawable("term-toolbar"));
-        Label ready = text("●  READY", true);
-        ready.setColor(TERM_GREEN);
-        statusBar.add(ready).left().padRight(18);
-        Label tty = text("tty1    •    LOCAL SESSION", true);
-        tty.setColor(TERM_MUTED);
-        statusBar.add(tty).left();
-        statusBar.add().expandX();
-        Label encoding = text("UTF-8    •    ASTRA SHELL", true);
-        encoding.setColor(TERM_MUTED);
-        statusBar.add(encoding).right();
-        surface.add(statusBar).height(28).growX();
+        surface.add(prompt).height(48).growX().padLeft(22).padRight(22).padBottom(20);
         w.add(surface).grow();
         return w;
       }
