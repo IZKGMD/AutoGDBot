@@ -38,7 +38,7 @@ public final class PinuxDesktopStage {
   private final Skin skin = new Skin();
   private Table topBar, dock, shortcuts, launcher;
   private Label clock, current;
-  private Image wallpaper;
+  private Image wallpaper, wallpaperDim;
   private PinuxNativeWindows windows;
   private boolean visible;
   private float scale = 1f;
@@ -49,15 +49,20 @@ public final class PinuxDesktopStage {
     BitmapFont small = font("fonts/hd/small.fnt", .48f);
     skin.add("ui-font", ui);
     skin.add("small-font", small);
-    skin.add("dock-bg", patch("dock-bg", 28, 31, 49, 83, 226, 244), Drawable.class);
-    skin.add("top-bg", patch("top-bg", 12, 16, 34, 80, 78, 113), Drawable.class);
+    skin.add("dock-bg", patch("dock-bg", 11, 30, 34, 45, 242, 0), Drawable.class);
+    skin.add("wallpaper-dim", patch("wallpaper-dim", 0, 12, 17, 25, 137, 0), Drawable.class);
+    skin.add("shortcut-idle", patch("shortcut-idle", 7, 36, 41, 51, 0, 0), Drawable.class);
+    skin.add("shortcut-hover", patch("shortcut-hover", 7, 55, 63, 75, 145, 0), Drawable.class);
+    skin.add("dock-idle", patch("dock-idle", 5, 36, 41, 51, 0, 0), Drawable.class);
+    skin.add("dock-hover", patch("dock-hover", 5, 65, 77, 91, 180, 0), Drawable.class);
+    skin.add("top-bg", patch("top-bg", 0, 25, 28, 36, 247, 0), Drawable.class);
     skin.add("hover-bg", patch("hover-bg", 12, 20, 49, 100, 86, 154), Drawable.class);
     skin.add("button-bg", patch("button-bg", 13, 20, 43, 105, 90, 159), Drawable.class);
-    skin.add("launcher-bg", patch("launcher-bg", 25, 29, 52, 95, 86, 128), Drawable.class);
-    skin.add("window-bg", patch("window-bg", 17, 14, 21, 39, 253, 0), Drawable.class);
+    skin.add("launcher-bg", patch("launcher-bg", 9, 26, 30, 39, 252, 0), Drawable.class);
+    skin.add("window-bg", patch("window-bg", 7, 30, 33, 40, 253, 0), Drawable.class);
     skin.add("pane-bg", patch("pane-bg", 11, 10, 18, 35, 246, 0), Drawable.class);
     skin.add("input-bg", patch("input-bg", 8, 20, 32, 53, 245, 0), Drawable.class);
-    skin.add("window-header", patch("window-header", 10, 23, 30, 49, 255, 0), Drawable.class);
+    skin.add("window-header", patch("window-header", 4, 41, 45, 55, 255, 0), Drawable.class);
     skin.add("title-button", patch("title-button", 7, 32, 40, 60, 176, 0), Drawable.class);
     skin.add("title-button-hover", patch("title-button-hover", 7, 61, 71, 105, 235, 0), Drawable.class);
     skin.add("title-close-hover", patch("title-close-hover", 7, 123, 52, 74, 248, 0), Drawable.class);
@@ -83,6 +88,9 @@ public final class PinuxDesktopStage {
     wallpaper.setScaling(Scaling.stretch);
     wallpaper.setTouchable(Touchable.disabled);
     stage.addActor(wallpaper);
+    wallpaperDim = new Image(skin.getDrawable("wallpaper-dim"));
+    wallpaperDim.setTouchable(Touchable.disabled);
+    stage.addActor(wallpaperDim);
     build();
     windows = new PinuxNativeWindows(stage, skin, shell);
     setVisible(false);
@@ -123,18 +131,8 @@ public final class PinuxDesktopStage {
   private void addIcon(String name, int r, int g, int b) {
     int n = 128;
     Pixmap pix = new Pixmap(n, n, Pixmap.Format.RGBA8888);
-    for (int y = 0; y < n; y++) {
-      for (int x = 0; x < n; x++) {
-        float xx = Math.abs(x + .5f - n/2f), yy = Math.abs(y + .5f - n/2f);
-        float d = (float)Math.hypot(Math.max(xx - 41, 0), Math.max(yy - 41, 0))
-            + Math.min(0, Math.max(xx-41, yy-41)) - 21;
-        float a = Math.max(0, Math.min(1, .5f - d));
-        int red = Math.min(255, r + (int)(30 * (1 - y/(float)n)));
-        int gr = Math.min(255, g + (int)(25 * (1 - y/(float)n)));
-        int bl = Math.min(255, b + (int)(18 * (1 - y/(float)n)));
-        pix.drawPixel(x, y, (red<<24)|(gr<<16)|(bl<<8)|Math.round(242*a));
-      }
-    }
+    // Archcraft uses understated monochrome symbols rather than oversized
+    // glossy application cards. Leave the icon texture transparent.
     pix.setColor(0xf5f0ffff);
     // Crisp, recognizable native icons; no emoji font fallbacks.
     switch(name) {
@@ -148,10 +146,13 @@ public final class PinuxDesktopStage {
         pix.fillRectangle(57,77,33,4);
       }
       case "files" -> {
-        pix.fillRectangle(28,50,72,47);
-        pix.fillRectangle(28,42,38,12);
-        pix.setColor(0xf0d5afff);
-        pix.fillRectangle(29,55,70,6);
+        stroke(pix,29,53,29,90,5);
+        stroke(pix,29,90,99,90,5);
+        stroke(pix,99,90,99,53,5);
+        stroke(pix,99,53,63,53,5);
+        stroke(pix,63,53,55,44,5);
+        stroke(pix,55,44,29,44,5);
+        stroke(pix,29,44,29,53,5);
       }
       case "mail" -> {
         stroke(pix,28,47,99,47,4); stroke(pix,28,47,63,75,4);
@@ -159,8 +160,8 @@ public final class PinuxDesktopStage {
         stroke(pix,99,47,99,86,4); stroke(pix,28,86,99,86,4);
       }
       case "settings" -> {
-        pix.drawCircle(64,64,24); pix.drawCircle(64,64,22);
-        pix.drawCircle(64,64,8);
+        for (int rad=21; rad<=25; rad++) pix.drawCircle(64,64,rad);
+        for (int rad=7; rad<=9; rad++) pix.drawCircle(64,64,rad);
         for(int i=0;i<8;i++){
           double angle=i*Math.PI/4;
           int ax=64+(int)(24*Math.cos(angle)), ay=64+(int)(24*Math.sin(angle));
@@ -214,18 +215,32 @@ public final class PinuxDesktopStage {
   }
 
   private Button shortcut(String icon, String title, App app) {
-    Button b = button(() -> shell.openApp(app));
-    b.pad(9);
-    b.add(this.icon(icon)).size(56,56).center();
+    Button.ButtonStyle style = new Button.ButtonStyle();
+    style.up = skin.getDrawable("shortcut-idle");
+    style.over = skin.getDrawable("shortcut-hover");
+    style.down = skin.getDrawable("shortcut-hover");
+    Button b = new Button(style);
+    b.addListener(new ChangeListener() {
+      @Override public void changed(ChangeEvent e, Actor actor) { shell.openApp(app); }
+    });
+    b.pad(3);
+    b.add(this.icon(icon)).size(35,35).center();
     b.row();
-    b.add(label(title, true)).minWidth(106).padTop(5).center();
+    b.add(label(title, true)).minWidth(90).padTop(1).center();
     return b;
   }
 
   private Button dockButton(String icon, App app) {
-    Button b = button(() -> shell.openApp(app));
-    b.pad(5);
-    b.add(this.icon(icon)).size(42,42);
+    Button.ButtonStyle style = new Button.ButtonStyle();
+    style.up = skin.getDrawable("dock-idle");
+    style.over = skin.getDrawable("dock-hover");
+    style.down = skin.getDrawable("dock-hover");
+    Button b = new Button(style);
+    b.addListener(new ChangeListener() {
+      @Override public void changed(ChangeEvent e, Actor actor) { shell.openApp(app); }
+    });
+    b.pad(4);
+    b.add(this.icon(icon)).size(27,27);
     b.addListener(new com.badlogic.gdx.scenes.scene2d.utils.ClickListener() {
       @Override public void enter(com.badlogic.gdx.scenes.scene2d.InputEvent e,
                                   float x, float y, int pointer, Actor fromActor) {
@@ -243,76 +258,88 @@ public final class PinuxDesktopStage {
   }
 
   private void build() {
+    // Archcraft/Openbox-inspired Polybar: compact 30 px, workspace indicators,
+    // calm secondary text and a real application launcher on the left.
     topBar = new Table();
     topBar.setBackground(skin.getDrawable("top-bg"));
-    topBar.left().padLeft(21).padRight(23);
-    Label logo = label("◆", false);
-    logo.setColor(Color.valueOf("bca9ff"));
-    topBar.add(logo).width(23);
-    Label name = label("Pinux Astra", false);
-    topBar.add(name).padLeft(9).left();
+    topBar.left().padLeft(20).padRight(20);
+    Label menuIcon = label("A", false);
+    menuIcon.setColor(Color.valueOf("5294E2"));
+    topBar.add(menuIcon).width(20).left();
+    Label distro = label("pinux", true);
+    distro.setColor(Color.valueOf("DBE1E9"));
+    topBar.add(distro).padLeft(5).padRight(26).left();
+    Label workspaces = label("01    02    03", true);
+    workspaces.setColor(Color.valueOf("8492A3"));
+    topBar.add(workspaces).padRight(16);
     topBar.add().expandX();
     current = label("Рабочий стол", true);
-    topBar.add(current).padRight(25);
+    current.setColor(Color.valueOf("929BAB"));
+    topBar.add(current).padRight(23);
     Label status = label("●", true);
-    status.setColor(Color.valueOf("9ee5bf"));
-    topBar.add(status).padRight(8);
-    clock = label("20:47", false);
-    topBar.add(clock).padRight(8);
+    status.setColor(Color.valueOf("98C379"));
+    topBar.add(status).padRight(10);
+    Label session = label("ASTRA", true);
+    session.setColor(Color.valueOf("8191A4"));
+    topBar.add(session).padRight(15);
+    clock = label("20:47", true);
+    clock.setColor(Color.valueOf("D5DBE4"));
+    topBar.add(clock);
     stage.addActor(topBar);
 
+    // Desktop shortcuts remain usable but do not look like mobile app cards.
     shortcuts = new Table();
     shortcuts.top().left();
-    shortcuts.add(shortcut("code", "Astra Code", App.CODE)).size(120,113).padBottom(12);
+    shortcuts.add(shortcut("code", "Astra Code", App.CODE)).size(94,79).padBottom(2);
     shortcuts.row();
-    shortcuts.add(shortcut("terminal", "Терминал", App.TERMINAL)).size(120,113).padBottom(12);
+    shortcuts.add(shortcut("terminal", "Terminal", App.TERMINAL)).size(94,79).padBottom(2);
     shortcuts.row();
-    shortcuts.add(shortcut("files", "Файлы", App.FILES)).size(120,113).padBottom(12);
+    shortcuts.add(shortcut("files", "Files", App.FILES)).size(94,79).padBottom(2);
     shortcuts.row();
-    shortcuts.add(shortcut("mail", "TaskMail", App.MAIL)).size(120,113);
+    shortcuts.add(shortcut("mail", "TaskMail", App.MAIL)).size(94,79);
     stage.addActor(shortcuts);
 
+    // Small centered dock: icons have no coloured square behind them.
     dock = new Table();
     dock.setBackground(skin.getDrawable("dock-bg"));
-    dock.pad(12,16,12,16);
-    dock.defaults().padLeft(7).padRight(7);
-    dock.add(dockButton("code", App.CODE)).size(56);
-    dock.add(dockButton("terminal", App.TERMINAL)).size(56);
-    dock.add(dockButton("files", App.FILES)).size(56);
-    dock.add(dockButton("mail", App.MAIL)).size(56);
-    dock.add(dockButton("settings", App.SETTINGS)).size(56);
+    dock.pad(6, 10, 6, 10);
+    dock.defaults().padLeft(5).padRight(5);
+    dock.add(dockButton("code", App.CODE)).size(40);
+    dock.add(dockButton("terminal", App.TERMINAL)).size(40);
+    dock.add(dockButton("files", App.FILES)).size(40);
+    dock.add(dockButton("mail", App.MAIL)).size(40);
+    dock.add(dockButton("settings", App.SETTINGS)).size(40);
     stage.addActor(dock);
 
     launcher = new Table();
     launcher.top().left();
     launcher.setBackground(skin.getDrawable("launcher-bg"));
-    launcher.pad(20);
-    Label heading = label("Приложения", false);
-    heading.setAlignment(Align.left);
-    launcher.add(heading).width(270).padBottom(16).left();
+    launcher.pad(16);
+    Label heading = label("ПРИЛОЖЕНИЯ", true);
+    heading.setColor(Color.valueOf("9FAAB8"));
+    launcher.add(heading).width(255).height(28).padBottom(11).left();
     launcher.row();
     for (var entry : new Object[][] {
         {"code", "Astra Code", App.CODE},
-        {"terminal", "Терминал", App.TERMINAL},
-        {"files", "Файлы", App.FILES},
+        {"terminal", "Terminal", App.TERMINAL},
+        {"files", "Files", App.FILES},
         {"mail", "TaskMail", App.MAIL},
-        {"settings", "Настройки", App.SETTINGS}
+        {"settings", "Settings", App.SETTINGS}
     }) {
       String ico = (String)entry[0], title = (String)entry[1];
       App app = (App)entry[2];
       Button b = button(() -> { launcher.setVisible(false); shell.openApp(app); });
-      b.add(icon(ico)).size(38).pad(6);
-      Label txt = label(title, false); txt.setAlignment(Align.left);
-      b.add(txt).width(190).left().padLeft(9);
-      launcher.add(b).width(278).height(52).padBottom(6);
+      b.add(icon(ico)).size(22).pad(5);
+      Label txt = label(title, true); txt.setAlignment(Align.left);
+      b.add(txt).width(203).left().padLeft(8);
+      launcher.add(b).width(267).height(40).padBottom(4);
       launcher.row();
     }
     launcher.setVisible(false);
     stage.addActor(launcher);
-
     topBar.addListener(new com.badlogic.gdx.scenes.scene2d.utils.ClickListener() {
       @Override public void clicked(com.badlogic.gdx.scenes.scene2d.InputEvent e, float x, float y) {
-        if (x <= 190) {
+        if (x <= 152) {
           boolean show = !launcher.isVisible();
           launcher.setVisible(show);
           launcher.toFront();
@@ -344,6 +371,7 @@ public final class PinuxDesktopStage {
 
   public void setDesktopVisible(boolean showDesktop) {
     wallpaper.setVisible(showDesktop);
+    wallpaperDim.setVisible(showDesktop);
     shortcuts.setVisible(showDesktop);
   }
 
@@ -363,25 +391,26 @@ public final class PinuxDesktopStage {
     stage.getViewport().update(w, h, true);
     float width = stage.getWidth(), height = stage.getHeight();
     scale = Math.max(.67f, Math.min(1.35f, height / 810f));
-    skin.getFont("ui-font").getData().setScale(.48f * scale);
-    skin.getFont("small-font").getData().setScale(.48f * scale);
+    skin.getFont("ui-font").getData().setScale(.37f * scale);
+    skin.getFont("small-font").getData().setScale(.39f * scale);
     wallpaper.setBounds(0, 0, width, height);
-    topBar.setBounds(0, height - 52 * scale, width, 52 * scale);
-    topBar.padLeft(22 * scale);
-    topBar.padRight(24 * scale);
+    wallpaperDim.setBounds(0, 0, width, height);
+    topBar.setBounds(0, height - 30 * scale, width, 30 * scale);
+    topBar.padLeft(20 * scale);
+    topBar.padRight(20 * scale);
     shortcuts.setTransform(true);
-    shortcuts.setSize(125, 550);
+    shortcuts.setSize(94, 334);
     shortcuts.setScale(scale);
-    shortcuts.setPosition(26 * scale, Math.max(95 * scale, height - 600 * scale));
+    shortcuts.setPosition(22 * scale, Math.max(74 * scale, height - 385 * scale));
     dock.invalidateHierarchy();
     dock.setTransform(true);
-    dock.setSize(415, 80);
+    dock.setSize(275, 50);
     dock.setScale(scale);
-    dock.setPosition((width - 415 * scale) / 2, 17 * scale);
+    dock.setPosition((width - 275 * scale) / 2, 14 * scale);
     launcher.setTransform(true);
-    launcher.setSize(325, 444);
+    launcher.setSize(302, 325);
     launcher.setScale(scale);
-    launcher.setPosition(16 * scale, height - 52 * scale - 450 * scale);
+    launcher.setPosition(18 * scale, height - 30 * scale - 335 * scale);
     launcher.invalidateHierarchy();
     if (windows != null) windows.resize(w, h);
   }
