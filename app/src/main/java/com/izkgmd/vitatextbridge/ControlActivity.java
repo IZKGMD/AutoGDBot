@@ -684,7 +684,7 @@ public final class ControlActivity extends Activity {
                     config.put("allow_shell",false);config.put("allow_install",false);
                     String b64=Base64.encodeToString(config.toString().getBytes(StandardCharsets.UTF_8),Base64.NO_WRAP);
                     String source="https://raw.githubusercontent.com/IZKGMD/AutoGDBot/"
-                        +"6650dd924e299167c3ede0bb0ec50324d1a2e9e0/vitalink/agent.py";
+                        +"a83c0277581ddade87d6c6414e2fb59d9adf1c5f/vitalink/agent.py";
                     String download="import urllib.request; "
                         +"urllib.request.urlretrieve("+quotePython(source)+", '/root/vitalink/agent.py')";
                     String auto="\n# VITALINK_AUTOSTART\n"
