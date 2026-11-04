@@ -117,7 +117,7 @@ final class PinuxNativeWindows {
     window.getTitleTable().add().expandX();
     window.getTitleTable().add(chrome("—", () -> minimize(app), false))
         .width(33).height(25).padRight(5);
-    window.getTitleTable().add(chrome("□", () -> toggleMaximize(app), false))
+    window.getTitleTable().add(chrome("[]", () -> toggleMaximize(app), false))
         .width(33).height(25).padRight(5);
     window.getTitleTable().add(chrome("×", () -> close(app), true))
         .width(33).height(25).padRight(5);
@@ -248,6 +248,7 @@ final class PinuxNativeWindows {
   void close(App app) {
     VisWindow w = windows.get(app);
     if (w == null) return;
+    stage.unfocus(w);
     w.clearActions();
     w.setTouchable(com.badlogic.gdx.scenes.scene2d.Touchable.disabled);
     w.addAction(Actions.sequence(Actions.fadeOut(.12f), Actions.visible(false)));
