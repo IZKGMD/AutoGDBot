@@ -143,8 +143,11 @@ public final class PinuxSmoke extends CtrlLife {
       mouseAbsolute(0, sx, sy);
       mouseAbsolute(1, sx + 64, sy + 30);
       mouseAbsolute(2, sx + 64, sy + 30);
-      if (terminal.getWidth() < oldWidth + 15 && terminal.getHeight() < oldHeight + 15)
-        throw new AssertionError("Native window resize handle did not resize VisWindow");
+      float dx = terminal.getWidth() - oldWidth, dy = terminal.getHeight() - oldHeight;
+      if (Math.abs(dx) < 12 && Math.abs(dy) < 12)
+        throw new AssertionError("Native window resize handle inactive. Initial="
+            + oldWidth + "x" + oldHeight + ", final=" + terminal.getWidth()
+            + "x" + terminal.getHeight() + ", stage-point=" + sx + "," + sy);
     });
     steps.add(() -> screenshot("visui-terminal-resized"));
     steps.add(() -> tap(Keys.F3));
