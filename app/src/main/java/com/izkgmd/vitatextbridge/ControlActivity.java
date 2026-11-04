@@ -23,6 +23,12 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import java.io.File;
+import java.io.InputStream;
+import java.io.ByteArrayOutputStream;
+import java.security.MessageDigest;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import android.util.Base64;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
@@ -58,7 +64,7 @@ public final class ControlActivity extends Activity {
         if(password==null) password="";
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
-        buildUi(); showTab("Пакеты");
+        buildUi(); showTab("Игры");
     }
 
     private int dp(float v){return Math.round(v*getResources().getDisplayMetrics().density);}
@@ -104,7 +110,7 @@ public final class ControlActivity extends Activity {
 
         HorizontalScrollView nav=new HorizontalScrollView(this);nav.setHorizontalScrollBarEnabled(false);
         tabs=new LinearLayout(this);tabs.setOrientation(LinearLayout.HORIZONTAL);
-        String[] names={"Пакеты","Экран","YouTube","Эффекты","Система"};
+        String[] names={"Игры","Пакеты","Экран","YouTube","Эффекты","Система"};
         tabButtons=new Button[names.length];
         for(int i=0;i<names.length;i++){
             final String n=names[i];Button b=button(n,false);tabButtons[i]=b;
@@ -121,14 +127,15 @@ public final class ControlActivity extends Activity {
         add(log,output,9);
         Button clear=button("Очистить журнал",false);
         clear.setOnClickListener(v->output.setText(""));add(log,clear,9);
-        add(root,text("VitaControl 2.1 • Alpine chroot • SSH с проверкой ключа",11,MUTED,false),15);
+        add(root,text("VitaControl 2.2 • 4 встроенных проекта • SSH",11,MUTED,false),15);
         setContentView(scroller);
     }
     private void showTab(String name){
         activeTab=name; content.removeAllViews();
-        String[] names={"Пакеты","Экран","YouTube","Эффекты","Система"};
+        String[] names={"Игры","Пакеты","Экран","YouTube","Эффекты","Система"};
         for(int i=0;i<names.length;i++) tabButtons[i].setBackground(bg(names[i].equals(name)?Color.rgb(39,88,115):Color.rgb(39,57,82),names[i].equals(name)?CYAN:0,12));
         switch(name){
+            case "Игры":gamesUi();break;
             case "Пакеты":packagesUi();break;
             case "Экран":screenUi();break;
             case "YouTube":youtubeUi();break;
@@ -181,6 +188,143 @@ public final class ControlActivity extends Activity {
             .setNegativeButton("Отмена",null).show();
     }
     private static boolean validPackage(String s){return s!=null&&s.matches("[A-Za-z0-9][A-Za-z0-9._+@-]{0,62}");}
+
+    private static final String[] GAME_FILES={
+        "neon_drift.py", "orbit_defender.py", "aurora_visuals.py", "panda3d_probe.py"
+    };
+    private static final String GAME_PATH="/root/vita-games/";
+    private void gamesUi(){
+        LinearLayout c=card();add(content,c,0);
+        heading(c,"ИГРОВОЙ ЦЕНТР","Все 4 проекта встроены в APK. Установка через SSH прямо на Vita — никаких архивов или ручного ввода на консоли.");
+        add(c,text("Установка: исходники → /root/vita-games, зависимости → apk в Alpine. На рабочем столе появятся ярлыки. Вита должна быть подключена к Wi-Fi.",12,MUTED,false),12);
+        Button install=button("↓  УСТАНОВИТЬ ВСЕ ИГРЫ НА ВИТУ",true);
+        add(c,install,14);
+        install.setOnClickListener(v->confirm("Установить игры на PS Vita?",
+            "Из APK будут переданы 4 Python-файла, затем Alpine установит python3, py3-pygame и python3-tkinter. Понадобится интернет и свободное место в alpine.img. Продолжить?",
+            this::installGamePack));
+        Button verify=button("Проверить установку",false);add(c,verify,9);
+        verify.setOnClickListener(v->task("Проверка игр",alpine(
+            "echo '=== Файлы ==='; ls -lh /root/vita-games/*.py 2>&1; "
+            +"echo '=== Python ==='; python3 --version 2>&1; "
+            +"echo '=== Pygame и Tkinter ==='; python3 -c 'import pygame; import tkinter; print(\"OK\")' 2>&1"),
+            25000,null));
+        gameCard("NEON DRIFT","Pygame / SDL2","Неоновая аркада, препятствия, очки, управление движением.","neon_drift.py");
+        gameCard("ORBIT DEFENDER","Tkinter / X11","Защита орбиты: космическая аркада с выстрелами и противниками.","orbit_defender.py");
+        gameCard("VITA AURORA","Pygame / SDL2","Анимированное сияние и звёзды — вместо xeyes и унылых часов.","aurora_visuals.py");
+        gameCard("PANDA3D PROBE","Panda3D / 3D","Эксперимент: нужна отдельная сборка Panda3D под ARMv7 и OpenGL. Запуск не гарантирован.","panda3d_probe.py");
+        add(content,text("После запуска смотри результат на экране Виты. Если окно не появилось, нажми «Журнал запуска» — там будут ошибки Python/X11.",12,MUTED,false),12);
+    }
+    private void gameCard(String title,String engine,String description,String file){
+        LinearLayout c=card();add(content,c,11);
+        add(c,text(title,16,CYAN,true),0);
+        add(c,text(engine+" • "+description,12,MUTED,false),5);
+        Button launch=button("▶  Запустить на PS Vita",true);add(c,launch,11);
+        launch.setOnClickListener(v->launchGame(file));
+        Button logs=button("Журнал запуска",false);add(c,logs,6);
+        logs.setOnClickListener(v->task("Лог "+file,
+            alpine("tail -n 55 /tmp/vita-game-"+file+".log 2>&1"),15000,null));
+    }
+    private byte[] assetGame(String filename)throws Exception{
+        try(InputStream raw=getAssets().open("vita_games.zip");ZipInputStream zip=new ZipInputStream(raw)){
+            ZipEntry entry;
+            while((entry=zip.getNextEntry())!=null){
+                if(!entry.isDirectory()&&filename.equals(entry.getName())){
+                    ByteArrayOutputStream result=new ByteArrayOutputStream();
+                    byte[] buffer=new byte[4096];int n;
+                    while((n=zip.read(buffer))!=-1){
+                        if(result.size()+n>40000)throw new IllegalStateException("Слишком большой файл игры");
+                        result.write(buffer,0,n);
+                    }
+                    return result.toByteArray();
+                }
+                zip.closeEntry();
+            }
+        }
+        throw new IllegalStateException("В APK отсутствует "+filename);
+    }
+    private static String checksum(byte[] data)throws Exception{
+        byte[] sha=MessageDigest.getInstance("SHA-256").digest(data);
+        StringBuilder out=new StringBuilder(64);
+        for(byte b:sha)out.append(String.format(Locale.US,"%02x",b&255));
+        return out.toString();
+    }
+    private static boolean success(String result){return result.trim().endsWith("[exit 0]");}
+    private void progress(String message){runOnUiThread(()->{
+        if(!isFinishing()&&!isDestroyed()){status.setText("●  "+message);log("• "+message);}
+    });}
+    private void installGamePack(){
+        if(busy){log("Сначала дождись завершения другого действия.");return;}
+        busy=true;status.setText("●  Установка игр...");
+        worker.execute(()->{
+            String stage="Подготовка";String failure=null;
+            try{
+                progress("Подключаемся к Linux и копируем встроенные игры");
+                for(String name:GAME_FILES){
+                    stage="Копирование "+name;
+                    byte[] data=assetGame(name);
+                    String encoded=Base64.encodeToString(data,Base64.NO_WRAP);
+                    String digest=checksum(data);
+                    String dest=GAME_PATH+name;
+                    String script="set -eu; mkdir -p /root/vita-games; "
+                        +"printf '%s' '"+encoded+"' | base64 -d > "+dest+".partial; "
+                        +"test \"$(sha256sum "+dest+".partial | cut -d' ' -f1)\" = '"+digest+"'; "
+                        +"mv "+dest+".partial "+dest+"; echo 'OK: "+name+"'";
+                    String answer=client().execute(alpine(script),45000);
+                    if(!success(answer))throw new IllegalStateException(name+": "+answer);
+                    progress("Передано: "+name);
+                }
+                stage="Обновление репозиториев";
+                progress("Обновляем каталог пакетов Alpine");
+                String update=client().execute(alpine("apk update"),120000);
+                if(!success(update))throw new IllegalStateException("apk update:\n"+update);
+                stage="Установка Python / Pygame / Tkinter";
+                progress("Устанавливаем Python + игровые движки");
+                String deps=client().execute(alpine("apk add python3 py3-pygame python3-tkinter"),240000);
+                if(!success(deps))throw new IllegalStateException("apk add:\n"+deps);
+                stage="Создание ярлыков";
+                for(String name:GAME_FILES){
+                    String title=name.replace(".py","").replace("_"," ").toUpperCase(Locale.ROOT);
+                    String desktop="[Desktop Entry]\nType=Application\nName="+title
+                        +"\nExec=/usr/bin/env DISPLAY=:0 /usr/bin/python3 "+GAME_PATH+name
+                        +"\nTerminal=false\nCategories=Game;\n";
+                    String b64=Base64.encodeToString(desktop.getBytes(StandardCharsets.UTF_8),Base64.NO_WRAP);
+                    String dest="/root/Desktop/"+name.replace(".py",".desktop");
+                    String cmd="mkdir -p /root/Desktop; printf '%s' '"+b64+"' | base64 -d > "
+                        +dest+"; chmod 755 "+dest;
+                    String result=client().execute(alpine(cmd),20000);
+                    if(!success(result))throw new IllegalStateException(result);
+                }
+                progress("Готово: 4 проекта установлены, ярлыки добавлены");
+            }catch(Exception e){failure="Этап «"+stage+"»: "+e.getMessage();}
+            final String result=failure;
+            runOnUiThread(()->{
+                if(isDestroyed()||isFinishing())return;
+                busy=false;status.setText(result==null?"●  Игры установлены":"●  Ошибка установки");
+                if(result!=null)log("ОШИБКА УСТАНОВКИ:\n"+result+
+                    "\nФайлы, уже переданные на Виту, останутся. Проверь Wi-Fi, место на диске и репозиторий community.");
+                else log("Установка завершена. Открой раздел «Игры» и нажми «Запустить на PS Vita».");
+            });
+        });
+    }
+    private void launchGame(String filename){
+        boolean supported=false;
+        for(String name:GAME_FILES)if(name.equals(filename))supported=true;
+        if(!supported){log("Неизвестный проект");return;}
+        String probe="panda3d_probe.py".equals(filename)
+            ?"python3 -c 'import panda3d' 2>/dev/null || { echo 'Panda3D не установлен или недоступен на ARMv7'; exit 127; }; "
+            :"orbit_defender.py".equals(filename)
+            ?"python3 -c 'import tkinter' 2>/dev/null || { echo 'Установи python3-tkinter'; exit 127; }; "
+            :"python3 -c 'import pygame' 2>/dev/null || { echo 'Установи py3-pygame'; exit 127; }; ";
+        String file=GAME_PATH+filename;
+        String script="export DISPLAY=:0 SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy; "
+            +"test -f "+file+" || { echo 'Сначала установи игры из APK'; exit 127; }; "
+            +probe+"nohup python3 "+file+" </dev/null >/tmp/vita-game-"+filename+".log 2>&1 & "
+            +"echo 'Запущен: "+filename+" (PID '$!')'; sleep 1; "
+            +"if ! kill -0 $! 2>/dev/null; then echo 'Процесс завершился; открой журнал запуска'; "
+            +"tail -n 12 /tmp/vita-game-"+filename+".log; fi";
+        task("Запуск "+filename,x11(script),25000,null);
+    }
+
     private void packagesUi(){
         LinearLayout c=card();add(content,c,0);
         heading(c,"МАГАЗИН ПАКЕТОВ","Установка в Alpine Linux через alpine-chroot. Совместимость с ARMv7 проверяется на Вите.");
@@ -329,28 +473,20 @@ public final class ControlActivity extends Activity {
             +"echo $! >/tmp/vita-control-mpv.pid; echo 'Плеер запущен. Если видео не пошло, смотри журнал ошибок в /tmp/vita-control-youtube.log'";
         task("YouTube 240p",alpine(player),25000,null);
     }
+
     private void effectsUi(){
         LinearLayout c=card();add(content,c,0);
-        heading(c,"ВИЗУАЛЬНЫЕ ЭФФЕКТЫ","Небольшие X11-приложения без аппаратного 3D.");
-        effect(c,"🟢  Матрица в терминале","cmatrix","cmatrix",
-            "nohup sakura -e cmatrix </dev/null >/tmp/vita-matrix.log 2>&1 & echo 'Матрица запущена'");
-        effect(c,"👀  Следящие глаза","xeyes","xeyes",
-            "nohup xeyes -geometry 280x190+330+180 </dev/null >/tmp/vita-eyes.log 2>&1 & echo 'xeyes запущен'");
-        effect(c,"🕒  Неоновые часы","xclock","xclock",
-            "nohup xclock -digital -update 1 -fg '#66e7ff' -bg '#0c1631' -geometry 510x100+200+180 </dev/null >/tmp/vita-clock.log 2>&1 & echo 'xclock запущен'");
-        effect(c,"🌈  Окно системного мониторинга","btop","btop",
-            "nohup sakura -e btop </dev/null >/tmp/vita-btop.log 2>&1 & echo 'btop запущен'");
-        add(c,text("Эффекты открываются поверх рабочего стола. Закрывай их обычной кнопкой закрытия окна IceWM.",12,MUTED,false),13);
-    }
-    private void effect(LinearLayout c,String title,String pkg,String cmd,String script){
-        add(c,text(title,14,WHITE,true),18);
-        LinearLayout r=new LinearLayout(this);r.setOrientation(LinearLayout.HORIZONTAL);
-        Button launch=button("Запустить",true),install=button("Установить "+pkg,false);
-        LinearLayout.LayoutParams l=new LinearLayout.LayoutParams(0,dp(54),1);l.rightMargin=dp(5);
-        r.addView(launch,l);r.addView(install,new LinearLayout.LayoutParams(0,dp(54),1));
-        add(c,r,7);
-        launch.setOnClickListener(v->task(title,x11("if ! command -v "+cmd+" >/dev/null 2>&1; then echo 'Нужен пакет "+pkg+"'; exit 127; fi; "+script),20000,null));
-        install.setOnClickListener(v->install(pkg,false));
+        heading(c,"АНИМАЦИИ ДЛЯ ЭКРАНА","Новые сцены с программной 2D-графикой, а не стандартные демки X11.");
+        add(c,text("Vita Aurora: плавное северное сияние, неоновое небо и мерцающие звёзды. Исходник уже внутри APK.",12,MUTED,false),12);
+        Button install=button("Установить игры и Aurora",false);add(c,install,12);
+        install.setOnClickListener(v->confirm("Установить Aurora и игры?",
+            "Скопировать 4 встроенных проекта и установить Python/Pygame/Tkinter в Alpine?",
+            this::installGamePack));
+        Button launch=button("✦  Запустить Aurora на Вите",true);add(c,launch,9);
+        launch.setOnClickListener(v->launchGame("aurora_visuals.py"));
+        Button game=button("▶  Открыть игровой центр",false);add(c,game,9);
+        game.setOnClickListener(v->showTab("Игры"));
+        add(c,text("Aurora работает на CPU без 3D-ускорения. FPS зависит от нагрузки на PS Vita.",12,MUTED,false),10);
     }
     private void systemUi(){
         LinearLayout c=card();add(content,c,0);
@@ -371,18 +507,28 @@ public final class ControlActivity extends Activity {
             "command -v alpine-chroot; alpine-chroot -c 'command -v apk; "
             +"command -v xdotool; command -v xclip; command -v scrot; echo DISPLAY=$DISPLAY; "
             +"ls /tmp/.X11-unix 2>&1' ",25000,null));
-        Button reboot=button("⟳  Быстрая перезагрузка PS Vita",true);add(c,reboot,15);
-        reboot.setOnClickListener(v->confirm(
-            "Перезагрузить PS Vita?",
-            "LinuxOnVita завершит работу и вернёт консоль в Sony VitaOS / LiveArea. Графическая оболочка IceWM и SSH отключатся. Несохранённые изменения в открытых приложениях будут потеряны. Продолжить?",
-            ()->task("Перезагрузка PS Vita",
-                "sync; (sleep 2; reboot) </dev/null >/dev/null 2>&1 & echo 'Перезагрузка запланирована. SSH отключится.'",
-                15000, result->{
-                    log("▶ Быстрая перезагрузка\n"+result+
-                        "\nПосле перезагрузки нужно снова загрузить LinuxOnVita.");
-                })
-        ));
-        add(c,text("LinuxOnVita: команда reboot возвращает Виту в VitaOS, а не прямо в рабочий стол Linux. Перед перезагрузкой закрой программы и сохрани данные.",12,MUTED,false),9);
+
+        Button wm=button("↻  Перезапустить IceWM (остаться в Linux)",true);add(c,wm,15);
+        wm.setOnClickListener(v->confirm("Обновить графическую оболочку?",
+            "Перезапустится только оконный менеджер IceWM, Linux и открытые программы останутся запущены.",
+            ()->task("Перезапуск IceWM",x11("icewm --restart"),20000,null)));
+        Button gui=button("⟳  Выйти и снова войти в рабочий стол",false);add(c,gui,9);
+        gui.setOnClickListener(v->confirm("Перезапустить сеанс рабочего стола?",
+            "Linux останется запущен. Сначала завершится сеанс IceWM, затем приложение попробует снова выполнить alpine-desktop. Открытые окна закроются. Автоматический запуск может не сработать из SSH: тогда на Вите нужно ввести alpine-desktop в основном терминале.",
+            ()->task("Перезапуск графического сеанса Linux",
+                "nohup /bin/sh -c 'sleep 2; killall icewm-session 2>/dev/null || true; "
+                +"n=0; while [ \"$n\" -lt 25 ] && (pidof Xorg >/dev/null 2>&1 || pidof xinit >/dev/null 2>&1); "
+                +"do sleep 1; n=$((n+1)); done; sleep 3; "
+                +"/usr/bin/alpine-desktop' </dev/null >/tmp/vitacontrol-session-restart.log 2>&1 & "
+                +"echo 'Запрошен выход и повторный вход в графический сеанс Linux; если возврата нет, запусти alpine-desktop с TTY.'",
+                15000,result->log("▶ Перезапуск сеанса\n"+result+
+                    "\nДиагностика: /tmp/vitacontrol-session-restart.log"))));
+        Button full=button("Полная перезагрузка консоли → VitaOS",false);add(c,full,12);
+        full.setOnClickListener(v->confirm("Вернуться в Sony VitaOS?",
+            "Это ПОЛНАЯ перезагрузка консоли, а не Linux-сеанса! Несохранённые данные пропадут. Продолжить?",
+            ()->task("Полная перезагрузка","sync; (sleep 2; reboot) </dev/null >/dev/null 2>&1 & echo 'Возврат в VitaOS'",
+                15000,null)));
+        add(c,text("При выходе с повторным входом Wi-Fi и базовая Linux-система сохраняются. Если автоматическое открытие IceWM не удалось, введи alpine-desktop в TTY Виты.",12,MUTED,false),9);
         add(c,text("Команды выполняются от пользователя, указанного в SSH. Установку и изменение пакетов приложение делает только после подтверждения.",12,MUTED,false),15);
     }
     @Override protected void onDestroy(){
