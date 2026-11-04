@@ -1,5 +1,5 @@
 {
   "action": "diagnose",
   "args": {},
-  "note": "Read-only VitaLink end-to-end OIDC authentication check after 2026-11-05 VPS update (third attempt)"
+  "note": "Read-only PS Vita current status probe 2026-11-05; no private files or processes"
 }
