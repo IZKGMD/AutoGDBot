@@ -242,9 +242,15 @@ public final class PinuxAstra {
       return true;
     }
     if (app == App.CODE) {
-      if (key != Keys.ENTER && key != Keys.UP && key != Keys.DOWN && key != Keys.TAB && key != Keys.SHIFT_LEFT
-          && key != Keys.SHIFT_RIGHT && key != Keys.CONTROL_LEFT && key != Keys.CONTROL_RIGHT
-          && key != Keys.ALT_LEFT && key != Keys.ALT_RIGHT) life.typeKey();
+      // Only actual typing keys count: function keys, modifiers and navigation must not print code.
+      if ((key >= Keys.A && key <= Keys.Z)
+          || (key >= Keys.NUM_0 && key <= Keys.NUM_9)
+          || (key >= Keys.NUMPAD_0 && key <= Keys.NUMPAD_9)
+          || key == Keys.SPACE || key == Keys.COMMA || key == Keys.PERIOD
+          || key == Keys.SLASH || key == Keys.SEMICOLON || key == Keys.MINUS
+          || key == Keys.EQUALS || key == Keys.APOSTROPHE || key == Keys.BACKSLASH
+          || key == Keys.LEFT_BRACKET || key == Keys.RIGHT_BRACKET)
+        life.typeKey();
       return true;
     }
     return true;
