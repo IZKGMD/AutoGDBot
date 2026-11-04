@@ -12,6 +12,7 @@ public final class LifeScreens {
   private final CtrlLife game;
   private final PixelCanvas c;
   private final Workbench workbench;
+  private final RelationshipScreens relationships;
   private final PinuxAstra pinux;
   public final LifeContent data;
   public int introPage, codePage, shopPage;
@@ -32,6 +33,7 @@ public final class LifeScreens {
   public LifeScreens(CtrlLife game, PixelCanvas canvas) {
     this.game = game;
     c = canvas;
+    relationships = new RelationshipScreens(game, this, c);
     data = LifeContent.load();
     workbench = new Workbench(game, this, canvas);
     pinux = new PinuxAstra(game, this, workbench, canvas);
@@ -151,7 +153,9 @@ public final class LifeScreens {
     return pinux.pointerUp(x, y);
   }
 
-  public void capturePcSession() { pinux.captureSession(); }
+  public void capturePcSession() {
+    pinux.captureSession();
+  }
 
   public void pcCancelPointer() {
     pinux.cancelPointer();
@@ -161,7 +165,9 @@ public final class LifeScreens {
     return pinux.inputStage();
   }
 
-  public boolean isLegacyEditorOpen() { return pinux.isLegacyEditorOpen(); }
+  public boolean isLegacyEditorOpen() {
+    return pinux.isLegacyEditorOpen();
+  }
 
   public void renderPcOverlay(float delta) {
     pinux.renderNativeDesktop(delta);
@@ -174,8 +180,10 @@ public final class LifeScreens {
   public void typeKey() {
     if (codePage != 2 || s().jobStage != 2) return;
     // Two tactile phases: after failed tests, the next real keystroke starts fixing.
-    if (report != null && !report.passed()
-        && s().typedCount >= s().codeSource.length() && !s().activeJob.isEmpty()) {
+    if (report != null
+        && !report.passed()
+        && s().typedCount >= s().codeSource.length()
+        && !s().activeJob.isEmpty()) {
       var job = data.job(s().activeJob);
       for (int i = 0; i < job.solutions.length; i++)
         if (job.source.equals(job.solutions[i])) {
@@ -506,6 +514,7 @@ public final class LifeScreens {
   private void social() {
     var g = data.girl(girlId);
     var r = s().relation(g.id);
+    if (relationships.draw(g)) return;
     frame(
         g.name.toUpperCase() + " · " + g.age + " ЛЕТ",
         switch (socialPage) {
@@ -594,7 +603,28 @@ public final class LifeScreens {
                 game.resetSelection();
               });
         }
-        c.small("Интересы: " + g.likes.substring(0, Math.min(68, g.likes.length())), 28, 206, SOFT);
+        game.uiButton(
+            "Ваша история",
+            28,
+            204,
+            206,
+            20,
+            r.met,
+            () -> {
+              socialPage = "journey";
+              game.resetSelection();
+            });
+        game.uiButton(
+            "Встреча / перенос",
+            246,
+            204,
+            206,
+            20,
+            s().plannedGirl.equals(g.id),
+            () -> {
+              socialPage = "meeting";
+              game.resetSelection();
+            });
         btn("До встречи", 28, 231, 424, () -> mode(remote ? Mode.CONTACTS : Mode.WORLD));
       }
       case "talk" -> {
@@ -681,7 +711,7 @@ public final class LifeScreens {
               424,
               () -> {
                 if (Arrays.asList(g.venues).contains("park")) {
-                  s().plannedVenue = "park";
+                  Social.reschedule(s(), g, "park", false);
                   scene(
                       "Перенос встречи",
                       "Вы договорились встретиться в сквере. Золотой маршрут покажет путь.",

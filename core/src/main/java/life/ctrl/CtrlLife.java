@@ -831,7 +831,7 @@ public class CtrlLife extends ApplicationAdapter {
     button("Настройки", 245, 182, 135, 23, true, () -> openSettings(Mode.MENU));
     button("Выйти", 245, 209, 135, 23, true, () -> Gdx.app.exit());
     c.small("ПЕРВЫЕ ДЕНЬГИ. ПЕРВЫЕ ЧУВСТВА.", 32, 248, MUTED);
-    c.small("0.4.0", 419, 248, MUTED);
+    c.small("0.6.0", 419, 248, MUTED);
     // An illuminated architectural vignette cut out of the room.
     c.panel(314, 44, 120, 112);
     c.art("desk", 342, 66);

@@ -10,7 +10,7 @@ import life.ctrl.model.*;
 
 /** Validated, atomic single-slot saves with a previous-good backup. */
 public final class SaveStore {
-  public static final int VERSION = 5;
+  public static final int VERSION = 6;
 
   public static final class Envelope {
     public int version = VERSION;
@@ -58,7 +58,7 @@ public final class SaveStore {
   }
 
   private GameState read(Path file) throws IOException {
-    if (Files.size(file) > 65536) throw new IOException("Файл сохранения слишком большой");
+    if (Files.size(file) > 524288) throw new IOException("Файл сохранения слишком большой");
     try {
       Envelope e = json().fromJson(Envelope.class, Files.readString(file, StandardCharsets.UTF_8));
       if (e == null || (e.version < 1 || e.version > VERSION) || e.state == null)
@@ -97,6 +97,11 @@ public final class SaveStore {
             break;
           }
         }
+      }
+      if (e.version < 6) {
+        for (var r : e.state.relationships.values())
+          if (r != null && r.met && r.memories != null && r.memories.isEmpty() && r.memory != null)
+            r.memories.add(new Relationship.Memory(e.state.day(), "До обновления", r.memory));
       }
       new World(content, e.state);
       return e.state;

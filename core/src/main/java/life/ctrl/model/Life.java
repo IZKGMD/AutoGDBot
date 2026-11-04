@@ -15,6 +15,7 @@ public final class Life {
     if (s.hunger < 10) s.health = Math.max(15, s.health - minutes * .012);
     Career.settleProject(s);
     Economy.rent(s);
+    Social.expire(s);
   }
 
   public static String buy(GameState s, LifeContent.Item item) {

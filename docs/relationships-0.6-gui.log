@@ -1,0 +1,95 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :lwjgl3:processResources NO-SOURCE
+> Task :lwjgl3:processSmokeResources NO-SOURCE
+> Task :core:compileJava UP-TO-DATE
+> Task :core:processResources UP-TO-DATE
+> Task :core:classes UP-TO-DATE
+> Task :core:jar UP-TO-DATE
+> Task :lwjgl3:compileJava UP-TO-DATE
+> Task :lwjgl3:classes UP-TO-DATE
+> Task :lwjgl3:compileSmokeJava UP-TO-DATE
+> Task :lwjgl3:smokeClasses UP-TO-DATE
+
+> Task :lwjgl3:guiSmoke
+RELATIONSHIPS: new session
+RELATIONSHIPS: create player
+RELATIONSHIPS: intro
+RELATIONSHIPS: intro
+RELATIONSHIPS: intro
+RELATIONSHIPS: mira early relationship fixture
+RELATIONSHIPS: mira home
+RELATIONSHIPS: mira journey
+RELATIONSHIPS: mira chapter
+RELATIONSHIPS: mira durable choice
+RELATIONSHIPS: continue scene
+RELATIONSHIPS: mira choose shared activity
+RELATIONSHIPS: mira activity UI
+RELATIONSHIPS: mira activity completed
+RELATIONSHIPS: continue scene
+RELATIONSHIPS: mira back home
+RELATIONSHIPS: mira history hub
+RELATIONSHIPS: mira journal
+RELATIONSHIPS: mira memory screenshot
+RELATIONSHIPS: mira meeting fixture
+RELATIONSHIPS: mira meeting controls
+RELATIONSHIPS: mira meeting screenshot
+RELATIONSHIPS: continue scene
+RELATIONSHIPS: mira tomorrow
+RELATIONSHIPS: continue scene
+RELATIONSHIPS: mira cancel
+RELATIONSHIPS: asya early relationship fixture
+RELATIONSHIPS: asya home
+RELATIONSHIPS: asya journey
+RELATIONSHIPS: asya chapter
+RELATIONSHIPS: asya durable choice
+RELATIONSHIPS: continue scene
+RELATIONSHIPS: asya choose shared activity
+RELATIONSHIPS: asya activity UI
+RELATIONSHIPS: asya activity completed
+RELATIONSHIPS: continue scene
+RELATIONSHIPS: asya back home
+RELATIONSHIPS: asya history hub
+RELATIONSHIPS: asya journal
+RELATIONSHIPS: asya memory screenshot
+RELATIONSHIPS: asya meeting fixture
+RELATIONSHIPS: asya meeting controls
+RELATIONSHIPS: asya meeting screenshot
+RELATIONSHIPS: continue scene
+RELATIONSHIPS: asya tomorrow
+RELATIONSHIPS: continue scene
+RELATIONSHIPS: asya cancel
+RELATIONSHIPS: nika early relationship fixture
+RELATIONSHIPS: nika home
+RELATIONSHIPS: nika journey
+RELATIONSHIPS: nika chapter
+RELATIONSHIPS: nika durable choice
+RELATIONSHIPS: continue scene
+RELATIONSHIPS: nika choose shared activity
+RELATIONSHIPS: nika activity UI
+RELATIONSHIPS: nika activity completed
+RELATIONSHIPS: continue scene
+RELATIONSHIPS: nika back home
+RELATIONSHIPS: nika history hub
+RELATIONSHIPS: nika journal
+RELATIONSHIPS: nika memory screenshot
+RELATIONSHIPS: nika meeting fixture
+RELATIONSHIPS: nika meeting controls
+RELATIONSHIPS: nika meeting screenshot
+RELATIONSHIPS: continue scene
+RELATIONSHIPS: nika tomorrow
+RELATIONSHIPS: continue scene
+RELATIONSHIPS: nika cancel
+RELATIONSHIPS: save
+RELATIONSHIPS: reload durable choices
+RELATIONSHIPS: resize 960
+RELATIONSHIPS: settle
+RELATIONSHIPS: capture
+RELATIONSHIPS: resize 1920
+RELATIONSHIPS: settle
+RELATIONSHIPS: capture
+RELATIONSHIPS_SMOKE_PASS: three authored arcs, choices, shared activities, memories, reschedule/cancel, durable save, 960/1920
+RELATIONSHIPS: complete
+
+BUILD SUCCESSFUL in 29s
+6 actionable tasks: 1 executed, 5 up-to-date

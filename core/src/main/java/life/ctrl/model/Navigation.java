@@ -18,6 +18,8 @@ public final class Navigation {
   public static Goal goal(World w, LifeContent life) {
     var s = w.state;
     var c = w.content;
+    if (!s.plannedGirl.isEmpty() && s.plannedDay>s.day())
+      return prop(c,"room","bed","Встреча завтра: "+life.girl(s.plannedGirl).name,"День "+s.plannedDay+". Можно заняться делами или поспать. [R] — перенести встречу.");
     if (!s.plannedGirl.isEmpty())
       return prop(
           c,

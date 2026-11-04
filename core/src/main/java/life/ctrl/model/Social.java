@@ -15,7 +15,8 @@ public final class Social {
     var r = s.relation(g.id);
     r.met = true;
     if (g.id.equals("mira")) s.metMira = true;
-    r.memory = g.introduction;
+    if (r.met && !r.memories.isEmpty()) return g.introduction;
+    RelationshipJourney.remember(s, r, "Знакомство", g.introduction);
     return g.introduction;
   }
 
@@ -28,10 +29,21 @@ public final class Social {
     var t = g.topics[topic];
     r.lastTalkDay = s.day();
     r.lastTopic = t.id;
-    change(r, t.affinity, t.trust);
+    boolean repeated = r.memories.stream().anyMatch(m -> m.title.equals("Разговор: " + t.label));
+    change(
+        r,
+        repeated ? Math.max(1, t.affinity / 2) : t.affinity,
+        repeated ? Math.max(0, t.trust / 2) : t.trust);
     Life.advance(s, 15);
-    r.memory = t.response;
-    return t.response;
+    RelationshipJourney.remember(
+        s,
+        r,
+        "Разговор: " + t.label,
+        t.response
+            + (repeated
+                ? " Вы уже обсуждали это. Новый опыт даст больше, чем повторение знакомых слов."
+                : ""));
+    return r.memory;
   }
 
   public static String gift(GameState s, LifeContent.Girl g, LifeContent.Item item) {
@@ -50,6 +62,7 @@ public final class Social {
         likes
             ? "Ты запомнил(а), что мне нравится. Спасибо — это очень приятно."
             : "Спасибо. Я не очень увлекаюсь такими вещами, но ценю внимание.";
+    RelationshipJourney.remember(s, r, "Подарок: " + item.name, r.memory);
     return r.memory;
   }
 
@@ -71,6 +84,31 @@ public final class Social {
     return "Она согласилась. Место: "
         + venueName(venue)
         + ". Иди к отмеченному столику; она дождётся до конца дня.";
+  }
+
+  public static String cancel(GameState s, LifeContent.Girl g) {
+    if (!s.plannedGirl.equals(g.id)) return "С этой девушкой встреча не назначена.";
+    s.plannedGirl = "";
+    s.plannedVenue = "";
+    s.plannedDay = -1;
+    String text =
+        "Ты предупредил(а), что не придёшь. "
+            + g.name
+            + " благодарит за сообщение. Когда появится время, можно договориться заново.";
+    RelationshipJourney.remember(s, s.relation(g.id), "Встреча отменена заранее", text);
+    return text;
+  }
+
+  public static String reschedule(GameState s, LifeContent.Girl g, String venue, boolean tomorrow) {
+    if (!s.plannedGirl.equals(g.id)) return "Сначала договоритесь о встрече.";
+    if (!java.util.Arrays.asList(g.venues).contains(venue)) return "Это место ей не подходит.";
+    s.plannedVenue = venue;
+    s.plannedDay = s.day() + (tomorrow ? 1 : 0);
+    return "Вы договорились: "
+        + venueName(venue)
+        + ", день "
+        + s.plannedDay
+        + ". Перенос не требует доплаты.";
   }
 
   public static String venueName(String id) {
@@ -111,10 +149,10 @@ public final class Social {
     s.mood = Math.min(100, s.mood + 8);
     if (r.dates >= 2 && r.trust >= 28 && r.storyChapter == 0) {
       r.storyChapter = 1;
-      r.memory = g.story;
+      RelationshipJourney.remember(s, r, "Свидание №" + r.dates + " · личная история", g.story);
       return c.response + "\n\n" + g.story;
     }
-    r.memory = c.response;
+    RelationshipJourney.remember(s, r, "Свидание №" + r.dates, c.response);
     return c.response;
   }
 
@@ -128,7 +166,7 @@ public final class Social {
     if (s.partnerId.equals(g.id)) return "Вы уже вместе.";
     s.partnerId = g.id;
     r.committedDay = s.day();
-    r.memory = g.commitLine;
+    RelationshipJourney.remember(s, r, "Вы стали парой", g.commitLine);
     return g.commitLine;
   }
 
@@ -138,7 +176,8 @@ public final class Social {
     var r = s.relation(g.id);
     change(r, -12, -8);
     r.committedDay = -1;
-    r.memory = "Вы честно обсудили расставание. Ей нужно время.";
+    RelationshipJourney.remember(
+        s, r, "Расставание", "Вы честно обсудили расставание. Ей нужно время.");
     return r.memory;
   }
 
@@ -163,15 +202,21 @@ public final class Social {
     change(r, 3, 3);
     Life.sleep(s);
     s.mood = Math.min(100, s.mood + 10);
-    r.memory = "Утром вы проснулись рядом. Это осталось вашим личным воспоминанием.";
+    RelationshipJourney.remember(
+        s, r, "Утро вдвоём", "Утром вы проснулись рядом. Это осталось вашим личным воспоминанием.");
     return r.memory;
   }
 
   public static void expire(GameState s) {
+    RelationshipJourney.expire(s);
     if (!s.plannedGirl.isEmpty() && s.day() > s.plannedDay) {
       var r = s.relation(s.plannedGirl);
       change(r, 0, -2);
-      r.memory = "Встреча не состоялась. Она предлагает договориться в другой день.";
+      RelationshipJourney.remember(
+          s,
+          r,
+          "Пропущенная встреча",
+          "Встреча не состоялась. Она предлагает договориться в другой день.");
       s.plannedGirl = "";
       s.plannedVenue = "";
     }

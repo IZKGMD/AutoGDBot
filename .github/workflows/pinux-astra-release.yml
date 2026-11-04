@@ -1,4 +1,4 @@
-name: Release CTRL+LIFE 0.5.1 Pinux Astra Windows x64
+name: Release CTRL+LIFE 0.6.0 Relationships Windows x64
 
 on:
   push:
@@ -9,7 +9,9 @@ on:
       - 'core/src/main/java/life/ctrl/model/**'
       - 'core/src/main/java/life/ctrl/bytescript/**'
       - 'lwjgl3/src/smoke/java/life/ctrl/desktop/PinuxSmoke.java'
-      - 'docs/PINUX_ASTRA.md'
+      - 'docs/RELATIONSHIPS.md'
+      - 'core/src/main/resources/data/relationships.json'
+      - 'lwjgl3/src/smoke/java/life/ctrl/desktop/RelationshipSmoke.java'
   workflow_dispatch:
 
 permissions:
@@ -44,24 +46,35 @@ jobs:
           fi
           xvfb-run -a -s "-screen 0 1440x810x24" bash ./gradlew --no-daemon :lwjgl3:guiSmoke -Ppinux=true -PnoAudio=true
 
+      - name: Relationship gameplay and save regression
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: xvfb-run -a -s "-screen 0 1920x1080x24" bash ./gradlew --no-daemon :lwjgl3:guiSmoke -Prelationships=true -PnoAudio=true
+
       - name: Store UI screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: pinux-astra-ui-smoke
-          path: lwjgl3/build/smoke/screenshots/pinux-*.png
+          path: |
+            lwjgl3/build/smoke/screenshots/pinux-*.png
+            lwjgl3/build/smoke/screenshots/relationships-*.png
           if-no-files-found: ignore
 
       - name: Package portable Windows x64 game and bundled Java
         shell: bash
         run: |
           set -euo pipefail
-          ROOT=release/CTRL-LIFE-0.5.1-Pinux-Astra
+          ROOT=release/CTRL-LIFE-0.6.0-Relationships
           mkdir -p "$ROOT"
           cp -a lwjgl3/build/install/ctrl-life/. "$ROOT/"
-          cp -f README.md LICENSE THIRD_PARTY.md run.bat "$ROOT/"
-          test -f "$ROOT/lib/core-0.5.1.jar"
-          test -f "$ROOT/lib/lwjgl3-0.5.1.jar"
+          cp -f README.md LICENSE THIRD_PARTY.md run.bat GAME_DESIGN.md ARCHITECTURE.md CHANGELOG.md "$ROOT/"
+          mkdir -p "$ROOT/docs/screenshots" "$ROOT/TODO"
+          cp docs/RELATIONSHIPS.md docs/PINUX_ASTRA.md docs/PINUX_AUDIT_QA.md docs/relationships-0.6-*.log "$ROOT/docs/"
+          cp TODO/ROADMAP.md "$ROOT/TODO/"
+          cp -a docs/screenshots/relationships "$ROOT/docs/screenshots/"
+          test -f "$ROOT/lib/core-0.6.0.jar"
+          test -f "$ROOT/lib/lwjgl3-0.6.0.jar"
           curl -fLS --retry 4 --retry-all-errors --connect-timeout 30 \
             "https://api.adoptium.net/v3/binary/latest/21/ga/windows/x64/jre/hotspot/normal/eclipse" \
             -o "$RUNNER_TEMP/temurin21-windows-jre.zip"
@@ -73,7 +86,7 @@ jobs:
           cp -a "$JAVA_ROOT/." "$ROOT/runtime/"
           test -f "$ROOT/runtime/bin/java.exe"
           printf '%s\n' \
-            "CTRL+LIFE 0.5.1 - Pinux Astra Global Update" \
+            "CTRL+LIFE 0.6.0 - Relationship Stories" \
             "Branch: ctrl-life" \
             "Commit: $GITHUB_SHA" \
             "Windows x64 portable release. Run run.bat; Java 21 bundled." > "$ROOT/BUILD_INFO.txt"
@@ -81,8 +94,8 @@ jobs:
           from pathlib import Path
           import zipfile
           release = Path('release')
-          folder = release / 'CTRL-LIFE-0.5.1-Pinux-Astra'
-          archive = release / 'CTRL-LIFE-0.5.1-Pinux-Astra-Windows-x64.zip'
+          folder = release / 'CTRL-LIFE-0.6.0-Relationships'
+          archive = release / 'CTRL-LIFE-0.6.0-Relationships-Windows-x64.zip'
           with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED, compresslevel=6, allowZip64=True) as z:
               for f in sorted(folder.rglob('*')):
                   if f.is_file():
@@ -90,41 +103,41 @@ jobs:
           with zipfile.ZipFile(archive) as z:
               assert z.testzip() is None
               members = set(z.namelist())
-              for name in ('runtime/bin/java.exe', 'run.bat', 'lib/core-0.5.1.jar', 'lib/lwjgl3-0.5.1.jar'):
-                  assert 'CTRL-LIFE-0.5.1-Pinux-Astra/' + name in members
+              for name in ('runtime/bin/java.exe', 'run.bat', 'lib/core-0.6.0.jar', 'lib/lwjgl3-0.6.0.jar'):
+                  assert 'CTRL-LIFE-0.6.0-Relationships/' + name in members
           print(f'Packaged {archive}: {archive.stat().st_size:,} bytes')
           PY
           cd release
-          sha256sum CTRL-LIFE-0.5.1-Pinux-Astra-Windows-x64.zip > CTRL-LIFE-0.5.1-Pinux-Astra-Windows-x64.zip.sha256
+          sha256sum CTRL-LIFE-0.6.0-Relationships-Windows-x64.zip > CTRL-LIFE-0.6.0-Relationships-Windows-x64.zip.sha256
 
       - name: Upload complete ZIP to GitHub Actions
         uses: actions/upload-artifact@v4
         with:
-          name: CTRL-LIFE-0.5.1-Pinux-Astra-Windows-x64
+          name: CTRL-LIFE-0.6.0-Relationships-Windows-x64
           path: |
-            release/CTRL-LIFE-0.5.1-Pinux-Astra-Windows-x64.zip
-            release/CTRL-LIFE-0.5.1-Pinux-Astra-Windows-x64.zip.sha256
+            release/CTRL-LIFE-0.6.0-Relationships-Windows-x64.zip
+            release/CTRL-LIFE-0.6.0-Relationships-Windows-x64.zip.sha256
           if-no-files-found: error
           retention-days: 90
 
       - name: Publish downloadable GitHub pre-release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: v0.5.1-pinux-astra
+          TAG: v0.6.0-relationships
         shell: bash
         run: |
           set -euo pipefail
-          ZIP=release/CTRL-LIFE-0.5.1-Pinux-Astra-Windows-x64.zip
+          ZIP=release/CTRL-LIFE-0.6.0-Relationships-Windows-x64.zip
           SHA="$ZIP.sha256"
           if gh release view "$TAG" >/dev/null 2>&1; then
             # A pre-release can be rebuilt; keep its tag pointing at the actual archive source.
             gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" -f sha="$GITHUB_SHA" -F force=true
             gh release upload "$TAG" "$ZIP" "$SHA" --clobber
-            gh release edit "$TAG" --notes-file docs/PINUX_ASTRA.md
+            gh release edit "$TAG" --notes-file docs/RELATIONSHIPS.md
           else
             gh release create "$TAG" "$ZIP" "$SHA" \
               --target "$GITHUB_SHA" \
-              --title "CTRL+LIFE 0.5.1 — Pinux Astra Global Update" \
-              --notes-file docs/PINUX_ASTRA.md \
+              --title "CTRL+LIFE 0.6.0 — Личные истории" \
+              --notes-file docs/RELATIONSHIPS.md \
               --prerelease
           fi

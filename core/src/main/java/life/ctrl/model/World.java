@@ -8,20 +8,25 @@ public final class World {
   public final Content content;
   public final GameState state;
   public boolean moving;
+  private int cacheDay = -1, cachePlannedDay = -1;
   private String cacheMap = "", cacheGirl = "", cacheVenue = "";
   private final ArrayList<Content.Npc> activeNpcs = new ArrayList<>();
 
   public List<Content.Npc> npcs() {
-    if (!cacheMap.equals(state.map)
+    if (cacheDay != state.day()
+        || cachePlannedDay != state.plannedDay
+        || !cacheMap.equals(state.map)
         || !cacheGirl.equals(state.plannedGirl)
         || !cacheVenue.equals(state.plannedVenue)) {
+      cacheDay = state.day();
+      cachePlannedDay = state.plannedDay;
       cacheMap = state.map;
       cacheGirl = state.plannedGirl;
       cacheVenue = state.plannedVenue;
       activeNpcs.clear();
       for (var m : content.maps)
         for (var n : m.npcs) {
-          boolean meeting = n.id.equals(state.plannedGirl);
+          boolean meeting = n.id.equals(state.plannedGirl) && state.plannedDay == state.day();
           if (meeting ? state.map.equals(state.plannedVenue) : m.id.equals(state.map))
             activeNpcs.add(n);
         }
@@ -106,7 +111,31 @@ public final class World {
           || relation.trust > 100
           || relation.dates < 0
           || relation.sharedNights < 0
-          || relation.memory == null) throw new IllegalArgumentException("Некорректные отношения");
+          || relation.memory == null
+          || relation.arcStep < 0
+          || relation.arcStep > 3
+          || relation.decisions == null
+          || relation.decisions.size() != relation.arcStep
+          || relation.activities == null
+          || relation.activities.size() > 3
+          || relation.memories == null
+          || relation.memories.size() > 32
+          || relation.promise == null
+          || relation.brokenPromise == null)
+        throw new IllegalArgumentException("Некорректные отношения");
+    for (var relation : state.relationships.values()) {
+      for (var m : relation.memories)
+        if (m == null
+            || m.day < 1
+            || m.title == null
+            || m.text == null
+            || m.title.length() > 150
+            || m.text.length() > 2000)
+          throw new IllegalArgumentException("Некорректное воспоминание");
+      for (var a : relation.activities.entrySet())
+        if (a.getKey() == null || a.getValue() == null || a.getValue() < 1)
+          throw new IllegalArgumentException("Некорректное занятие");
+    }
     if (blocked(state.x, state.y))
       throw new IllegalArgumentException("Персонаж внутри препятствия");
     if (state.hasLetter && state.deliveredLetter)
@@ -237,6 +266,19 @@ public final class World {
     state.map = p.target;
     state.x = p.targetX;
     state.y = p.targetY;
+    for (var relation : state.relationships.values()) {
+      for (var m : relation.memories)
+        if (m == null
+            || m.day < 1
+            || m.title == null
+            || m.text == null
+            || m.title.length() > 150
+            || m.text.length() > 2000)
+          throw new IllegalArgumentException("Некорректное воспоминание");
+      for (var a : relation.activities.entrySet())
+        if (a.getKey() == null || a.getValue() == null || a.getValue() < 1)
+          throw new IllegalArgumentException("Некорректное занятие");
+    }
     if (blocked(state.x, state.y)) {
       state.map = old;
       state.x = x;

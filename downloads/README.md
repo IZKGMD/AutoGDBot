@@ -1,3 +1,7 @@
+# CTRL+LIFE 0.6.0
+
+[Скачать полную Windows-сборку с Java на GitHub](https://github.com/IZKGMD/AutoGDBot/releases/tag/v0.6.0-relationships) · [Что нового в отношениях](../docs/RELATIONSHIPS.md)
+
 # Актуальная Pinux Astra
 
 [Новые сборки 0.5.1 — GitHub Releases](https://github.com/IZKGMD/AutoGDBot/releases) · [Проверки](../docs/PINUX_AUDIT_QA.md) · [План развития](../TODO/ROADMAP.md)
