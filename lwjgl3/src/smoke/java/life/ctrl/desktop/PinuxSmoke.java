@@ -96,6 +96,25 @@ public final class PinuxSmoke extends CtrlLife {
     b.fire(new ChangeListener.ChangeEvent());
   }
 
+  private com.badlogic.gdx.scenes.scene2d.ui.Label findLabel(Actor actor, String text) {
+    if (actor instanceof com.badlogic.gdx.scenes.scene2d.ui.Label l
+        && l.getText().toString().equals(text)) return l;
+    if (actor instanceof Group g)
+      for (Actor child : g.getChildren()) {
+        com.badlogic.gdx.scenes.scene2d.ui.Label result = findLabel(child, text);
+        if (result != null) return result;
+      }
+    return null;
+  }
+
+  private void nativeClickLabel(String title) {
+    com.badlogic.gdx.scenes.scene2d.ui.Label l = findLabel(findWindow("Astra Code"), title);
+    if (l == null) throw new AssertionError("Missing native navigation: " + title);
+    Vector2 p = l.localToStageCoordinates(new Vector2(l.getWidth() / 2, l.getHeight() / 2));
+    mouseAbsolute(0, Math.round(p.x), Gdx.graphics.getHeight() - Math.round(p.y));
+    mouseAbsolute(2, Math.round(p.x), Gdx.graphics.getHeight() - Math.round(p.y));
+  }
+
   private void nativeClick(String text) {
     TextButton b = findButton(findWindow("Astra Code"), text);
     if (b == null || b.isDisabled()) throw new AssertionError("Missing native button: " + text);
@@ -153,26 +172,26 @@ public final class PinuxSmoke extends CtrlLife {
       tap(Keys.ESCAPE);
     });
     steps.add(() -> { for (int i = 0; i < 80; i++) tap(Keys.A); });
-    steps.add(() -> nativeAction("▶ Компиляция / тесты")); // Run ByteScript tests.
+    steps.add(() -> nativeAction("▶ Run / Test")); // Run ByteScript tests.
     steps.add(() -> {
       if (lifeScreens().report == null || lifeScreens().report.passed())
         throw new AssertionError("Expected the initial typo to fail tests");
       screenshot("editor-first-error");
     });
     steps.add(() -> { for (int i = 0; i < 80; i++) tap(Keys.S); });
-    steps.add(() -> nativeAction("▶ Компиляция / тесты")); // Re-test corrected code.
+    steps.add(() -> nativeAction("▶ Run / Test")); // Re-test corrected code.
     steps.add(() -> {
       if (lifeScreens().report == null || !lifeScreens().report.passed())
         throw new AssertionError("Automatic typed fix did not pass tests");
       screenshot("editor-fixed-tests");
     });
-    steps.add(() -> nativeAction("Предпросмотр"));
+    steps.add(() -> nativeAction("▷ Предпросмотр"));
     steps.add(() -> screenshot("code-preview"));
     steps.add(() -> nativeAction("← Вернуться к исходнику"));
-    steps.add(() -> nativeAction("Лаборатория"));
+    steps.add(() -> nativeClickLabel("Лаборатория"));
     steps.add(() -> screenshot("code-profiler"));
     steps.add(() -> nativeAction("← К исходнику"));
-    steps.add(() -> nativeAction("Git / версии"));
+    steps.add(() -> nativeClickLabel("Git / версии"));
     steps.add(() -> screenshot("code-versions"));
     steps.add(() -> tap(Keys.F2));
     steps.add(() -> {
