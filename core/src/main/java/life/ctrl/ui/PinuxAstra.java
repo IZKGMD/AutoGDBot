@@ -26,6 +26,7 @@ public final class PinuxAstra {
   private final PixelCanvas c;
   private final PinuxWindowManager wm = new PinuxWindowManager();
   private final PinuxWallpaper wallpaper = new PinuxWallpaper();
+  private final PinuxDesktopStage nativeDesktop;
   private final ArrayDeque<String> output = new ArrayDeque<>();
   private final ArrayList<String> commandHistory = new ArrayList<>();
   private int historyIndex;
@@ -42,6 +43,7 @@ public final class PinuxAstra {
     this.life = life;
     this.workbench = workbench;
     c = canvas;
+    nativeDesktop = new PinuxDesktopStage(this, wallpaper.texture());
     log("Pinux Astra / shell 0.5 / x86_64");
     log("Type 'help' to see available commands.");
   }
@@ -55,6 +57,21 @@ public final class PinuxAstra {
     boot = 0;
     notice = "";
     noticeTime = 0;
+    nativeDesktop.show();
+  }
+
+  public com.badlogic.gdx.scenes.scene2d.Stage inputStage() { return nativeDesktop.inputStage(); }
+
+  public String clockText() { return s().clock(); }
+
+  public void openApp(App app) { launch(app); }
+
+  public void resizeNative(int w, int h) { nativeDesktop.resize(w, h); }
+
+  public void renderNativeDesktop(float delta) {
+    boolean active = wm.front() == null;
+    nativeDesktop.setVisible(active);
+    nativeDesktop.draw(delta);
   }
 
   public void draw() {
@@ -63,6 +80,7 @@ public final class PinuxAstra {
     boot += delta;
     wm.tick(quietMotion ? Math.max(delta, .2f) : delta);
     noticeTime = Math.max(0, noticeTime - delta);
+    if (wm.front() == null) return; // Scene2D paints native-resolution desktop after framebuffer.
     if (boot < .55f && !quietMotion) {
       bootSplash();
       return;
@@ -98,6 +116,7 @@ public final class PinuxAstra {
   }
 
   public void dispose() {
+    nativeDesktop.dispose();
     wallpaper.dispose();
   }
 
@@ -313,6 +332,7 @@ public final class PinuxAstra {
   }
 
   private void launch(App app) {
+    nativeDesktop.setVisible(false);
     menuOpen = false;
     wm.open(app);
     if (app == App.CODE && !wm.get(app).maximized) wm.toggleMaximize(App.CODE);
@@ -439,5 +459,5 @@ public final class PinuxAstra {
   public void pointerMove(int x, int y) { wm.pointerMove(x, y); }
   public boolean pointerDragged(int x, int y) { wm.pointerDragged(x, y); wm.pointerMove(x, y); return true; }
   public boolean pointerUp(int x, int y) { return wm.pointerUp(x, y); }
-  public void cancelPointer() { wm.cancelDrag(); }
+  public void cancelPointer() { wm.cancelDrag(); nativeDesktop.setVisible(false); }
 }
