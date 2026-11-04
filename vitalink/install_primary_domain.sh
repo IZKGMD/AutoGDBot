@@ -7,6 +7,11 @@ if [ ! -f "$SOURCE_DIR/install_vps.sh" ]; then
   echo 'Usage: sudo bash vitalink/install_primary_domain.sh /path/to/vitalink'
   exit 2
 fi
+if command -v caddy >/dev/null 2>&1 && systemctl is-active --quiet caddy; then
+  echo 'Detected Caddy: installing VitaLink route at /vitalink/.'
+  bash "$SOURCE_DIR/install_vps.sh" "$SOURCE_DIR"
+  exec bash "$SOURCE_DIR/install_caddy_primary.sh"
+fi
 if ! command -v nginx >/dev/null 2>&1; then
   echo 'Nginx was not detected; existing webserver remains unchanged.'
   echo 'Manually reverse proxy /vitalink/ to http://127.0.0.1:8765/ (remove prefix).'
