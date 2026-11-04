@@ -294,7 +294,7 @@ public final class Workbench {
     c.fitted(j.id, 52, 189, 84, GOLD, true);
     c.small("XP " + s().codingXp, 52, 210, SOFT);
     c.rect(146, 54, 138, 23, "152b40");
-    c.rect(146, 76, 138, 1, CYAN);
+    c.rect(146, 76, 138, 1, "82d3e8");
     c.small("◇ main.bs   ●", 156, 59, TEXT);
     c.small("ByteScript  /  UTF-8", 334, 59, SOFT);
     String visible = s().codeSource.substring(0, Math.min(s().typedCount, s().codeSource.length()));
