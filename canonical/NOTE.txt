@@ -1,1 +1,0 @@
-Canonical source was materialized into the repository root from AutoGDBot-Realtime-source.zip. Keep canonical/ as the exact-source recovery path and ports/ for isolated platform adaptations.

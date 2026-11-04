@@ -1,4 +1,6 @@
-/build*/
-*.geode
-*.dll
-*.pdb
+.gradle/
+/build/
+app/build/
+local.properties
+*.iml
+.idea/
