@@ -1,6 +1,6 @@
 # Pinux Astra — Global Update 0.5.0
 
-Это вымышленная ОС **внутри CTRL+LIFE**, а не веб-страница, виртуальная машина и не доступ к компьютеру игрока. Реализована на Java/libGDX через существующий \`PixelCanvas\`; весь терминал изолирован от host OS.
+Это вымышленная ОС **внутри CTRL+LIFE**, а не веб-страница, виртуальная машина и не доступ к компьютеру игрока. Реализована на Java/libGDX: игровой мир по-прежнему рисуется через \`PixelCanvas\`, а приложения и рабочий стол используют Scene2D/VisUI при настоящем разрешении экрана; терминал изолирован от host OS.
 
 ## Native Linux-style UI foundation (VisUI)
 
@@ -8,7 +8,7 @@ The desktop and newly ported applications now render at the **actual game-window
 The window layer uses [VisUI](https://github.com/kotcrab/vis-ui) 1.5.6 (Apache-2.0; matches libGDX 1.13.1), including `VisWindow` for drag, resize and stacking and `VisTextField` for the in-game terminal.
 The architecture follows the separation found in [gezhov/Fake-OS-Desktop](https://github.com/gezhov/Fake-OS-Desktop) (MIT): shell, independent app windows, workspace, taskbar and focus. Swing classes were not copied because they are incompatible with libGDX's render loop.
 
-Native screens: Terminal, Files, TaskMail and Settings. Astra Code still delegates to the original ByteScript workbench; porting its editor is a separate visual milestone. Terminal commands are **game simulations only** and never execute real commands.
+Native screens: **Astra Code**, Terminal, Files, TaskMail and Settings. Astra Code полностью переведён в отдельный native-resolution VisUI window. Его экраны больше не зависят от старой 480×270 разметки. Реальные игровые результаты продолжают рассчитываться классами \`Coding\`, \`Career\` и \`ByteScript\`, а состояние — \`GameState\`. Terminal commands are **game simulations only** and never execute real commands.
 
 **Visual quality gate:** `pinux-desktop-preview.yml` runs an actual GLFW/libGDX smoke under Xvfb, captures PNGs, and uploads them as a workflow artifact. We review new captures before moving to the next screen.
 
@@ -55,14 +55,15 @@ Native screens: Terminal, Files, TaskMail and Settings. Astra Code still delegat
 ## Архитектура
 
 - \`life.ctrl.ui.PinuxAstra\`: desktop, dock, игровая консоль, файловый экран и маршрутизация ввода.
-- \`life.ctrl.ui.Workbench\`: внутренний UI Astra Code, биржа заказов и прежние инструменты.
+- \`life.ctrl.ui.AstraCodeApp\`: полнофункциональный интерфейс высокого разрешения: контракты, ByteScript-редактор, тесты, отладка, предпросмотр, лаборатория, Git, карьера, железо, портфолио, собственный бот.
+- \`life.ctrl.ui.Workbench\`: устаревший PixelCanvas-интерфейс сохранён в исходниках для сравнения, но больше не используется при выводе Astra Code.
 - \`life.ctrl.ui.LifeScreens\`: связь игрового ПК с оболочкой.
 - \`life.ctrl.CtrlLife\`: передача нажатий в оболочку при режиме \`IDE\`.
 - \`life.ctrl.model.Coding\`: перегрузки \`accept(..., tactile)\` и \`repair(..., tactile)\`. Отдельный выбор режима защищает прямые доменные тесты от несовместимых изменений.
 
 ## Ограничения Global Update
 
-Astra Code остаётся полнофункциональным игровым редактором в развёрнутом режиме; в небольшом восстановленном окне показывается предпросмотр проекта с кнопкой `EXPAND IDE`. Терминал содержит игровые команды и не запускает программы ПК игрока. Кнопки мыши используются в логических координатах libGDX.
+Astra Code — полноценное масштабируемое окно VisUI (перемещение, изменение размера, максимизация и сворачивание). Весь цикл заказов от выбора клиента до выплаты проходит внутри native-resolution интерфейса. ByteScript компилирует и выполняет настоящий игровой исходник; платёж, опыт, прогресс, бонусы и версии сохраняются в игровом состоянии. Нажатия мышью обрабатывает Scene2D в координатах реального окна; пиксельные координаты оставлены для игрового мира. Терминал не запускает программы ПК игрока.
 
 ## Следующий этап разработки
 
