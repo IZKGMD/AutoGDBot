@@ -168,7 +168,7 @@ public final class MainActivity extends Activity {
         testButton = action("Проверить SSH", true);
         add(connection, testButton, 15);
         testButton.setOnClickListener(v -> submit("Проверка подключения", "uname -a && whoami"));
-        Button manager = action("✦  Vita Control 2.1 — магазин, экран, YouTube", true);
+        Button manager = action("✦  Vita Control 2.2 — игры, экран, YouTube", true);
         add(connection, manager, 10);
         manager.setOnClickListener(v -> {
             if (running) return;
@@ -239,7 +239,7 @@ public final class MainActivity extends Activity {
         Button clear = action("Очистить вывод", false);
         add(log, clear, 10);
         clear.setOnClickListener(v -> terminal.setText(""));
-        add(root, label("VitaTextBridge 2.1  •  Локальная сеть  •  Ключи SSH проверяются", 11, MUTED, false), 16);
+        add(root, label("VitaTextBridge 2.2  •  Локальная сеть  •  Ключи SSH проверяются", 11, MUTED, false), 16);
         setContentView(scroller);
     }
 
