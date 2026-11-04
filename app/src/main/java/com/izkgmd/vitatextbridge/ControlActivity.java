@@ -121,7 +121,7 @@ public final class ControlActivity extends Activity {
         add(log,output,9);
         Button clear=button("Очистить журнал",false);
         clear.setOnClickListener(v->output.setText(""));add(log,clear,9);
-        add(root,text("VitaControl 2.0 • Alpine chroot • SSH с проверкой ключа",11,MUTED,false),15);
+        add(root,text("VitaControl 2.1 • Alpine chroot • SSH с проверкой ключа",11,MUTED,false),15);
         setContentView(scroller);
     }
     private void showTab(String name){
