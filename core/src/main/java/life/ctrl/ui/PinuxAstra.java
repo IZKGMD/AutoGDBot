@@ -99,7 +99,9 @@ public final class PinuxAstra {
   public void resizeNative(int w, int h) { nativeDesktop.resize(w, h); }
 
   public void renderNativeDesktop(float delta) {
-    nativeDesktop.setDesktopVisible(wm.front() == null);
+    // Until Astra Code is ported to VisUI, hide its old pixelated interface
+    // behind native application windows, while preserving its state in memory.
+    nativeDesktop.setDesktopVisible(wm.front() == null || nativeDesktop.hasNativeWindows());
     nativeDesktop.draw(delta);
   }
 
