@@ -19,8 +19,11 @@ class GitHubOIDCVerifier:
     def __init__(self):
         import jwt
         self.jwt = jwt
-        self.keys = jwt.PyJWKClient(self.JWKS, cache_jwk_set=True,
-                                    lifespan=300)
+        # Ubuntu 22.04 ships PyJWT 2.3.0. Its PyJWKClient only supports
+        # (uri, cache_keys, max_cached_keys), not cache_jwk_set/lifespan.
+        # cache_keys=True avoids repeated GitHub JWKS requests during polling,
+        # while a new key id is still fetched as needed.
+        self.keys = jwt.PyJWKClient(self.JWKS, cache_keys=True)
 
     def verify(self, token):
         if not isinstance(token,str) or len(token)>8192 or token.count(".")!=2:
