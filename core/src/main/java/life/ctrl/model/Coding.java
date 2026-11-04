@@ -42,7 +42,8 @@ public final class Coding {
     s.activeLedger = ledgerId(s, j.id);
     s.algorithm = algorithm;
     s.codeSource = j.initialSources[algorithm];
-    s.typedCount = j.kind.equals("feature") ? 0 : s.codeSource.length();
+    // Every contract begins with the tactile typing phase, including bugfixes and profiles.
+    s.typedCount = 0;
     s.jobStage = 2;
     s.programPreviewed = false;
     s.rushJob = rush && !j.once;
@@ -134,7 +135,8 @@ public final class Coding {
     if (!s.activeJob.equals(j.id) || s.jobStage == 5 || choice < 0 || choice >= j.solutions.length)
       return;
     s.codeSource = j.solutions[choice];
-    s.typedCount = s.codeSource.length();
+    // Debugging is a second typing phase; do not silently apply the whole patch.
+    s.typedCount = 0;
     s.jobStage = 2;
     s.programPreviewed = false;
   }
