@@ -3,6 +3,8 @@
 Game source, scene graphics, characters, dialogue, maps and synthesized sound are original for CTRL+LIFE. Source license: MIT (LICENSE).
 
 - libGDX 1.13.1: Apache License 2.0, https://github.com/libgdx/libgdx
+- VisUI 1.5.6 (Scene2D window and input widgets): Apache License 2.0, https://github.com/kotcrab/vis-ui
+- KDE-style application architecture was studied from Fake OS Desktop (MIT), https://github.com/gezhov/Fake-OS-Desktop ; no Swing classes or third-party artwork were copied into CTRL+LIFE.
 - LWJGL 3.3.3: BSD-3-Clause and upstream native library licenses, https://github.com/LWJGL/lwjgl3
 - Gradle Wrapper 8.14.3: Apache License 2.0, https://github.com/gradle/gradle
 - DejaVu Sans / Sans Mono: Bitstream Vera / DejaVu licenses; bitmap fonts are rasterized from DejaVu. Full notice: `core/src/main/resources/fonts/LICENSE-DejaVu.txt` in source and core JAR.
