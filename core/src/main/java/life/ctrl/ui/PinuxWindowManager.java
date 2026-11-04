@@ -38,8 +38,9 @@ public final class PinuxWindowManager {
 
   private final EnumMap<App, Window> windows = new EnumMap<>(App.class);
   private final ArrayList<Window> zOrder = new ArrayList<>();
-  private Window dragging;
+  private Window dragging, resizing;
   private int grabX, grabY, dragStartX, dragStartY;
+  private int resizeWidth, resizeHeight;
   private float time;
   private long lastClickAt;
   private App lastClickApp;
@@ -99,6 +100,7 @@ public final class PinuxWindowManager {
     if (w == null) return;
     w.minimized = true;
     if (dragging == w) dragging = null;
+    if (resizing == w) resizing = null;
   }
 
   public void close(App app) {
@@ -108,6 +110,7 @@ public final class PinuxWindowManager {
     w.minimized = false;
     // Let the window shrink away instead of disappearing in a single frame.
     if (dragging == w) dragging = null;
+    if (resizing == w) resizing = null;
   }
 
   public void closeFront() { Window w = front(); if (w != null) close(w.app); }
@@ -136,6 +139,12 @@ public final class PinuxWindowManager {
       if (!w.visible || w.minimized || !inside(w, x, y)) continue;
       boolean wasFront = front() == w;
       focus(w.app);
+      if (!w.maximized && x >= w.right() - 10 && y >= w.bottom() - 10) {
+        resizing = w;
+        dragStartX = x; dragStartY = y;
+        resizeWidth = w.width; resizeHeight = w.height;
+        return true;
+      }
       if (y < w.y + 19) {
         // Three caption buttons: minimize, maximize and close.
         if (x >= w.right() - 15) { close(w.app); return true; }
@@ -162,6 +171,13 @@ public final class PinuxWindowManager {
   }
 
   public boolean pointerDragged(int x, int y) {
+    if (resizing != null) {
+      Window w = resizing;
+      w.width = Math.max(210, Math.min(PixelCanvas.W - w.x, resizeWidth + x - dragStartX));
+      w.height = Math.max(125, Math.min(BOTTOM - w.y, resizeHeight + y - dragStartY));
+      w.restoreWidth = w.width; w.restoreHeight = w.height;
+      return true;
+    }
     if (dragging == null) return false;
     Window w = dragging;
     if (Math.abs(x - dragStartX) + Math.abs(y - dragStartY) > 3) moved = true;
@@ -177,16 +193,29 @@ public final class PinuxWindowManager {
   }
 
   public boolean pointerUp(int x, int y) {
+    if (resizing != null) {
+      resizing = null;
+      return true;
+    }
     if (dragging == null) return false;
     Window w = dragging;
     dragging = null;
     if (moved && y <= TOP + 4 && !w.maximized) toggleMaximize(w.app);
+    else if (moved && x <= 3 && !w.maximized) snap(w, true);
+    else if (moved && x >= PixelCanvas.W - 4 && !w.maximized) snap(w, false);
     if (moved) lastClickAt = 0; // Dragging must not count as a double-click.
     moved = false;
     return true;
   }
 
-  public void cancelDrag() { dragging = null; moved = false; }
+  public void cancelDrag() { dragging = null; resizing = null; moved = false; }
+
+  private static void snap(Window w, boolean left) {
+    w.restoreX = w.x; w.restoreY = w.y;
+    w.restoreWidth = w.width; w.restoreHeight = w.height;
+    w.x = left ? 2 : 242; w.y = TOP + 1;
+    w.width = 236; w.height = BOTTOM - TOP - 2;
+  }
 
   public void pointerMove(int x, int y) { hoverX = x; hoverY = y; }
 
@@ -247,6 +276,10 @@ public final class PinuxWindowManager {
     c.fitted("◆  " + w.title, w.x + 8, y + 4, w.width - 65,
         active ? TEXT : "9eb3c0", true);
     int start = w.right() - 43;
+    if (!w.maximized) {
+      c.rect(w.right() - 7, w.bottom() - 4, 5, 1, "6695a8");
+      c.rect(w.right() - 4, w.bottom() - 7, 1, 5, "6695a8");
+    }
     for (int i = 0; i < 3; i++) {
       int x = start + i * 15;
       boolean hovered = hoverY >= y + 2 && hoverY <= y + 16 &&
@@ -261,6 +294,7 @@ public final class PinuxWindowManager {
   public void reset() {
     zOrder.clear();
     dragging = null;
+    resizing = null;
     for (Window w : windows.values()) {
       w.visible = false; w.minimized = false; w.maximized = false; w.animation = 0;
       // Preserve each window's restored size/position across visits to the in-game PC.
