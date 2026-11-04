@@ -42,7 +42,7 @@ public final class MainActivity extends Activity {
     private SharedPreferences prefs;
     private EditText host, port, user, password, command, textToPaste;
     private TextView status, terminal;
-    private Button testButton, runButton, pasteButton, keyButton;
+    private Button testButton, runButton, pasteButton, keyButton, diagnoseButton;
     private boolean running;
 
     @Override public void onCreate(Bundle state) {
@@ -185,11 +185,14 @@ public final class MainActivity extends Activity {
         LinearLayout pastePanel = panel();
         add(root, pastePanel, 16);
         pastePanel.addView(label("ВСТАВИТЬ В SAKURA", 16, WHITE, true));
-        add(pastePanel, label("Текст появится в активном терминале на экране PS Vita.\nНужны xclip и xdotool; окно Sakura должно быть активным.", 12, MUTED, false), 5);
+        add(pastePanel, label("Вставка через X11 в активную Sakura. Для проверки xclip, xdotool и X11 нажми «Диагностика вставки».", 12, MUTED, false), 5);
         textToPaste = field("", "Вставь большой текст или команды сюда…", false, true);
         add(pastePanel, textToPaste, 13);
         pasteButton = action("↗  Отправить текст на Виту", true);
         add(pastePanel, pasteButton, 11);
+        diagnoseButton = action("Диагностика вставки / X11", false);
+        add(pastePanel, diagnoseButton, 9);
+        diagnoseButton.setOnClickListener(v -> submit("Диагностика вставки", diagnosticCommand()));
         pasteButton.setOnClickListener(v -> {
             String payload = textToPaste.getText().toString();
             if (payload.isEmpty()) { textToPaste.setError("Вставь текст"); return; }
@@ -211,18 +214,57 @@ public final class MainActivity extends Activity {
         Button clear = action("Очистить вывод", false);
         add(log, clear, 10);
         clear.setOnClickListener(v -> terminal.setText(""));
-        add(root, label("VitaTextBridge 1.1  •  Локальная сеть  •  Ключи SSH проверяются", 11, MUTED, false), 16);
+        add(root, label("VitaTextBridge 1.2  •  Локальная сеть  •  Ключи SSH проверяются", 11, MUTED, false), 16);
         setContentView(scroller);
+    }
+
+    private static String x11Environment() {
+        // An SSH exec shell can have a different PATH and no DISPLAY.
+        return "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH:-}; "
+                + "export PATH; DISPLAY=${DISPLAY:-:0}; export DISPLAY; "
+                + "if [ -z \"${XAUTHORITY:-}\" ] && [ -r \"$HOME/.Xauthority\" ]; then "
+                + "XAUTHORITY=\"$HOME/.Xauthority\"; export XAUTHORITY; fi; ";
+    }
+
+    private static String diagnosticCommand() {
+        return x11Environment()
+                + "printf 'PATH=%s\nDISPLAY=%s\nXAUTHORITY=%s\n' \"$PATH\" \"$DISPLAY\" \"${XAUTHORITY:-<unset>}\"; "
+                + "for c in xclip xdotool xsel base64; do "
+                + "p=$(command -v \"$c\" 2>/dev/null || :); "
+                + "if [ -n \"$p\" ]; then printf '%s: %s\n' \"$c\" \"$p\"; "
+                + "else printf '%s: NOT FOUND\n' \"$c\"; fi; done; "
+                + "echo '--- apk packages ---'; "
+                + "for c in xclip xdotool xsel; do if apk info -e \"$c\" >/dev/null 2>&1; then "
+                + "echo \"$c: installed\"; else echo \"$c: not installed according to apk\"; fi; done; "
+                + "echo '--- X11 socket ---'; ls -ld /tmp/.X11-unix /tmp/.X11-unix/* 2>&1 || :; "
+                + "echo '--- X11 access ---'; if command -v xdotool >/dev/null 2>&1; then "
+                + "xdotool getactivewindow getwindowname 2>&1 || :; else echo 'xdotool not found in SSH session'; fi; "
+                + "echo '--- diagnostics complete ---'";
     }
 
     private static String pasteCommand(String payload) {
         String data = Base64.encodeToString(payload.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
-        // base64 avoids executing content as shell code; Sakura pastes UTF-8 from X clipboard.
-        return "if ! command -v xclip >/dev/null 2>&1 || ! command -v xdotool >/dev/null 2>&1; then " +
-                "echo 'ОШИБКА: установи пакеты: apk add xclip xdotool' >&2; exit 127; fi; " +
-                "printf '%s' '" + data + "' | base64 -d | DISPLAY=:0 xclip -selection clipboard -in " +
-                "&& sleep 0.25 && DISPLAY=:0 xdotool key --clearmodifiers ctrl+shift+v " +
-                "&& echo 'Текст отправлен в активное окно Sakura'";
+        // Only the base64 text is interpolated into shell commands, not user input.
+        return x11Environment()
+                + "XCLIP=$(command -v xclip 2>/dev/null || :); "
+                + "XDO=$(command -v xdotool 2>/dev/null || :); "
+                + "for dir in /usr/bin /usr/local/bin /bin /sbin /usr/sbin; do "
+                + "if [ -z \"$XCLIP\" ] && [ -x \"$dir/xclip\" ]; then XCLIP=\"$dir/xclip\"; fi; "
+                + "if [ -z \"$XDO\" ] && [ -x \"$dir/xdotool\" ]; then XDO=\"$dir/xdotool\"; fi; "
+                + "done; "
+                + "if [ -z \"$XCLIP\" ] || [ -z \"$XDO\" ]; then "
+                + "echo 'Недоступны утилиты в текущей SSH-сессии:' >&2; "
+                + "if [ -z \"$XCLIP\" ]; then echo 'xclip: NOT FOUND' >&2; fi; "
+                + "if [ -z \"$XDO\" ]; then echo 'xdotool: NOT FOUND' >&2; fi; "
+                + "echo \"PATH=$PATH\" >&2; "
+                + "echo 'Запусти «Диагностика вставки / X11».' >&2; "
+                + "exit 127; fi; "
+                + "printf '%s' '" + data + "' | base64 -d | \"$XCLIP\" -selection clipboard -in "
+                + "|| { echo 'Нет доступа к буферу X11: проверь DISPLAY и XAUTHORITY.' >&2; exit 125; }; "
+                + "sleep 0.35; "
+                + "\"$XDO\" key --clearmodifiers ctrl+shift+v "
+                + "|| { echo 'Не удалось отправить Ctrl+Shift+V: проверь X11.' >&2; exit 125; }; "
+                + "echo 'Сигнал вставки отправлен. Проверь экран PS Vita.'";
     }
 
     private void setBusy(boolean busy) {
@@ -230,6 +272,7 @@ public final class MainActivity extends Activity {
         testButton.setEnabled(!busy);
         runButton.setEnabled(!busy);
         pasteButton.setEnabled(!busy);
+        diagnoseButton.setEnabled(!busy);
         keyButton.setEnabled(!busy);
         status.setText(busy ? "●  ПОДКЛЮЧЕНИЕ…" : "●  ГОТОВО");
         status.setTextColor(busy ? PRIMARY : Color.rgb(133, 223, 176));
