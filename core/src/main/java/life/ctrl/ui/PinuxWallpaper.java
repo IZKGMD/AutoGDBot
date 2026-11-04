@@ -29,9 +29,10 @@ public final class PinuxWallpaper {
     paintSky(p);
     paintClouds(p);
     paintSun(p);
-    paintCity(p, 344, 22, 61, 19, 0x50335f, 0x392c58, 0.33f);
-    paintCity(p, 426, 30, 89, 26, 0x32274f, 0x202746, 0.25f);
-    paintCity(p, 495, 39, 107, 34, 0x18263d, 0x152139, 0.17f);
+    // Quiet skyline kept to the lower half: room for icons and application windows.
+    paintCity(p, 380, 22, 40, 12, 0x50335f, 0x392c58, .25f);
+    paintCity(p, 443, 30, 64, 17, 0x32274f, 0x202746, .19f);
+    paintCity(p, 495, 39, 72, 20, 0x18263d, 0x152139, .14f);
     paintForeground(p);
     city = new Texture(p);
     city.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
@@ -90,7 +91,7 @@ public final class PinuxWallpaper {
   }
 
   private void paintSun(Pixmap p) {
-    int cx = 740, cy = 285, radius = 58;
+    int cx = 745, cy = 311, radius = 46;
     for (int y = cy - radius; y <= cy + radius; y++) {
       for (int x = cx - radius; x <= cx + radius; x++) {
         if (x < 0 || y < 0 || x >= W || y >= H) continue;
@@ -157,9 +158,7 @@ public final class PinuxWallpaper {
     p.fillRectangle(0, 0, 17, H);
     p.fillRectangle(W - 18, 0, 18, H);
 
-    // Tree silhouettes, delicate leaves rather than distracting chunky pixels.
-    drawBranch(p, 16, 160, 194, 0, 5);
-    drawBranch(p, W - 17, 110, 162, 180, 4);
+    // Keep the sky uncluttered: no cartoon tree blobs in the upper corners.
     p.setColor(rgba(15, 20, 39, 255));
     p.fillRectangle(0, 475, W, 9);
   }
