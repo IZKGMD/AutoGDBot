@@ -123,6 +123,8 @@ public class CtrlLife extends ApplicationAdapter {
               else if (!Character.isISOControl(ch)
                   && (Character.isLetterOrDigit(ch) || ch == ' ' || ch == '-')
                   && name.length() < 18) name += ch;
+            } else if (mode == Mode.IDE) {
+              life.pcKeyTyped(ch);
             }
             return true;
           }
@@ -221,14 +223,7 @@ public class CtrlLife extends ApplicationAdapter {
       held.clear();
       return true;
     }
-    if (mode == Mode.IDE
-        && key != Keys.ESCAPE
-        && key != Keys.ENTER
-        && key != Keys.UP
-        && key != Keys.DOWN) {
-      life.typeKey();
-      return true;
-    }
+    if (mode == Mode.IDE && life.pcKeyDown(key)) return true;
     if (mode == Mode.WORLD) {
       held.add(key);
       if (key == settings.interact || key == Keys.ENTER) {
