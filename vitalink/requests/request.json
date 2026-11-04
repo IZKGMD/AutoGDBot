@@ -1,5 +1,5 @@
 {
   "action": "diagnose",
   "args": {},
-  "note": "Read-only PS Vita current status probe 2026-11-05; no private files or processes"
+  "note": "Current PS Vita read-only inspection via authorized GitHub OIDC, 2026-11-05"
 }
