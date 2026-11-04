@@ -104,9 +104,9 @@ public final class PinuxWallpaper {
         if (dist >= radius) continue;
         float t = (y - (cy - radius)) / (radius * 2f);
         int r = 255, g = (int)mix(200, 132, t), b = (int)mix(182, 171, t);
-        if (y > cy + 12 && y % 10 < 2) continue; // discreet sunset bands
-        float rim = Math.min(1f, (radius - dist) / 3f);
-        p.drawPixel(x, y, blend(p.getPixel(x, y), rgba(r, g, b, 255), rim * .88f));
+        // Continuous glowing disk: deliberately avoid dark scanlines that read as bugs.
+        float rim = Math.min(1f, (radius - dist) / 3.5f);
+        p.drawPixel(x, y, blend(p.getPixel(x, y), rgba(r, g, b, 255), rim * .86f));
       }
     }
   }
