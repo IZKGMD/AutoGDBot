@@ -185,7 +185,7 @@ public final class PinuxSmoke extends CtrlLife {
         throw new AssertionError("Automatic typed fix did not pass tests");
       screenshot("editor-fixed-tests");
     });
-    steps.add(() -> nativeAction("▷ Предпросмотр"));
+    steps.add(() -> nativeAction("▷ Превью"));
     steps.add(() -> screenshot("code-preview"));
     steps.add(() -> nativeAction("← Вернуться к исходнику"));
     steps.add(() -> nativeClickLabel("Лаборатория"));
