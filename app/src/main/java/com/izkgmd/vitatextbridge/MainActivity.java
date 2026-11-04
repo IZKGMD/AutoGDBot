@@ -3,6 +3,7 @@ package com.izkgmd.vitatextbridge;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
+import android.content.Intent;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.SharedPreferences;
@@ -167,6 +168,30 @@ public final class MainActivity extends Activity {
         testButton = action("Проверить SSH", true);
         add(connection, testButton, 15);
         testButton.setOnClickListener(v -> submit("Проверка подключения", "uname -a && whoami"));
+        Button manager = action("✦  Vita Control 2.0 — магазин, экран, YouTube", true);
+        add(connection, manager, 10);
+        manager.setOnClickListener(v -> {
+            if (running) return;
+            String addr=host.getText().toString().trim();
+            String usr=user.getText().toString().trim();
+            int num;
+            try { num=Integer.parseInt(port.getText().toString().trim()); }
+            catch(NumberFormatException ex){port.setError("Неверный порт");return;}
+            if(addr.isEmpty()||usr.isEmpty()||num<1||num>65535){
+                new AlertDialog.Builder(this).setMessage("Укажи адрес Виты, пользователя и SSH-порт.")
+                    .setPositiveButton("OK",null).show();
+                return;
+            }
+            prefs.edit().putString("host",addr).putString("user",usr)
+                .putString("port",String.valueOf(num)).apply();
+            Intent intent=new Intent(this,ControlActivity.class);
+            intent.putExtra("host",addr);
+            intent.putExtra("user",usr);
+            intent.putExtra("port",num);
+            intent.putExtra("password",password.getText().toString());
+            startActivity(intent);
+        });
+
 
         LinearLayout commands = panel();
         add(root, commands, 16);
@@ -214,7 +239,7 @@ public final class MainActivity extends Activity {
         Button clear = action("Очистить вывод", false);
         add(log, clear, 10);
         clear.setOnClickListener(v -> terminal.setText(""));
-        add(root, label("VitaTextBridge 1.2  •  Локальная сеть  •  Ключи SSH проверяются", 11, MUTED, false), 16);
+        add(root, label("VitaTextBridge 2.0  •  Локальная сеть  •  Ключи SSH проверяются", 11, MUTED, false), 16);
         setContentView(scroller);
     }
 

@@ -86,7 +86,10 @@ final class SshClient {
         }
     }
 
-    String execute(String command) throws Exception {
+    String execute(String command) throws Exception { return execute(command, 45000); }
+
+    String execute(String command, int timeoutMs) throws Exception {
+        if (timeoutMs < 1000 || timeoutMs > 300000) throw new IllegalArgumentException("Недопустимый timeout");
         Session session = open();
         ChannelExec channel = null;
         try {
@@ -99,7 +102,7 @@ final class SshClient {
             ByteArrayOutputStream output = new ByteArrayOutputStream();
             ByteArrayOutputStream errors = new ByteArrayOutputStream();
             byte[] buf = new byte[4096];
-            final long deadline = System.currentTimeMillis() + 45000;
+            final long deadline = System.currentTimeMillis() + timeoutMs;
             int exitCode = -1;
             while (System.currentTimeMillis() < deadline) {
                 drain(stdout, output, buf);
@@ -110,7 +113,7 @@ final class SshClient {
                 }
                 Thread.sleep(30);
             }
-            if (exitCode == -1) throw new IllegalStateException("Превышено время выполнения (45 секунд)");
+            if (exitCode == -1) throw new IllegalStateException("Превышено время выполнения ("+timeoutMs+" мс)");
             String out = output.toString(StandardCharsets.UTF_8.name());
             String err = errors.toString(StandardCharsets.UTF_8.name());
             if (!err.isEmpty()) out += (out.isEmpty() ? "" : "\n") + "STDERR:\n" + err;
