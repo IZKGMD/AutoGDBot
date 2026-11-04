@@ -1,0 +1,519 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :lwjgl3:processResources NO-SOURCE
+> Task :lwjgl3:processSmokeResources NO-SOURCE
+> Task :core:compileJava
+> Task :core:processResources UP-TO-DATE
+> Task :core:classes
+> Task :core:jar
+> Task :core:compileTestJava UP-TO-DATE
+> Task :lwjgl3:compileJava UP-TO-DATE
+> Task :lwjgl3:classes UP-TO-DATE
+> Task :core:processTestResources NO-SOURCE
+> Task :core:testClasses UP-TO-DATE
+
+> Task :lwjgl3:compileSmokeJava
+Note: /workspace/work/ctrl-life/lwjgl3/src/smoke/java/life/ctrl/desktop/AstraLayoutSmoke.java uses or overrides a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+
+> Task :lwjgl3:smokeClasses
+
+> Task :lwjgl3:guiSmoke
+LAYOUT: new game
+LAYOUT: create
+LAYOUT: intro
+LAYOUT: intro
+LAYOUT: intro
+LAYOUT: open computer
+LAYOUT: settle
+LAYOUT: rhythm open
+
+> Task :core:test
+
+> Task :lwjgl3:guiSmoke
+LAYOUT: rhythm reveal sprint
+LAYOUT: rhythm select sprint
+LAYOUT: rhythm sprint persisted
+LAYOUT: rhythm reveal break
+LAYOUT: rhythm take break
+LAYOUT: rhythm break result
+LAYOUT: dismiss break notice
+LAYOUT: rhythm reveal steady
+LAYOUT: rhythm restore steady
+LAYOUT: rhythm verify steady
+LAYOUT: resize 960
+LAYOUT: settle resize
+LAYOUT: window fixture 960-window
+LAYOUT: settle geometry
+LAYOUT: page fixture 960-window-0
+LAYOUT: settle layout
+LAYOUT: capture 960-window-0
+LAYOUT: page fixture 960-window-1
+LAYOUT: settle layout
+LAYOUT: capture 960-window-1
+LAYOUT: page fixture 960-window-2
+LAYOUT: settle layout
+LAYOUT: capture 960-window-2
+LAYOUT: compiler error fixture
+LAYOUT: settle error
+LAYOUT: error capture
+LAYOUT: passed tests fixture
+LAYOUT: settle pass
+LAYOUT: pass capture
+LAYOUT: page fixture 960-window-3
+LAYOUT: settle layout
+LAYOUT: capture 960-window-3
+LAYOUT: page fixture 960-window-4
+LAYOUT: settle layout
+LAYOUT: capture 960-window-4
+LAYOUT: reveal lower controls
+LAYOUT: lower capture
+LAYOUT: page fixture 960-window-5
+LAYOUT: settle layout
+LAYOUT: capture 960-window-5
+LAYOUT: page fixture 960-window-6
+LAYOUT: settle layout
+LAYOUT: capture 960-window-6
+LAYOUT: page fixture 960-window-7
+LAYOUT: settle layout
+LAYOUT: capture 960-window-7
+LAYOUT: page fixture 960-window-8
+LAYOUT: settle layout
+LAYOUT: capture 960-window-8
+LAYOUT: page fixture 960-window-9
+LAYOUT: settle layout
+LAYOUT: capture 960-window-9
+LAYOUT: page fixture 960-window-11
+LAYOUT: settle layout
+LAYOUT: capture 960-window-11
+LAYOUT: page fixture 960-window-10
+LAYOUT: settle layout
+LAYOUT: capture 960-window-10
+LAYOUT: page fixture 960-window-12
+LAYOUT: settle layout
+LAYOUT: capture 960-window-12
+LAYOUT: reveal lower controls
+LAYOUT: lower capture
+LAYOUT: window fixture 960-max
+LAYOUT: settle geometry
+LAYOUT: page fixture 960-max-0
+LAYOUT: settle layout
+LAYOUT: capture 960-max-0
+LAYOUT: page fixture 960-max-1
+LAYOUT: settle layout
+LAYOUT: capture 960-max-1
+LAYOUT: page fixture 960-max-2
+LAYOUT: settle layout
+LAYOUT: capture 960-max-2
+LAYOUT: compiler error fixture
+LAYOUT: settle error
+LAYOUT: error capture
+LAYOUT: passed tests fixture
+LAYOUT: settle pass
+LAYOUT: pass capture
+LAYOUT: page fixture 960-max-3
+LAYOUT: settle layout
+LAYOUT: capture 960-max-3
+LAYOUT: page fixture 960-max-4
+LAYOUT: settle layout
+LAYOUT: capture 960-max-4
+LAYOUT: reveal lower controls
+LAYOUT: lower capture
+LAYOUT: page fixture 960-max-5
+LAYOUT: settle layout
+LAYOUT: capture 960-max-5
+LAYOUT: page fixture 960-max-6
+LAYOUT: settle layout
+LAYOUT: capture 960-max-6
+LAYOUT: page fixture 960-max-7
+LAYOUT: settle layout
+LAYOUT: capture 960-max-7
+LAYOUT: page fixture 960-max-8
+LAYOUT: settle layout
+LAYOUT: capture 960-max-8
+LAYOUT: page fixture 960-max-9
+LAYOUT: settle layout
+LAYOUT: capture 960-max-9
+LAYOUT: page fixture 960-max-11
+LAYOUT: settle layout
+LAYOUT: capture 960-max-11
+LAYOUT: page fixture 960-max-10
+LAYOUT: settle layout
+LAYOUT: capture 960-max-10
+LAYOUT: page fixture 960-max-12
+LAYOUT: settle layout
+LAYOUT: capture 960-max-12
+LAYOUT: reveal lower controls
+LAYOUT: lower capture
+LAYOUT: restore
+LAYOUT: settle restore
+LAYOUT: resize 1920
+LAYOUT: settle resize
+LAYOUT: window fixture 1920-window
+LAYOUT: settle geometry
+LAYOUT: page fixture 1920-window-0
+LAYOUT: settle layout
+LAYOUT: capture 1920-window-0
+LAYOUT: page fixture 1920-window-1
+LAYOUT: settle layout
+LAYOUT: capture 1920-window-1
+LAYOUT: page fixture 1920-window-2
+LAYOUT: settle layout
+LAYOUT: capture 1920-window-2
+LAYOUT: compiler error fixture
+LAYOUT: settle error
+LAYOUT: error capture
+LAYOUT: passed tests fixture
+LAYOUT: settle pass
+LAYOUT: pass capture
+LAYOUT: page fixture 1920-window-3
+LAYOUT: settle layout
+LAYOUT: capture 1920-window-3
+LAYOUT: page fixture 1920-window-4
+LAYOUT: settle layout
+LAYOUT: capture 1920-window-4
+LAYOUT: reveal lower controls
+LAYOUT: lower capture
+LAYOUT: page fixture 1920-window-5
+LAYOUT: settle layout
+LAYOUT: capture 1920-window-5
+LAYOUT: page fixture 1920-window-6
+LAYOUT: settle layout
+LAYOUT: capture 1920-window-6
+LAYOUT: page fixture 1920-window-7
+LAYOUT: settle layout
+LAYOUT: capture 1920-window-7
+LAYOUT: page fixture 1920-window-8
+LAYOUT: settle layout
+LAYOUT: capture 1920-window-8
+LAYOUT: page fixture 1920-window-9
+LAYOUT: settle layout
+LAYOUT: capture 1920-window-9
+LAYOUT: page fixture 1920-window-11
+LAYOUT: settle layout
+LAYOUT: capture 1920-window-11
+LAYOUT: page fixture 1920-window-10
+LAYOUT: settle layout
+LAYOUT: capture 1920-window-10
+LAYOUT: page fixture 1920-window-12
+LAYOUT: settle layout
+LAYOUT: capture 1920-window-12
+LAYOUT: reveal lower controls
+LAYOUT: lower capture
+LAYOUT: window fixture 1920-max
+LAYOUT: settle geometry
+LAYOUT: page fixture 1920-max-0
+LAYOUT: settle layout
+LAYOUT: capture 1920-max-0
+LAYOUT: page fixture 1920-max-1
+LAYOUT: settle layout
+LAYOUT: capture 1920-max-1
+LAYOUT: page fixture 1920-max-2
+LAYOUT: settle layout
+LAYOUT: capture 1920-max-2
+LAYOUT: compiler error fixture
+LAYOUT: settle error
+LAYOUT: error capture
+LAYOUT: passed tests fixture
+LAYOUT: settle pass
+LAYOUT: pass capture
+LAYOUT: page fixture 1920-max-3
+LAYOUT: settle layout
+LAYOUT: capture 1920-max-3
+LAYOUT: page fixture 1920-max-4
+LAYOUT: settle layout
+LAYOUT: capture 1920-max-4
+LAYOUT: reveal lower controls
+LAYOUT: lower capture
+LAYOUT: page fixture 1920-max-5
+LAYOUT: settle layout
+LAYOUT: capture 1920-max-5
+LAYOUT: page fixture 1920-max-6
+LAYOUT: settle layout
+LAYOUT: capture 1920-max-6
+LAYOUT: page fixture 1920-max-7
+LAYOUT: settle layout
+LAYOUT: capture 1920-max-7
+LAYOUT: page fixture 1920-max-8
+LAYOUT: settle layout
+LAYOUT: capture 1920-max-8
+LAYOUT: page fixture 1920-max-9
+LAYOUT: settle layout
+LAYOUT: capture 1920-max-9
+LAYOUT: page fixture 1920-max-11
+LAYOUT: settle layout
+LAYOUT: capture 1920-max-11
+LAYOUT: page fixture 1920-max-10
+LAYOUT: settle layout
+LAYOUT: capture 1920-max-10
+LAYOUT: page fixture 1920-max-12
+LAYOUT: settle layout
+LAYOUT: capture 1920-max-12
+LAYOUT: reveal lower controls
+LAYOUT: lower capture
+LAYOUT: restore
+LAYOUT: settle restore
+LAYOUT: resize 1440
+LAYOUT: settle resize
+LAYOUT: window fixture 1440-window
+LAYOUT: settle geometry
+LAYOUT: page fixture 1440-window-0
+LAYOUT: settle layout
+LAYOUT: capture 1440-window-0
+LAYOUT: page fixture 1440-window-1
+LAYOUT: settle layout
+LAYOUT: capture 1440-window-1
+LAYOUT: page fixture 1440-window-2
+LAYOUT: settle layout
+LAYOUT: capture 1440-window-2
+LAYOUT: compiler error fixture
+LAYOUT: settle error
+LAYOUT: error capture
+LAYOUT: passed tests fixture
+LAYOUT: settle pass
+LAYOUT: pass capture
+LAYOUT: page fixture 1440-window-3
+LAYOUT: settle layout
+LAYOUT: capture 1440-window-3
+LAYOUT: page fixture 1440-window-4
+LAYOUT: settle layout
+LAYOUT: capture 1440-window-4
+LAYOUT: reveal lower controls
+LAYOUT: lower capture
+LAYOUT: page fixture 1440-window-5
+LAYOUT: settle layout
+LAYOUT: capture 1440-window-5
+LAYOUT: page fixture 1440-window-6
+LAYOUT: settle layout
+LAYOUT: capture 1440-window-6
+LAYOUT: page fixture 1440-window-7
+LAYOUT: settle layout
+LAYOUT: capture 1440-window-7
+LAYOUT: page fixture 1440-window-8
+LAYOUT: settle layout
+LAYOUT: capture 1440-window-8
+LAYOUT: page fixture 1440-window-9
+LAYOUT: settle layout
+LAYOUT: capture 1440-window-9
+LAYOUT: page fixture 1440-window-11
+LAYOUT: settle layout
+LAYOUT: capture 1440-window-11
+LAYOUT: page fixture 1440-window-10
+LAYOUT: settle layout
+LAYOUT: capture 1440-window-10
+LAYOUT: page fixture 1440-window-12
+LAYOUT: settle layout
+LAYOUT: capture 1440-window-12
+LAYOUT: reveal lower controls
+LAYOUT: lower capture
+LAYOUT: window fixture 1440-max
+LAYOUT: settle geometry
+LAYOUT: page fixture 1440-max-0
+LAYOUT: settle layout
+LAYOUT: capture 1440-max-0
+LAYOUT: page fixture 1440-max-1
+LAYOUT: settle layout
+LAYOUT: capture 1440-max-1
+LAYOUT: page fixture 1440-max-2
+LAYOUT: settle layout
+LAYOUT: capture 1440-max-2
+LAYOUT: compiler error fixture
+LAYOUT: settle error
+LAYOUT: error capture
+LAYOUT: passed tests fixture
+LAYOUT: settle pass
+LAYOUT: pass capture
+LAYOUT: page fixture 1440-max-3
+LAYOUT: settle layout
+LAYOUT: capture 1440-max-3
+LAYOUT: page fixture 1440-max-4
+LAYOUT: settle layout
+LAYOUT: capture 1440-max-4
+LAYOUT: reveal lower controls
+LAYOUT: lower capture
+LAYOUT: page fixture 1440-max-5
+LAYOUT: settle layout
+LAYOUT: capture 1440-max-5
+LAYOUT: page fixture 1440-max-6
+LAYOUT: settle layout
+LAYOUT: capture 1440-max-6
+LAYOUT: page fixture 1440-max-7
+LAYOUT: settle layout
+LAYOUT: capture 1440-max-7
+LAYOUT: page fixture 1440-max-8
+LAYOUT: settle layout
+LAYOUT: capture 1440-max-8
+LAYOUT: page fixture 1440-max-9
+LAYOUT: settle layout
+LAYOUT: capture 1440-max-9
+LAYOUT: page fixture 1440-max-11
+LAYOUT: settle layout
+LAYOUT: capture 1440-max-11
+LAYOUT: page fixture 1440-max-10
+LAYOUT: settle layout
+LAYOUT: capture 1440-max-10
+LAYOUT: page fixture 1440-max-12
+LAYOUT: settle layout
+LAYOUT: capture 1440-max-12
+LAYOUT: reveal lower controls
+LAYOUT: lower capture
+LAYOUT: restore
+LAYOUT: settle restore
+LAYOUT: resize 1280
+LAYOUT: settle resize
+LAYOUT: window fixture 1280-window
+LAYOUT: settle geometry
+LAYOUT: page fixture 1280-window-0
+LAYOUT: settle layout
+LAYOUT: capture 1280-window-0
+LAYOUT: page fixture 1280-window-1
+LAYOUT: settle layout
+LAYOUT: capture 1280-window-1
+LAYOUT: page fixture 1280-window-2
+LAYOUT: settle layout
+LAYOUT: capture 1280-window-2
+LAYOUT: compiler error fixture
+LAYOUT: settle error
+LAYOUT: error capture
+LAYOUT: passed tests fixture
+LAYOUT: settle pass
+LAYOUT: pass capture
+LAYOUT: page fixture 1280-window-3
+LAYOUT: settle layout
+LAYOUT: capture 1280-window-3
+LAYOUT: page fixture 1280-window-4
+LAYOUT: settle layout
+LAYOUT: capture 1280-window-4
+LAYOUT: reveal lower controls
+LAYOUT: lower capture
+LAYOUT: page fixture 1280-window-5
+LAYOUT: settle layout
+LAYOUT: capture 1280-window-5
+LAYOUT: page fixture 1280-window-6
+LAYOUT: settle layout
+LAYOUT: capture 1280-window-6
+LAYOUT: page fixture 1280-window-7
+LAYOUT: settle layout
+LAYOUT: capture 1280-window-7
+LAYOUT: page fixture 1280-window-8
+LAYOUT: settle layout
+LAYOUT: capture 1280-window-8
+LAYOUT: page fixture 1280-window-9
+LAYOUT: settle layout
+LAYOUT: capture 1280-window-9
+LAYOUT: page fixture 1280-window-11
+LAYOUT: settle layout
+LAYOUT: capture 1280-window-11
+LAYOUT: page fixture 1280-window-10
+LAYOUT: settle layout
+LAYOUT: capture 1280-window-10
+LAYOUT: page fixture 1280-window-12
+LAYOUT: settle layout
+LAYOUT: capture 1280-window-12
+LAYOUT: reveal lower controls
+LAYOUT: lower capture
+LAYOUT: window fixture 1280-max
+LAYOUT: settle geometry
+LAYOUT: page fixture 1280-max-0
+LAYOUT: settle layout
+LAYOUT: capture 1280-max-0
+LAYOUT: page fixture 1280-max-1
+LAYOUT: settle layout
+LAYOUT: capture 1280-max-1
+LAYOUT: page fixture 1280-max-2
+LAYOUT: settle layout
+LAYOUT: capture 1280-max-2
+LAYOUT: compiler error fixture
+LAYOUT: settle error
+LAYOUT: error capture
+LAYOUT: passed tests fixture
+LAYOUT: settle pass
+LAYOUT: pass capture
+LAYOUT: page fixture 1280-max-3
+LAYOUT: settle layout
+LAYOUT: capture 1280-max-3
+LAYOUT: page fixture 1280-max-4
+LAYOUT: settle layout
+LAYOUT: capture 1280-max-4
+LAYOUT: reveal lower controls
+LAYOUT: lower capture
+LAYOUT: page fixture 1280-max-5
+LAYOUT: settle layout
+LAYOUT: capture 1280-max-5
+LAYOUT: page fixture 1280-max-6
+LAYOUT: settle layout
+LAYOUT: capture 1280-max-6
+LAYOUT: page fixture 1280-max-7
+LAYOUT: settle layout
+LAYOUT: capture 1280-max-7
+LAYOUT: page fixture 1280-max-8
+LAYOUT: settle layout
+LAYOUT: capture 1280-max-8
+LAYOUT: page fixture 1280-max-9
+LAYOUT: settle layout
+LAYOUT: capture 1280-max-9
+LAYOUT: page fixture 1280-max-11
+LAYOUT: settle layout
+LAYOUT: capture 1280-max-11
+LAYOUT: page fixture 1280-max-10
+LAYOUT: settle layout
+LAYOUT: capture 1280-max-10
+LAYOUT: page fixture 1280-max-12
+LAYOUT: settle layout
+LAYOUT: capture 1280-max-12
+LAYOUT: reveal lower controls
+LAYOUT: lower capture
+LAYOUT: restore
+LAYOUT: settle restore
+LAYOUT: life resize
+LAYOUT: rest fixture
+LAYOUT: rest capture
+LAYOUT: journal fixture
+LAYOUT: journal route capture
+LAYOUT: journal agenda
+LAYOUT: journal agenda capture
+LAYOUT: journal next
+LAYOUT: journal next capture
+LAYOUT: journal last page
+LAYOUT: journal last capture
+LAYOUT: journal route
+LAYOUT: life resize
+LAYOUT: rest fixture
+LAYOUT: rest capture
+LAYOUT: journal fixture
+LAYOUT: journal route capture
+LAYOUT: journal agenda
+LAYOUT: journal agenda capture
+LAYOUT: journal next
+LAYOUT: journal next capture
+LAYOUT: journal last page
+LAYOUT: journal last capture
+LAYOUT: journal route
+LAYOUT: life resize
+LAYOUT: rest fixture
+LAYOUT: rest capture
+LAYOUT: journal fixture
+LAYOUT: journal route capture
+LAYOUT: journal agenda
+LAYOUT: journal agenda capture
+LAYOUT: journal next
+LAYOUT: journal next capture
+LAYOUT: journal last page
+LAYOUT: journal last capture
+LAYOUT: journal route
+LAYOUT: nap setup
+LAYOUT: nap click
+LAYOUT: nap result
+LAYOUT: short sleep click
+LAYOUT: short sleep result
+ASTRA_LAYOUT_PASS: 137 checked captures; 13 pages, four sizes, restored/maximized, glyph and button bounds
+LAYOUT: done
+
+> Task :lwjgl3:jar
+> Task :lwjgl3:startScripts
+> Task :lwjgl3:installDist
+
+[Incubating] Problems report is available at: file:///workspace/work/ctrl-life/build/reports/problems/problems-report.html
+
+BUILD SUCCESSFUL in 1m 32s
+11 actionable tasks: 8 executed, 3 up-to-date

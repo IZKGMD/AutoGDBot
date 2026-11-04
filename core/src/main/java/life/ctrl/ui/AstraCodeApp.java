@@ -15,6 +15,7 @@ import life.ctrl.content.LifeContent;
 import life.ctrl.model.Career;
 import life.ctrl.model.Coding;
 import life.ctrl.model.GameState;
+import life.ctrl.model.WorkRhythm;
 
 /**
  * High-resolution Scene2D implementation of the complete Workbench gameplay.
@@ -83,7 +84,7 @@ final class AstraCodeApp {
         "|" + state().codeSource + "|" + report +
         "|" + state().money + "|" + state().codingXp + "|" +
         state().revisions.size() + "|" + state().shipped.size() + "|" +
-        state().upgrades.size();
+        state().upgrades.size() + "|" + state().workPace + "|" + state().workFatigue + "|" + state().minutes();
     boolean structuralChange = dirty || life.codePage != displayedPage ||
         !key.equals(displayedStructuralKey);
     if (!structuralChange) {
@@ -183,6 +184,7 @@ final class AstraCodeApp {
   }
 
   private void navigate(int next) {
+    notice = "";
     if (next == 4) {
       if (job() == null) { page(0); return; }
       if (life.report == null || !life.report.passed()) {
@@ -280,6 +282,7 @@ final class AstraCodeApp {
       case 9 -> project(content);
       case 10 -> abandon(content);
       case 11 -> portfolio(content);
+      case 12 -> rhythm(content);
       default -> board(content);
     }
   }
@@ -338,6 +341,7 @@ final class AstraCodeApp {
     card.add(label("Время: " + Career.duration(state(), j) + " мин   /   запуск: " +
         j.cost + " ₽", GOLD, true)).left();
     card.row();
+    note(card, "Темп: " + WorkRhythm.pace(state()).title + ". Настрой его в разделе «Ритм дня».");
     if (!j.once && state().completedOrders > 0) {
       action(card, rush ? "● Срочный заказ (+25%)" : "○ Срочный заказ (+25%)",
           () -> rush = !rush);
@@ -540,12 +544,61 @@ final class AstraCodeApp {
         .height(40);
     result.add(controls).left();
     addBlock(t, result);
-    note(t, "Время работы: " + Career.duration(state(), j) + " мин. " +
-        "Премия: " + Career.bonus(state(), j) + " ₽.");
+    note(t, "Темп: " + WorkRhythm.pace(state()).title + ". " + WorkRhythm.forecast(state(), j));
+    note(t, "Премия: " + Career.bonus(state(), j) + " ₽ · успешных собственных тестов: " + state().customCases.size() + ".");
+    String blocked = WorkRhythm.blocked(state());
+    if (!blocked.isEmpty()) note(t, blocked);
     action(t, j.once ? "Запустить этап • −" + j.cost + " ₽" :
         "Сдать клиенту • " + (j.pay + Career.bonus(state(), j)) + " ₽",
-        () -> deliver(j), state().jobStage != 5);
+        () -> deliver(j), state().jobStage != 5 && blocked.isEmpty());
+    action(t, "Темп работы и перерыв →", () -> page(12));
     action(t, "← Вернуться к исходнику", () -> page(2));
+  }
+
+  private void workChoices(Table t) {
+    for (var pace : WorkRhythm.Pace.values()) {
+      String detail = switch (pace) {
+        case STEADY -> "время 100% · усталость +18";
+        case SPRINT -> "время 75% · усталость +34";
+        case REVIEW -> "время 125% · усталость +10";
+      };
+      action(t, (WorkRhythm.pace(state()) == pace ? "> " : "") + pace.title + " · " + detail,
+          () -> { state().workPace = pace.name(); persist(); });
+    }
+  }
+
+  private void rhythm(Table t) {
+    title(t, "LIFE / WORK RHYTHM", "Работа вписывается в жизнь",
+        "День " + state().day() + " · " + state().clock() + " · энергия " + (int) state().energy
+            + " · сытость " + (int) state().hunger + " · рабочая усталость " + (int) state().workFatigue + "/100");
+    if (job() != null && state().jobStage >= 2 && state().jobStage < 5)
+      action(t, "← Вернуться к заказу", () -> navigate(state().programPreviewed ? 4 : 2));
+    Table work = block();
+    note(work, "Выбери темп перед сдачей. Рывок освобождает вечер, но быстрее утомляет. "
+        + "Проверка занимает больше времени, бережёт силы и даёт ещё 100 ₽ за два успешных собственных теста.");
+    workChoices(work);
+    if (job() != null && state().jobStage >= 2 && state().jobStage < 5)
+      note(work, WorkRhythm.forecast(state(), job()));
+    note(work, "При усталости от 60 работа длится на 25% дольше. При энергии или сытости ниже 15: ещё +20%. "
+        + "Рывок доступен при энергии от 35, сытости от 25 и усталости до 50.");
+    action(work, "Перерыв без экрана · 30 минут", () -> {
+      String result = WorkRhythm.breakTime(state()); persist(); message(result);
+    });
+    note(work, "Перерыв: усталость −20, энергия +12 после расхода времени. "
+        + "Завершённое свидание снимает 15 усталости. Время работы списывается при сдаче, набирай код без спешки.");
+    addBlock(t, work);
+    Table plans = block();
+    title(plans, "AGENDA", "То, о чём договорились", "[J] открывает обязательства и вне компьютера.");
+    for (String row : WorkRhythm.agenda(state(), life.data)) note(plans, row);
+    addBlock(t, plans);
+    Table funds = block();
+    int reserve = WorkRhythm.reserve(state());
+    title(funds, "BUDGET", "Резерв на жизнь", "На руках " + state().money + " ₽ · резерв " + reserve + " ₽");
+    note(funds, "Резерв: следующая аренда + долг + два супа (440 ₽) + оплачиваемая встреча, если назначена. "
+        + "Это ориентир; деньги остаются доступными.");
+    note(funds, state().money >= reserve ? "Сверх резерва: " + (state().money - reserve) + " ₽."
+        : "До резерва не хватает " + (reserve - state().money) + " ₽. Обычные заказы и бесплатный сквер помогут сохранить бюджет.");
+    addBlock(t, funds);
   }
 
   private void deliver(LifeContent.Job j) {

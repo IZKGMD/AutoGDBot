@@ -20,6 +20,7 @@ public final class LifeScreens {
   public boolean remote;
   public Coding.Report report;
   public double previewInput = 2;
+  private int agendaPage = -1;
   private double cachedInput = Double.NaN, cachedResult;
   private String cachedSource = "";
   public String sceneTitle = "", sceneText = "";
@@ -317,60 +318,25 @@ public final class LifeScreens {
   }
 
   private void rest() {
-    frame("КОМНАТА В ОБЩЕЖИТИИ", "Передохнуть");
-    c.wrap(
-        "Энергия: "
-            + (int) s().energy
-            + " / 100. Сон восстанавливает силы и здоровье. Сытость за ночь уменьшится. Следующая"
-            + " аренда — день "
-            + (s().rentThroughDay + 1)
-            + ", 3000 ₽.",
-        28,
-        74,
-        420,
-        SOFT);
-    btn(
-        "Завершить день · проснуться в 08:00",
-        28,
-        140,
-        424,
-        () -> {
-          Life.sleep(s());
-          Social.expire(s());
-          scene(
-              "После сна",
-              "Ты выспался(ась). День "
-                  + s().day()
-                  + ", "
-                  + s().clock()
-                  + ". Проверь сытость и выбери цель в журнале [J].",
-              Mode.WORLD);
-        });
+    frame("КОМНАТА В ОБЩЕЖИТИИ", "Время восстановиться");
+    c.wrap("Энергия " + (int) s().energy + " · сытость " + (int) s().hunger
+        + " · рабочая усталость " + (int) s().workFatigue + "/100.\nДо 08:00: "
+        + Life.sleepMinutes(s()) + " мин. Короткий сон восстанавливает меньше сил. Встречи и сроки идут даже во сне.",
+        28, 64, 420, SOFT);
+    btn("До 08:00 · " + Life.sleepMinutes(s()) + " мин", 28, 116, 424, () -> {
+      Life.sleep(s());
+      scene("После сна", "День " + s().day() + ", " + s().clock() + ". Энергия "
+          + (int) s().energy + ", сытость " + (int) s().hunger
+          + ". Проверь обязательства в журнале [J].", Mode.WORLD);
+    });
+    btn("Вздремнуть · 90 минут", 28, 142, 424,
+        () -> scene("Короткий сон", Life.nap(s()), Mode.WORLD));
+    btn("Перерыв без экрана · 30 минут", 28, 168, 424,
+        () -> scene("Короткий отдых", WorkRhythm.breakTime(s()), Mode.WORLD));
     if (!s().partnerId.isEmpty())
-      btn(
-          "Поговорить о вечере вдвоём",
-          28,
-          168,
-          424,
-          () -> {
-            girlId = s().partnerId;
-            socialPage = "night";
-            remote = false;
-            mode(Mode.SOCIAL);
-          });
-    btn(
-        "Посидеть 30 минут · энергия +12",
-        28,
-        196,
-        424,
-        () -> {
-          Life.advance(s(), 30);
-          s().energy = Math.min(100, s().energy + 12);
-          scene(
-              "Короткий отдых",
-              "Стало немного легче. Но полноценный сон это не заменяет.",
-              Mode.WORLD);
-        });
+      btn("Поговорить о вечере вдвоём", 28, 194, 424, () -> {
+        girlId = s().partnerId; socialPage = "night"; remote = false; mode(Mode.SOCIAL);
+      });
     btn("Встать", 28, 226, 424, () -> mode(Mode.WORLD));
   }
 
@@ -409,6 +375,26 @@ public final class LifeScreens {
 
   private void journal() {
     frame("ПЛАН НА ДЕНЬ  [J]", "День " + s().day() + " · " + s().clock());
+    if (agendaPage >= 0) {
+      List<String> rows = new ArrayList<>(WorkRhythm.agenda(s(), data));
+      int reserve = WorkRhythm.reserve(s());
+      rows.add("Деньги " + s().money + " ₽. Резерв: " + reserve + " ₽ (аренда, долг, два супа и встреча). "
+          + (s().money >= reserve ? "Свободно " + (s().money - reserve) : "Не хватает " + (reserve - s().money)) + " ₽.");
+      rows.add("Рабочая усталость " + (int) s().workFatigue + "/100. Перерыв 30 мин: −20. "
+          + "Свидание: −15. Темп работы выбирается на ПК в разделе «Ритм дня».");
+      int pages = (rows.size() + 2) / 3;
+      agendaPage = Math.floorMod(agendaPage, pages);
+      for (int i = agendaPage * 3; i < Math.min(rows.size(), agendaPage * 3 + 3); i++) {
+        int y = 67 + (i % 3) * 43;
+        c.rect(24, y - 3, 432, 40, "21313cee");
+        c.paragraph(rows.get(i), 30, y + 2, 416, 35, TEXT, false);
+      }
+      btn("Далее · " + (agendaPage + 1) + "/" + pages, 28, 203, 206,
+          () -> { agendaPage = (agendaPage + 1) % pages; game.resetSelection(); });
+      btn("← Маршрут", 246, 203, 206, () -> { agendaPage = -1; game.resetSelection(); });
+      btn("К делу →", 28, 230, 424, () -> mode(Mode.WORLD));
+      return;
+    }
     var goal = Navigation.goal(game.world(), data);
     c.text(goal.title(), 28, 68, GOLD);
     c.wrap(goal.hint(), 28, 88, 420, TEXT);
@@ -433,6 +419,7 @@ public final class LifeScreens {
           mode(Mode.CONTACTS);
           persist();
         });
+    btn("Обязательства и бюджет", 28, 230, 424, () -> { agendaPage = 0; game.resetSelection(); });
     btn("Показать карту", 28, 203, 206, () -> mode(Mode.MAP));
     btn("К делу →", 246, 203, 206, () -> mode(Mode.WORLD));
   }

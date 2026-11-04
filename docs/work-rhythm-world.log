@@ -1,0 +1,106 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :lwjgl3:processResources NO-SOURCE
+> Task :lwjgl3:processSmokeResources NO-SOURCE
+> Task :core:compileJava UP-TO-DATE
+> Task :core:processResources UP-TO-DATE
+> Task :core:classes UP-TO-DATE
+> Task :core:jar UP-TO-DATE
+> Task :lwjgl3:compileJava UP-TO-DATE
+> Task :lwjgl3:classes UP-TO-DATE
+> Task :lwjgl3:compileSmokeJava UP-TO-DATE
+> Task :lwjgl3:smokeClasses UP-TO-DATE
+
+> Task :lwjgl3:guiSmoke
+VISUAL: menu
+VISUAL: new
+VISUAL: create
+VISUAL: intro
+VISUAL: intro
+VISUAL: intro
+VISUAL: fixture room-12
+VISUAL: settle room-12
+VISUAL: capture room-12
+VISUAL: fixture room-22
+VISUAL: settle room-22
+VISUAL: capture room-22
+VISUAL: fixture stair-12
+VISUAL: settle stair-12
+VISUAL: capture stair-12
+VISUAL: fixture stair-22
+VISUAL: settle stair-22
+VISUAL: capture stair-22
+VISUAL: fixture cafe-12
+VISUAL: settle cafe-12
+VISUAL: capture cafe-12
+VISUAL: fixture cafe-22
+VISUAL: settle cafe-22
+VISUAL: capture cafe-22
+VISUAL: fixture diner-12
+VISUAL: settle diner-12
+VISUAL: capture diner-12
+VISUAL: fixture diner-22
+VISUAL: settle diner-22
+VISUAL: capture diner-22
+VISUAL: fixture workshop-12
+VISUAL: settle workshop-12
+VISUAL: capture workshop-12
+VISUAL: fixture workshop-22
+VISUAL: settle workshop-22
+VISUAL: capture workshop-22
+VISUAL: fixture park-12
+VISUAL: settle park-12
+VISUAL: capture park-12
+VISUAL: fixture park-22
+VISUAL: settle park-22
+VISUAL: capture park-22
+VISUAL: fixture street-12
+VISUAL: settle street-12
+VISUAL: capture street-12
+VISUAL: fixture street-22
+VISUAL: settle street-22
+VISUAL: capture street-22
+VISUAL: street camera 470.0
+VISUAL: settle
+VISUAL: street capture
+VISUAL: street camera 814.0
+VISUAL: settle
+VISUAL: street capture
+VISUAL: street camera 900.0
+VISUAL: settle
+VISUAL: street capture
+VISUAL: behind fridge
+VISUAL: settle occlusion
+VISUAL: fridge behind capture
+VISUAL: in front of fridge
+VISUAL: settle occlusion
+VISUAL: fridge front capture
+VISUAL: gear
+VISUAL: settle
+VISUAL: room upgraded
+VISUAL: keepsakes fixture
+VISUAL: settle keepsakes
+VISUAL: keepsakes capture
+VISUAL: clear park
+VISUAL: settle clear park
+VISUAL: clear park capture
+VISUAL: open map
+VISUAL: map geometry
+VISUAL: workbench
+VISUAL: workbench capture
+VISUAL: stress long label
+VISUAL: career capture
+VISUAL: resize 960
+VISUAL: settle resize
+VISUAL: size 960
+VISUAL: resize 1280
+VISUAL: settle resize
+VISUAL: size 1280
+VISUAL: resize 1920
+VISUAL: settle resize
+VISUAL: size 1920
+VISUAL_SMOKE_PASS: all seven maps, day/night, camera edges, upgrades, UI, 960/1280/1920, no lighting outside cutaways
+VISUAL: done
+
+BUILD SUCCESSFUL in 1m 2s
+6 actionable tasks: 1 executed, 5 up-to-date

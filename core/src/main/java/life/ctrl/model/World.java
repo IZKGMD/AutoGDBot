@@ -50,6 +50,8 @@ public final class World {
     if (state.pinux == null) throw new IllegalArgumentException("Pinux session");
     state.pinux.validate();
     DateStory.validate(state);
+    WorkRhythm.pace(state);
+    if (!validNeed(state.workFatigue)) throw new IllegalArgumentException("Рабочая усталость");
     if (state.name == null
         || state.name.isBlank()
         || state.name.length() > 18

@@ -20,7 +20,7 @@ public final class Career {
               "chair",
               "Кресло с поддержкой спины",
               2800,
-              "Дополнительная усталость за заказ: 2 вместо 6. В комнате появится кресло."));
+              "Заказ расходует на 4 энергии меньше при любом темпе. В комнате появится кресло."));
 
   public static int tier(GameState s) {
     return s.codingXp >= 8 ? 2 : s.codingXp >= 3 ? 1 : 0;
@@ -76,12 +76,12 @@ public final class Career {
   }
 
   public static int duration(GameState s, LifeContent.Job j) {
-    return (int) Math.ceil(j.minutes * (s.upgrades.contains("ssd") ? .85 : 1));
+    return WorkRhythm.duration(s, j);
   }
 
   public static int bonus(GameState s, LifeContent.Job j) {
     if (j.once) return 0;
-    return (s.customCases.size() >= 2 ? 100 : 0)
+    return (s.customCases.size() >= 2 ? (WorkRhythm.pace(s) == WorkRhythm.Pace.REVIEW ? 200 : 100) : 0)
         + (s.rushJob && s.minutes() + duration(s, j) <= s.rushDeadline ? j.pay / 4 : 0);
   }
 

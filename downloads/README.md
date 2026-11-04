@@ -1,4 +1,8 @@
-# Актуальная сборка 0.7.0
+# Актуальная сборка 0.8.0
+
+[Скачать на GitHub с Java](https://github.com/IZKGMD/AutoGDBot/releases/tag/v0.8.0-work-rhythm) · [Механики](../docs/WORK_RHYTHM.md) · [Проверки](../docs/WORK_RHYTHM_QA.md)
+
+# Предыдущая сборка 0.7.0
 
 [Скачать на GitHub с Java](https://github.com/IZKGMD/AutoGDBot/releases/tag/v0.7.0-close-to-home) · [Что нового](../docs/CLOSE_TO_HOME.md) · [Проверки](../docs/CLOSE_TO_HOME_QA.md)
 

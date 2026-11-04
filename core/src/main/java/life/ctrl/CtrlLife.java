@@ -502,9 +502,7 @@ public class CtrlLife extends ApplicationAdapter {
         return;
       }
       case "wait" -> {
-        Life.advance(world.state, 30);
-        world.state.energy = Math.min(100, world.state.energy + 8);
-        life.scene("Пауза в сквере", "Прошло 30 минут. Ты немного отдохнул(а).", Mode.WORLD);
+        life.scene("Пауза в сквере", WorkRhythm.breakTime(world.state), Mode.WORLD);
         return;
       }
     }
@@ -778,6 +776,8 @@ public class CtrlLife extends ApplicationAdapter {
     meter("СЫТОСТЬ", world.state.hunger, 100, "b8bd82");
     meter("ЭНЕРГИЯ", world.state.energy, 188, "8caaa5");
     c.small(world.state.money + " ₽", 285, 8, GOLD);
+    c.small("УСТ. " + (int) world.state.workFatigue, 285, 20,
+        world.state.workFatigue >= 60 ? "df8d72" : MUTED);
     c.small("День " + world.state.day() + " · " + world.state.clock(), 365, 8, CREAM);
     c.fitted(world.map().name + " · " + Atmosphere.period(world.state), 12, 28, 223, MUTED, true);
     c.small("J план · M карта · R люди · B деньги", 242, 28, MUTED);
@@ -854,7 +854,7 @@ public class CtrlLife extends ApplicationAdapter {
     button("Настройки", 245, 182, 135, 23, true, () -> openSettings(Mode.MENU));
     button("Выйти", 245, 209, 135, 23, true, () -> Gdx.app.exit());
     c.small("ПЕРВЫЕ ДЕНЬГИ. ПЕРВЫЕ ЧУВСТВА.", 32, 248, MUTED);
-    c.small("0.7.0", 419, 248, MUTED);
+    c.small("0.8.0", 419, 248, MUTED);
     // An illuminated architectural vignette cut out of the room.
     c.panel(314, 44, 120, 112);
     c.art("desk", 342, 66);

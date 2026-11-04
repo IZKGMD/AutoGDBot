@@ -13,6 +13,9 @@ import java.util.ArrayDeque;
 import java.util.List;
 import life.ctrl.CtrlLife;
 import life.ctrl.model.Coding;
+import life.ctrl.model.WorkRhythm;
+import life.ctrl.model.RelationshipJourney;
+import life.ctrl.save.SaveStore;
 
 /** Visual regression matrix: every IDE page, windowed/maximized, across four resolutions. */
 public final class AstraLayoutSmoke extends CtrlLife {
@@ -22,9 +25,10 @@ public final class AstraLayoutSmoke extends CtrlLife {
   float timer;
   boolean failed;
   String current = "boot";
-  int captures;
+  int captures, settleFrames;
 
   public static void main(String[] args) throws Exception {
+    System.setProperty("ctrl.uiAudit", "true");
     Path dir = Path.of(System.getProperty("ctrl.dataDir"));
     Files.createDirectories(dir);
     Files.createDirectories(Path.of(System.getProperty("ctrl.shots")));
@@ -75,6 +79,25 @@ public final class AstraLayoutSmoke extends CtrlLife {
     var i = Gdx.input.getInputProcessor();
     i.touchDown(x, y, 0, Input.Buttons.LEFT);
     i.touchUp(x, y, 0, Input.Buttons.LEFT);
+  }
+
+  void reveal(String text) {
+    Actor a = find(code(), text);
+    if (a == null) throw new AssertionError("Missing control " + text);
+    for (Actor parent = a.getParent(); parent != null; parent = parent.getParent()) {
+      if (parent instanceof ScrollPane pane) {
+        Vector2 p = a.localToAscendantCoordinates(pane.getWidget(), new Vector2());
+        pane.scrollTo(p.x, p.y, a.getWidth(), a.getHeight(), false, true);
+        pane.updateVisualScroll();
+        return;
+      }
+    }
+  }
+
+  void pixelClick(int x, int y) {
+    var input = Gdx.input.getInputProcessor();
+    input.touchDown(canvas().screenX(x), canvas().screenY(y), 0, Input.Buttons.LEFT);
+    input.touchUp(canvas().screenX(x), canvas().screenY(y), 0, Input.Buttons.LEFT);
   }
 
   void validate(Actor a) {
@@ -198,6 +221,29 @@ public final class AstraLayoutSmoke extends CtrlLife {
           tap(Keys.F1);
         });
     step("settle", () -> {});
+    step("rhythm open", () -> lifeScreens().codePage = 12);
+    step("rhythm reveal sprint", () -> reveal("Рывок · время 75% · усталость +34"));
+    step("rhythm select sprint", () -> click(find(code(), "Рывок · время 75% · усталость +34")));
+    step("rhythm sprint persisted", () -> {
+      if (WorkRhythm.pace(world().state) != WorkRhythm.Pace.SPRINT) throw new AssertionError("Pace click");
+      try {
+        var saved = new SaveStore(SaveStore.defaultDirectory(), world().content).load().state();
+        if (!saved.workPace.equals("SPRINT")) throw new AssertionError("Pace not saved");
+      } catch (java.io.IOException e) { throw new RuntimeException(e); }
+      world().state.workFatigue = 60;
+    });
+    step("rhythm reveal break", () -> reveal("Перерыв без экрана · 30 минут"));
+    step("rhythm take break", () -> click(find(code(), "Перерыв без экрана · 30 минут")));
+    step("rhythm break result", () -> {
+      if (world().state.workFatigue != 40) throw new AssertionError("Break click");
+      shot("rhythm-break");
+    });
+    step("dismiss break notice", () -> click(code().findActor("notice-dismiss")));
+    step("rhythm reveal steady", () -> reveal("Обычный · время 100% · усталость +18"));
+    step("rhythm restore steady", () -> click(find(code(), "Обычный · время 100% · усталость +18")));
+    step("rhythm verify steady", () -> {
+      if (WorkRhythm.pace(world().state) != WorkRhythm.Pace.STEADY) throw new AssertionError("Steady click");
+    });
     for (int width : new int[] {960, 1920, 1440, 1280}) {
       int height = width == 1280 ? 800 : width * 9 / 16;
       step("resize " + width, () -> Gdx.graphics.setWindowedMode(width, height));
@@ -218,10 +264,15 @@ public final class AstraLayoutSmoke extends CtrlLife {
                         width == 960 ? 360 : height - 120);
             });
         step("settle geometry", () -> {});
-        for (int page : new int[] {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 10}) {
+        for (int page : new int[] {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 10, 12}) {
           step("page fixture " + key + "-" + page, () -> fixture(page));
           step("settle layout", () -> {});
           step("capture " + key + "-" + page, () -> shot(key + "-page-" + page));
+          if (page == 4 || page == 12) {
+            String caption = page == 4 ? "Темп работы и перерыв →" : "Сверх резерва: 6560 ₽.";
+            step("reveal lower controls", () -> reveal(caption));
+            step("lower capture", () -> shot(key + "-page-" + page + "-lower"));
+          }
           if (page == 2) {
             step(
                 "compiler error fixture",
@@ -249,13 +300,54 @@ public final class AstraLayoutSmoke extends CtrlLife {
         }
       }
     }
+    for (int width : new int[] {960, 1280, 1920}) {
+      step("life resize", () -> Gdx.graphics.setWindowedMode(width, width == 1280 ? 800 : width * 9 / 16));
+      step("rest fixture", () -> switchMode(Mode.REST));
+      step("rest capture", () -> canvas().screenshot(System.getProperty("ctrl.shots") + "/rhythm-" + width + "-rest.png"));
+      step("journal fixture", () -> {
+        var s = world().state;
+        s.plannedGirl = "mira"; s.plannedVenue = "cafe"; s.plannedDay = s.day();
+        for (var girl : lifeScreens().data.girls) {
+          var r = s.relation(girl.id); r.met = true;
+          r.promise = RelationshipJourney.DATA.arc(girl.id).activities[0].id;
+          r.promiseDue = s.day() + 2;
+        }
+        switchMode(Mode.JOURNAL);
+      });
+      step("journal route capture", () -> canvas().screenshot(System.getProperty("ctrl.shots") + "/rhythm-" + width + "-journal.png"));
+      step("journal agenda", () -> pixelClick(250, 240));
+      step("journal agenda capture", () -> canvas().screenshot(System.getProperty("ctrl.shots") + "/rhythm-" + width + "-agenda.png"));
+      step("journal next", () -> pixelClick(130, 214));
+      step("journal next capture", () -> canvas().screenshot(System.getProperty("ctrl.shots") + "/rhythm-" + width + "-agenda-next.png"));
+      step("journal last page", () -> pixelClick(130, 214));
+      step("journal last capture", () -> canvas().screenshot(System.getProperty("ctrl.shots") + "/rhythm-" + width + "-agenda-last.png"));
+      step("journal route", () -> pixelClick(340, 214));
+    }
+    step("nap setup", () -> {
+      var s = world().state; s.gameMinutes = 470; s.energy = 0; s.workFatigue = 90;
+      switchMode(Mode.REST);
+    });
+    step("nap click", () -> pixelClick(220, 153));
+    step("nap result", () -> {
+      if (mode() != Mode.SCENE || world().state.minutes() != 560 || Math.abs(world().state.energy - 28.8) > .01)
+        throw new AssertionError("Nap did not consume 90 minutes");
+      canvas().screenshot(System.getProperty("ctrl.shots") + "/rhythm-nap-result.png");
+      world().state.gameMinutes = 470; world().state.energy = 0;
+      switchMode(Mode.REST);
+    });
+    step("short sleep click", () -> pixelClick(220, 127));
+    step("short sleep result", () -> {
+      if (mode() != Mode.SCENE || world().state.minutes() != 480 || Math.abs(world().state.energy - 3.2) > .01)
+        throw new AssertionError("Short sleep exploit returned");
+      canvas().screenshot(System.getProperty("ctrl.shots") + "/rhythm-short-sleep.png");
+    });
     step(
         "done",
         () -> {
           System.out.println(
               "ASTRA_LAYOUT_PASS: "
                   + captures
-                  + " checked captures; 12 pages, four sizes, restored/maximized, glyph and button"
+                  + " checked captures; 13 pages, four sizes, restored/maximized, glyph and button"
                   + " bounds");
           Gdx.app.exit();
         });
@@ -265,7 +357,8 @@ public final class AstraLayoutSmoke extends CtrlLife {
   public void render() {
     super.render();
     timer += Gdx.graphics.getDeltaTime();
-    if (timer < .12f || steps.isEmpty()) return;
+    if (++settleFrames < 3 || timer < .12f || steps.isEmpty()) return;
+    settleFrames = 0;
     timer = 0;
     var step = steps.remove();
     current = step.name;

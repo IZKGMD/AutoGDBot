@@ -7,12 +7,19 @@ public final class Life {
   private Life() {}
 
   public static void advance(GameState s, double minutes) {
+    advance(s, minutes, false);
+  }
+
+  private static void advance(GameState s, double minutes, boolean sleeping) {
     if (!Double.isFinite(minutes) || minutes < 0 || minutes > 1440)
       throw new IllegalArgumentException("Время");
+    double hungerRate = sleeping ? .025 : .065;
+    double hungryMinutes = Math.max(0, minutes - Math.max(0, s.hunger - 10) / hungerRate);
     s.gameMinutes += minutes;
-    s.hunger = Math.max(0, s.hunger - minutes * .065);
-    s.energy = Math.max(0, s.energy - minutes * .045);
-    if (s.hunger < 10) s.health = Math.max(15, s.health - minutes * .012);
+    s.hunger = Math.max(0, s.hunger - minutes * hungerRate);
+    if (!sleeping) s.energy = Math.max(0, s.energy - minutes * .045);
+    if (hungryMinutes > 0 && s.health > 15)
+      s.health = Math.max(15, s.health - hungryMinutes * .012);
     Career.settleProject(s);
     Economy.rent(s);
     Social.expire(s);
@@ -44,13 +51,27 @@ public final class Life {
     else s.items.put(item, n - 1);
   }
 
-  public static void sleep(GameState s) {
+  public static int sleepMinutes(GameState s) {
     int wait = (480 - s.minutes() % 1440 + 1440) % 1440;
-    if (wait == 0) wait = 1440;
-    advance(s, wait);
-    s.energy = 96;
-    s.health = Math.min(100, s.health + 12);
-    s.mood = Math.min(100, s.mood + 8);
+    return wait == 0 ? 1440 : wait;
+  }
+
+  private static void sleepFor(GameState s, int minutes) {
+    advance(s, minutes, true);
+    s.energy = Math.min(100, s.energy + minutes * .32);
+    s.health = Math.min(100, s.health + Math.min(12, minutes * .025));
+    s.mood = Math.min(100, s.mood + Math.min(8, minutes / 60.0));
+    WorkRhythm.recover(s, minutes / 6.0);
+  }
+
+  public static void sleep(GameState s) {
+    sleepFor(s, sleepMinutes(s));
+  }
+
+  public static String nap(GameState s) {
+    sleepFor(s, 90);
+    return "Полтора часа сна: энергия +28,8, рабочая усталость −15. Сейчас день "
+        + s.day() + ", " + s.clock() + ". Сроки и встречи продолжают идти.";
   }
 
   public static String courier(GameState s) {

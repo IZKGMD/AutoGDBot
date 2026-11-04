@@ -357,7 +357,7 @@ public final class ChapterSmoke extends CtrlLife {
     walk(266, 164);
     pressE();
     waitFor(Mode.REST);
-    once("sleep", () -> click(240, 151));
+    once("sleep", () -> click(240, 127));
     closeScene();
     once(
         "new morning",

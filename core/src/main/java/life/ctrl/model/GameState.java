@@ -29,6 +29,8 @@ public final class GameState {
   public DateStory.Session date = new DateStory.Session();
   public int codingXp, completedOrders, rushDeadline = -1, projectIncomeDay = -1;
   public boolean rushJob;
+  public String workPace = "STEADY";
+  public double workFatigue;
   public ArrayList<String> shipped = new ArrayList<>(),
       upgrades = new ArrayList<>(),
       customCases = new ArrayList<>();

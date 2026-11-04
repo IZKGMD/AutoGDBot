@@ -147,6 +147,7 @@ public final class Coding {
     s.typedCount = tactile ? 0 : s.codeSource.length();
     s.jobStage = 2;
     s.programPreviewed = false;
+    s.customCases.clear();
   }
 
   public static String commit(GameState s) {
@@ -164,6 +165,7 @@ public final class Coding {
     s.typedCount = s.codeSource.length();
     s.jobStage = 2;
     s.programPreviewed = false;
+    s.customCases.clear();
     return "Версия восстановлена. Прогони тесты заново.";
   }
 
@@ -191,7 +193,7 @@ public final class Coding {
       double actual = p.run(inputs), expected = ByteScript.compile(j.source).run(inputs);
       String key = Arrays.toString(inputs);
       boolean novel = Arrays.stream(j.tests).noneMatch(t -> Arrays.equals(t.args, inputs));
-      if (novel && !s.customCases.contains(key) && s.customCases.size() < 20)
+      if (novel && Math.abs(actual - expected) < .001 && !s.customCases.contains(key) && s.customCases.size() < 20)
         s.customCases.add(key);
       return "Ответ "
           + format(actual)
@@ -224,6 +226,8 @@ public final class Coding {
       return "Сегодня уже оплачены три заказа. Продолжи завтра; исходник сохранён.";
     if (s.money < j.cost)
       return "Для запуска нужно " + j.cost + " ₽. Код сохранён, можно вернуться после подработки.";
+    String blocked = WorkRhythm.blocked(s);
+    if (!blocked.isEmpty()) return blocked;
     int time = Career.duration(s, j), bonus = Career.bonus(s, j);
     boolean late = s.rushJob && s.minutes() + time > s.rushDeadline;
     Economy.spend(s, j.cost, "Свой бот: " + j.title);
@@ -237,7 +241,7 @@ public final class Coding {
     s.codingXp += j.xp;
     s.jobStage = 5;
     Life.advance(s, time);
-    s.energy = Math.max(0, s.energy - (s.upgrades.contains("chair") ? 2 : 6));
+    WorkRhythm.finish(s);
     s.mood = Math.min(100, s.mood + 8);
     s.lastClientMessage = j.feedback;
     return (j.once

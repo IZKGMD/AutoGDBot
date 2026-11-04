@@ -88,6 +88,7 @@ public final class DateStory {
     r.lastDateDay = s.day();
     r.dates++;
     s.firstDateFinished = true;
+    WorkRhythm.recover(s, 15);
     s.mood = Math.min(100, s.mood + 8);
     if (!d.venue.equals("park")) {
       s.hunger = Math.min(100, s.hunger + 35);

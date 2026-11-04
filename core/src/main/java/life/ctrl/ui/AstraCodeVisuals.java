@@ -613,6 +613,8 @@ public final class AstraCodeVisuals implements Disposable {
 
     // Группа PROGRESSION
     addSidebarSectionHeader(side, "PROGRESSION");
+    addSidebarItem(side, "Ритм дня", "◷", 12, currentPage, true,
+        "", ACCENT_CYAN, onNavigate);
     addSidebarItem(side, "Карьера", "◈", 7, currentPage, true,
         "T" + Career.tier(state), ACCENT_PURPLE, onNavigate);
     addSidebarItem(
@@ -1750,7 +1752,10 @@ public final class AstraCodeVisuals implements Disposable {
     strip.add(wrapLabel(noticeText, FG_PRIMARY)).growX().minWidth(0f).padRight(8f);
 
     if (onDismiss != null) {
-      strip.add(compactButton("×", ButtonVariant.GHOST, true, onDismiss)).width(22f).height(20f);
+      TextButton dismiss = compactButton("×", ButtonVariant.GHOST, true, onDismiss);
+      dismiss.pad(2f);
+      dismiss.setName("notice-dismiss");
+      strip.add(dismiss).width(26f).height(26f);
     }
     return strip;
   }

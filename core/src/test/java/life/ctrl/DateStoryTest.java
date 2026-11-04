@@ -34,6 +34,7 @@ class DateStoryTest {
           var s = invited(g.id, "park");
           var r = s.relation(g.id);
           r.dates = episode;
+          s.workFatigue = 60;
           int a = r.affinity, t = r.trust, money = s.money, minutes = s.minutes();
           assertEquals("", DateStory.start(s, g));
           String id = s.date.episode;
@@ -44,6 +45,7 @@ class DateStoryTest {
             DateStory.next(s);
           }
           assertFalse(s.date.active());
+          assertEquals(45, s.workFatigue);
           assertEquals(episode + 1, r.dates);
           assertTrue(r.affinity - a >= 12 && r.affinity - a <= 15);
           assertTrue(r.trust - t >= 10 && r.trust - t <= 13);
@@ -55,6 +57,7 @@ class DateStoryTest {
           int after = r.affinity;
           DateStory.next(s);
           assertEquals(after, r.affinity);
+          assertEquals(45, s.workFatigue);
         }
   }
 

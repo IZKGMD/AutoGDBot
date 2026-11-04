@@ -10,7 +10,7 @@ import life.ctrl.model.*;
 
 /** Validated, atomic single-slot saves with a previous-good backup. */
 public final class SaveStore {
-  public static final int VERSION = 7;
+  public static final int VERSION = 8;
 
   public static final class Envelope {
     public int version = VERSION;
@@ -103,6 +103,7 @@ public final class SaveStore {
           if (r != null && r.met && r.memories != null && r.memories.isEmpty() && r.memory != null)
             r.memories.add(new Relationship.Memory(e.state.day(), "До обновления", r.memory));
       }
+      if (e.version < 8) e.state.customCases.clear(); // Old probes were not guaranteed to pass.
       new World(content, e.state);
       return e.state;
     } catch (RuntimeException ex) {

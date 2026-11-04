@@ -1,0 +1,438 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :lwjgl3:processResources NO-SOURCE
+> Task :lwjgl3:processSmokeResources NO-SOURCE
+> Task :core:compileJava UP-TO-DATE
+> Task :core:processResources UP-TO-DATE
+> Task :core:classes UP-TO-DATE
+> Task :core:jar UP-TO-DATE
+> Task :lwjgl3:compileJava UP-TO-DATE
+> Task :lwjgl3:classes UP-TO-DATE
+> Task :lwjgl3:compileSmokeJava UP-TO-DATE
+> Task :lwjgl3:smokeClasses UP-TO-DATE
+
+> Task :lwjgl3:guiSmoke
+DATES: new
+DATES: create
+DATES: intro
+DATES: intro
+DATES: intro
+DATES: fixture mira-0
+DATES: settle
+DATES: arrival mira-0
+DATES: started
+DATES: choice mira-0-0
+DATES: response mira-0-0
+DATES: choice mira-0-1
+DATES: response mira-0-1
+DATES: choice mira-0-2
+DATES: response mira-0-2
+DATES: completed mira-0
+DATES: read summary
+DATES: read summary
+DATES: read summary
+DATES: read summary
+DATES: fixture mira-1
+DATES: settle
+DATES: arrival mira-1
+DATES: started
+DATES: choice mira-1-0
+DATES: response mira-1-0
+DATES: choice mira-1-1
+DATES: response mira-1-1
+DATES: choice mira-1-2
+DATES: response mira-1-2
+DATES: completed mira-1
+DATES: read summary
+DATES: read summary
+DATES: read summary
+DATES: read summary
+DATES: fixture mira-2
+DATES: settle
+DATES: arrival mira-2
+DATES: started
+DATES: choice mira-2-0
+DATES: response mira-2-0
+DATES: choice mira-2-1
+DATES: response mira-2-1
+DATES: choice mira-2-2
+DATES: response mira-2-2
+DATES: completed mira-2
+DATES: read summary
+DATES: read summary
+DATES: read summary
+DATES: read summary
+DATES: fixture asya-0
+DATES: settle
+DATES: arrival asya-0
+DATES: started
+DATES: choice asya-0-0
+DATES: response asya-0-0
+DATES: choice asya-0-1
+DATES: response asya-0-1
+DATES: choice asya-0-2
+DATES: response asya-0-2
+DATES: completed asya-0
+DATES: read summary
+DATES: read summary
+DATES: read summary
+DATES: read summary
+DATES: fixture asya-1
+DATES: settle
+DATES: arrival asya-1
+DATES: started
+DATES: choice asya-1-0
+DATES: response asya-1-0
+DATES: choice asya-1-1
+DATES: response asya-1-1
+DATES: choice asya-1-2
+DATES: response asya-1-2
+DATES: completed asya-1
+DATES: read summary
+DATES: read summary
+DATES: read summary
+DATES: read summary
+DATES: fixture asya-2
+DATES: settle
+DATES: arrival asya-2
+DATES: started
+DATES: choice asya-2-0
+DATES: response asya-2-0
+DATES: choice asya-2-1
+DATES: response asya-2-1
+DATES: choice asya-2-2
+DATES: response asya-2-2
+DATES: completed asya-2
+DATES: read summary
+DATES: read summary
+DATES: read summary
+DATES: read summary
+DATES: fixture nika-0
+DATES: settle
+DATES: arrival nika-0
+DATES: started
+DATES: choice nika-0-0
+DATES: response nika-0-0
+DATES: choice nika-0-1
+DATES: response nika-0-1
+DATES: choice nika-0-2
+DATES: response nika-0-2
+DATES: completed nika-0
+DATES: read summary
+DATES: read summary
+DATES: read summary
+DATES: read summary
+DATES: fixture nika-1
+DATES: settle
+DATES: arrival nika-1
+DATES: started
+DATES: choice nika-1-0
+DATES: response nika-1-0
+DATES: choice nika-1-1
+DATES: response nika-1-1
+DATES: choice nika-1-2
+DATES: response nika-1-2
+DATES: completed nika-1
+DATES: read summary
+DATES: read summary
+DATES: read summary
+DATES: read summary
+DATES: fixture nika-2
+DATES: settle
+DATES: arrival nika-2
+DATES: started
+DATES: choice nika-2-0
+DATES: response nika-2-0
+DATES: choice nika-2-1
+DATES: response nika-2-1
+DATES: choice nika-2-2
+DATES: response nika-2-2
+DATES: completed nika-2
+DATES: read summary
+DATES: read summary
+DATES: read summary
+DATES: read summary
+DATES: reload
+DATES: resize 960
+DATES: settle resize
+DATES: social fixture
+DATES: page home
+DATES: capture 960-mira-home
+DATES: page talk
+DATES: capture 960-mira-talk
+DATES: page gift
+DATES: capture 960-mira-gift
+DATES: page invite
+DATES: capture 960-mira-invite
+DATES: page journey
+DATES: capture 960-mira-journey
+DATES: page chapter
+DATES: capture 960-mira-chapter
+DATES: page activities
+DATES: capture 960-mira-activities
+DATES: page memories
+DATES: capture 960-mira-memories
+DATES: page details
+DATES: capture 960-mira-details
+DATES: page plans
+DATES: capture 960-mira-plans
+DATES: page meeting
+DATES: capture 960-mira-meeting
+DATES: page commit
+DATES: capture 960-mira-commit
+DATES: page breakup
+DATES: capture 960-mira-breakup
+DATES: page night
+DATES: capture 960-mira-night
+DATES: social fixture
+DATES: page home
+DATES: capture 960-asya-home
+DATES: page talk
+DATES: capture 960-asya-talk
+DATES: page gift
+DATES: capture 960-asya-gift
+DATES: page invite
+DATES: capture 960-asya-invite
+DATES: page journey
+DATES: capture 960-asya-journey
+DATES: page chapter
+DATES: capture 960-asya-chapter
+DATES: page activities
+DATES: capture 960-asya-activities
+DATES: page memories
+DATES: capture 960-asya-memories
+DATES: page details
+DATES: capture 960-asya-details
+DATES: page plans
+DATES: capture 960-asya-plans
+DATES: page meeting
+DATES: capture 960-asya-meeting
+DATES: page commit
+DATES: capture 960-asya-commit
+DATES: page breakup
+DATES: capture 960-asya-breakup
+DATES: page night
+DATES: capture 960-asya-night
+DATES: social fixture
+DATES: page home
+DATES: capture 960-nika-home
+DATES: page talk
+DATES: capture 960-nika-talk
+DATES: page gift
+DATES: capture 960-nika-gift
+DATES: page invite
+DATES: capture 960-nika-invite
+DATES: page journey
+DATES: capture 960-nika-journey
+DATES: page chapter
+DATES: capture 960-nika-chapter
+DATES: page activities
+DATES: capture 960-nika-activities
+DATES: page memories
+DATES: capture 960-nika-memories
+DATES: page details
+DATES: capture 960-nika-details
+DATES: page plans
+DATES: capture 960-nika-plans
+DATES: page meeting
+DATES: capture 960-nika-meeting
+DATES: page commit
+DATES: capture 960-nika-commit
+DATES: page breakup
+DATES: capture 960-nika-breakup
+DATES: page night
+DATES: capture 960-nika-night
+DATES: contacts
+DATES: contacts capture
+DATES: resize 1280
+DATES: settle resize
+DATES: social fixture
+DATES: page home
+DATES: capture 1280-mira-home
+DATES: page talk
+DATES: capture 1280-mira-talk
+DATES: page gift
+DATES: capture 1280-mira-gift
+DATES: page invite
+DATES: capture 1280-mira-invite
+DATES: page journey
+DATES: capture 1280-mira-journey
+DATES: page chapter
+DATES: capture 1280-mira-chapter
+DATES: page activities
+DATES: capture 1280-mira-activities
+DATES: page memories
+DATES: capture 1280-mira-memories
+DATES: page details
+DATES: capture 1280-mira-details
+DATES: page plans
+DATES: capture 1280-mira-plans
+DATES: page meeting
+DATES: capture 1280-mira-meeting
+DATES: page commit
+DATES: capture 1280-mira-commit
+DATES: page breakup
+DATES: capture 1280-mira-breakup
+DATES: page night
+DATES: capture 1280-mira-night
+DATES: social fixture
+DATES: page home
+DATES: capture 1280-asya-home
+DATES: page talk
+DATES: capture 1280-asya-talk
+DATES: page gift
+DATES: capture 1280-asya-gift
+DATES: page invite
+DATES: capture 1280-asya-invite
+DATES: page journey
+DATES: capture 1280-asya-journey
+DATES: page chapter
+DATES: capture 1280-asya-chapter
+DATES: page activities
+DATES: capture 1280-asya-activities
+DATES: page memories
+DATES: capture 1280-asya-memories
+DATES: page details
+DATES: capture 1280-asya-details
+DATES: page plans
+DATES: capture 1280-asya-plans
+DATES: page meeting
+DATES: capture 1280-asya-meeting
+DATES: page commit
+DATES: capture 1280-asya-commit
+DATES: page breakup
+DATES: capture 1280-asya-breakup
+DATES: page night
+DATES: capture 1280-asya-night
+DATES: social fixture
+DATES: page home
+DATES: capture 1280-nika-home
+DATES: page talk
+DATES: capture 1280-nika-talk
+DATES: page gift
+DATES: capture 1280-nika-gift
+DATES: page invite
+DATES: capture 1280-nika-invite
+DATES: page journey
+DATES: capture 1280-nika-journey
+DATES: page chapter
+DATES: capture 1280-nika-chapter
+DATES: page activities
+DATES: capture 1280-nika-activities
+DATES: page memories
+DATES: capture 1280-nika-memories
+DATES: page details
+DATES: capture 1280-nika-details
+DATES: page plans
+DATES: capture 1280-nika-plans
+DATES: page meeting
+DATES: capture 1280-nika-meeting
+DATES: page commit
+DATES: capture 1280-nika-commit
+DATES: page breakup
+DATES: capture 1280-nika-breakup
+DATES: page night
+DATES: capture 1280-nika-night
+DATES: contacts
+DATES: contacts capture
+DATES: resize 1920
+DATES: settle resize
+DATES: social fixture
+DATES: page home
+DATES: capture 1920-mira-home
+DATES: page talk
+DATES: capture 1920-mira-talk
+DATES: page gift
+DATES: capture 1920-mira-gift
+DATES: page invite
+DATES: capture 1920-mira-invite
+DATES: page journey
+DATES: capture 1920-mira-journey
+DATES: page chapter
+DATES: capture 1920-mira-chapter
+DATES: page activities
+DATES: capture 1920-mira-activities
+DATES: page memories
+DATES: capture 1920-mira-memories
+DATES: page details
+DATES: capture 1920-mira-details
+DATES: page plans
+DATES: capture 1920-mira-plans
+DATES: page meeting
+DATES: capture 1920-mira-meeting
+DATES: page commit
+DATES: capture 1920-mira-commit
+DATES: page breakup
+DATES: capture 1920-mira-breakup
+DATES: page night
+DATES: capture 1920-mira-night
+DATES: social fixture
+DATES: page home
+DATES: capture 1920-asya-home
+DATES: page talk
+DATES: capture 1920-asya-talk
+DATES: page gift
+DATES: capture 1920-asya-gift
+DATES: page invite
+DATES: capture 1920-asya-invite
+DATES: page journey
+DATES: capture 1920-asya-journey
+DATES: page chapter
+DATES: capture 1920-asya-chapter
+DATES: page activities
+DATES: capture 1920-asya-activities
+DATES: page memories
+DATES: capture 1920-asya-memories
+DATES: page details
+DATES: capture 1920-asya-details
+DATES: page plans
+DATES: capture 1920-asya-plans
+DATES: page meeting
+DATES: capture 1920-asya-meeting
+DATES: page commit
+DATES: capture 1920-asya-commit
+DATES: page breakup
+DATES: capture 1920-asya-breakup
+DATES: page night
+DATES: capture 1920-asya-night
+DATES: social fixture
+DATES: page home
+DATES: capture 1920-nika-home
+DATES: page talk
+DATES: capture 1920-nika-talk
+DATES: page gift
+DATES: capture 1920-nika-gift
+DATES: page invite
+DATES: capture 1920-nika-invite
+DATES: page journey
+DATES: capture 1920-nika-journey
+DATES: page chapter
+DATES: capture 1920-nika-chapter
+DATES: page activities
+DATES: capture 1920-nika-activities
+DATES: page memories
+DATES: capture 1920-nika-memories
+DATES: page details
+DATES: capture 1920-nika-details
+DATES: page plans
+DATES: capture 1920-nika-plans
+DATES: page meeting
+DATES: capture 1920-nika-meeting
+DATES: page commit
+DATES: capture 1920-nika-commit
+DATES: page breakup
+DATES: capture 1920-nika-breakup
+DATES: page night
+DATES: capture 1920-nika-night
+DATES: contacts
+DATES: contacts capture
+DATES: paid fixture
+DATES: paid start
+DATES: paid check
+DATES: resume
+DATES: resume capture
+DATES_SMOKE_PASS: 202 captures; nine dates, 27 decisions, durable details, social screens 960/1280/1920, paid resume, measured text
+DATES: done
+
+BUILD SUCCESSFUL in 1m 26s
+6 actionable tasks: 1 executed, 5 up-to-date
