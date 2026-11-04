@@ -7,23 +7,12 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  id-token: write
 jobs:
   relay:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
       - uses: actions/checkout@v4
-      - name: Validate secrets
-        env:
-          URL: ${{ secrets.VITALINK_URL }}
-          TOKEN: ${{ secrets.VITALINK_OPERATOR_TOKEN }}
-        run: |
-          if [ -z "$URL" ] || [ -z "$TOKEN" ]; then
-            echo "Add VITALINK_URL and VITALINK_OPERATOR_TOKEN to GitHub Actions Secrets first."
-            exit 2
-          fi
-      - name: Send authenticated request to VPS and wait for Vita
-        env:
-          VITALINK_URL: ${{ secrets.VITALINK_URL }}
-          VITALINK_OPERATOR_TOKEN: ${{ secrets.VITALINK_OPERATOR_TOKEN }}
+      - name: Authenticate with GitHub OIDC and send VitaLink request
         run: python3 vitalink/request.py
