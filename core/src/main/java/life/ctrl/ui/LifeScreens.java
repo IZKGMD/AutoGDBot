@@ -139,6 +139,10 @@ public final class LifeScreens {
     return pinux.pointerDown(x, y);
   }
 
+  public void pcPointerMove(int x, int y) {
+    pinux.pointerMove(x, y);
+  }
+
   public boolean pcPointerDragged(int x, int y) {
     return pinux.pointerDragged(x, y);
   }
