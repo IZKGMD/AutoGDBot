@@ -547,8 +547,112 @@ public final class ControlActivity extends Activity {
             +"mv /root/vitalink/agent.py.new /root/vitalink/agent.py; "
             +"python3 -c "+quote("import json,os; p='/root/vitalink/agent.json'; c=json.load(open(p)); c['allow_screen']=True; open(p,'w').write(json.dumps(c,indent=2)+'\\n'); os.chmod(p,0o600)")+"; "
             +"echo 'Захват разрешён. Перезапускаю агент VitaLink.'";
-        String command=alpine(install)+"; "
-            +"pkill -f '^python3 /root/vitalink/agent.py
+        String command=alpine(install)
+            +" && { pkill -f '^python3 /root/vitalink/agent.py$' 2>/dev/null || true; "
+            +"pkill -f '^/usr/bin/python3 /root/vitalink/agent.py$' 2>/dev/null || true; "
+            +alpine("nohup /usr/bin/python3 /root/vitalink/agent.py </dev/null >>/root/vitalink/agent.log 2>&1 & echo 'VitaLink обновлён; захват кадров разрешён' ")+"; }";
+        task("VitaLink / включение кадров",command,240000,result->log(result));
+    }
+    private void disableVitaScreen(){
+        stopScreenWatch();
+        String update="set -eu; test -f /root/vitalink/agent.json; "
+            +"python3 -c "+quote("import json,os; p='/root/vitalink/agent.json'; c=json.load(open(p)); c['allow_screen']=False; open(p,'w').write(json.dumps(c,indent=2)+'\\n'); os.chmod(p,0o600)");
+        String command=alpine(update)+"; "
+            +"pkill -f '^python3 /root/vitalink/agent.py$' 2>/dev/null || true; "
+            +"pkill -f '^/usr/bin/python3 /root/vitalink/agent.py$' 2>/dev/null || true; "
+            +alpine("nohup /usr/bin/python3 /root/vitalink/agent.py </dev/null >>/root/vitalink/agent.log 2>&1 & echo 'Удалённый захват кадров запрещён'");
+        task("VitaLink / запрет кадров",command,60000,result->log(result));
+    }
+    private JSONObject screenRequest(String endpoint,String method,String token) throws Exception {
+        URL url=new URL("https://muchogdps.space/vitalink/v1/screen/"+endpoint);
+        HttpURLConnection connection=(HttpURLConnection)url.openConnection();
+        if(!(connection instanceof HttpsURLConnection))throw new IOException("HTTPS is required");
+        connection.setConnectTimeout(9000);
+        connection.setReadTimeout(15000);
+        connection.setInstanceFollowRedirects(false);
+        connection.setRequestMethod(method);
+        connection.setRequestProperty("Authorization","Bearer "+token);
+        connection.setRequestProperty("Cache-Control","no-store");
+        try{
+            int code=connection.getResponseCode();
+            if(code==401)throw new IOException("Неверный ключ просмотра (HTTP 401)");
+            if(code!=200)throw new IOException("VitaLink HTTP "+code);
+            ByteArrayOutputStream data=new ByteArrayOutputStream();
+            try(InputStream input=connection.getInputStream()){
+                byte[] chunk=new byte[8192];int count;
+                while((count=input.read(chunk))!=-1){
+                    if(data.size()+count>260000)throw new IOException("Слишком большой ответ");
+                    data.write(chunk,0,count);
+                }
+            }
+            return new JSONObject(new String(data.toByteArray(),StandardCharsets.UTF_8));
+        }finally{
+            connection.disconnect();
+        }
+    }
+    private void startScreenWatch(){
+        if(screenWatching)return;
+        if(screenViewerToken==null)return;
+        final String token=screenViewerToken.getText().toString().trim();
+        if(!token.matches("[A-Za-z0-9_-]{32,160}")){
+            screenViewerToken.setError("Вставь screen_view_token с VPS");return;
+        }
+        screenViewerToken.setText("");
+        screenWatching=true;
+        final long generation=++screenGeneration;
+        if(remoteScreenStatus!=null)remoteScreenStatus.setText("Подключаюсь к VitaLink…");
+        screenWorker.execute(()->{
+            int lastSeq=-1;
+            try{
+                while(screenWatching && generation==screenGeneration && !Thread.currentThread().isInterrupted()){
+                    screenRequest("session","POST",token);
+                    JSONObject frame=screenRequest("frame","GET",token);
+                    if(frame.optBoolean("available",false) && frame.optInt("seq",-1)!=lastSeq){
+                        lastSeq=frame.optInt("seq",-1);
+                        String encoded=frame.getString("jpeg");
+                        if(encoded.length()>230000)throw new IOException("Размер кадра превышен");
+                        byte[] jpeg=Base64.decode(encoded,Base64.DEFAULT);
+                        Bitmap img=BitmapFactory.decodeByteArray(jpeg,0,jpeg.length);
+                        if(img==null)throw new IOException("Ошибка декодирования JPEG");
+                        final int shown=lastSeq;
+                        runOnUiThread(()->{
+                            if(!screenWatching || generation!=screenGeneration || isFinishing() || isDestroyed()){
+                                img.recycle();return;
+                            }
+                            Bitmap old=remoteScreenBitmap;
+                            remoteScreenBitmap=img;
+                            if(remoteScreenPreview!=null)remoteScreenPreview.setImageBitmap(img);
+                            if(old!=null && old!=img && !old.isRecycled())old.recycle();
+                            if(remoteScreenStatus!=null)remoteScreenStatus.setText("● Экран PS Vita · кадр #"+shown);
+                        });
+                    }else if(!frame.optBoolean("available",false)){
+                        runOnUiThread(()->{
+                            if(screenWatching && generation==screenGeneration && remoteScreenStatus!=null)
+                                remoteScreenStatus.setText("Ожидание кадра… Проверь разрешение и scrot на Вите.");
+                        });
+                    }
+                    Thread.sleep(2300);
+                }
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    if(generation==screenGeneration){
+                        screenWatching=false;
+                        if(remoteScreenStatus!=null)remoteScreenStatus.setText("Ошибка VitaLink: "+error.getMessage());
+                    }
+                });
+            }finally{
+                try{screenRequest("stop","POST",token);}catch(Exception ignored){}
+            }
+        });
+    }
+    private void stopScreenWatch(){
+        if(!screenWatching)return;
+        screenWatching=false;
+        ++screenGeneration;
+        if(remoteScreenStatus!=null)remoteScreenStatus.setText("Просмотр остановлен");
+    }
+
+    private void rowButtons(LinearLayout p,String[] labels,String[] keys){
         LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);
         for(int i=0;i<labels.length;i++){
             final String key=keys[i];Button b=button(labels[i],false);b.setTextSize(12);
@@ -660,7 +764,7 @@ public final class ControlActivity extends Activity {
         health.setOnClickListener(v->task("VitaLink / проверка HTTPS",alpine(
             "if ! command -v python3 >/dev/null; then echo 'Сначала установи Python'; exit 127; fi; "
             +"python3 -c "+quote("import urllib.request; print(urllib.request.urlopen('https://muchogdps.space/vitalink/health',timeout=12).read().decode())")),30000,null));
-        add(c,text("GitHub Actions использует подписанный OIDC-токен: секреты GitHub не требуются. Отдельный screen_view_token нужен только для просмотра экрана через HTTPS.",12,MUTED,false),14);
+        add(c,text("Для заданий GitHub используется подписанный OIDC: секреты GitHub не нужны. Для просмотра кадров нужен отдельный screen_view_token.",12,MUTED,false),14);
     }
     private void installVitaLink(){
         String url=bridgeUrl.getText().toString().trim();
@@ -842,123 +946,12 @@ public final class ControlActivity extends Activity {
         stopScreenWatch();
         super.onStop();
     }
-    @Override protected void onStop(){
-        stopScreenWatch();
-        super.onStop();
-    }
     @Override protected void onDestroy(){
-        stopScreenWatch();
         stopScreenWatch();
         super.onDestroy();
         worker.shutdownNow();
         screenWorker.shutdownNow();
         if(remoteScreenBitmap!=null && !remoteScreenBitmap.isRecycled())remoteScreenBitmap.recycle();
-        screenWorker.shutdownNow();
-        if(remoteScreenBitmap!=null && !remoteScreenBitmap.isRecycled())remoteScreenBitmap.recycle();
         if(currentImage!=null&&!currentImage.isRecycled())currentImage.recycle();
     }
-} 2>/dev/null || true; "
-            +"pkill -f '^/usr/bin/python3 /root/vitalink/agent.py$' 2>/dev/null || true; "
-            +alpine("nohup /usr/bin/python3 /root/vitalink/agent.py </dev/null >>/root/vitalink/agent.log 2>&1 & echo 'VitaLink обновлён; захват кадров разрешён' ");
-        task("VitaLink / включение кадров",command,240000,result->log(result));
-    }
-    private void disableVitaScreen(){
-        stopScreenWatch();
-        String update="set -eu; test -f /root/vitalink/agent.json; "
-            +"python3 -c "+quote("import json,os; p='/root/vitalink/agent.json'; c=json.load(open(p)); c['allow_screen']=False; open(p,'w').write(json.dumps(c,indent=2)+'\\n'); os.chmod(p,0o600)");
-        String command=alpine(update)+"; "
-            +"pkill -f '^python3 /root/vitalink/agent.py$' 2>/dev/null || true; "
-            +"pkill -f '^/usr/bin/python3 /root/vitalink/agent.py$' 2>/dev/null || true; "
-            +alpine("nohup /usr/bin/python3 /root/vitalink/agent.py </dev/null >>/root/vitalink/agent.log 2>&1 & echo 'Удалённый захват кадров запрещён'");
-        task("VitaLink / запрет кадров",command,60000,result->log(result));
-    }
-    private JSONObject screenRequest(String endpoint,String method,String token) throws Exception {
-        URL url=new URL("https://muchogdps.space/vitalink/v1/screen/"+endpoint);
-        HttpURLConnection connection=(HttpURLConnection)url.openConnection();
-        if(!(connection instanceof HttpsURLConnection))throw new IOException("HTTPS is required");
-        connection.setConnectTimeout(9000);
-        connection.setReadTimeout(15000);
-        connection.setInstanceFollowRedirects(false);
-        connection.setRequestMethod(method);
-        connection.setRequestProperty("Authorization","Bearer "+token);
-        connection.setRequestProperty("Cache-Control","no-store");
-        try{
-            int code=connection.getResponseCode();
-            if(code==401)throw new IOException("Неверный ключ просмотра (HTTP 401)");
-            if(code!=200)throw new IOException("VitaLink HTTP "+code);
-            ByteArrayOutputStream data=new ByteArrayOutputStream();
-            try(InputStream input=connection.getInputStream()){
-                byte[] chunk=new byte[8192];int count;
-                while((count=input.read(chunk))!=-1){
-                    if(data.size()+count>260000)throw new IOException("Слишком большой ответ");
-                    data.write(chunk,0,count);
-                }
-            }
-            return new JSONObject(new String(data.toByteArray(),StandardCharsets.UTF_8));
-        }finally{
-            connection.disconnect();
-        }
-    }
-    private void startScreenWatch(){
-        if(screenWatching)return;
-        if(screenViewerToken==null)return;
-        final String token=screenViewerToken.getText().toString().trim();
-        if(!token.matches("[A-Za-z0-9_-]{32,160}")){
-            screenViewerToken.setError("Вставь screen_view_token с VPS");return;
-        }
-        screenViewerToken.setText("");
-        screenWatching=true;
-        final long generation=++screenGeneration;
-        if(remoteScreenStatus!=null)remoteScreenStatus.setText("Подключаюсь к VitaLink…");
-        screenWorker.execute(()->{
-            int lastSeq=-1;
-            try{
-                while(screenWatching && generation==screenGeneration && !Thread.currentThread().isInterrupted()){
-                    screenRequest("session","POST",token);
-                    JSONObject frame=screenRequest("frame","GET",token);
-                    if(frame.optBoolean("available",false) && frame.optInt("seq",-1)!=lastSeq){
-                        lastSeq=frame.optInt("seq",-1);
-                        String encoded=frame.getString("jpeg");
-                        if(encoded.length()>230000)throw new IOException("Размер кадра превышен");
-                        byte[] jpeg=Base64.decode(encoded,Base64.DEFAULT);
-                        Bitmap img=BitmapFactory.decodeByteArray(jpeg,0,jpeg.length);
-                        if(img==null)throw new IOException("Ошибка декодирования JPEG");
-                        final int shown=lastSeq;
-                        runOnUiThread(()->{
-                            if(!screenWatching || generation!=screenGeneration || isFinishing() || isDestroyed()){
-                                img.recycle();return;
-                            }
-                            Bitmap old=remoteScreenBitmap;
-                            remoteScreenBitmap=img;
-                            if(remoteScreenPreview!=null)remoteScreenPreview.setImageBitmap(img);
-                            if(old!=null && old!=img && !old.isRecycled())old.recycle();
-                            if(remoteScreenStatus!=null)remoteScreenStatus.setText("● Экран PS Vita · кадр #"+shown);
-                        });
-                    }else if(!frame.optBoolean("available",false)){
-                        runOnUiThread(()->{
-                            if(screenWatching && generation==screenGeneration && remoteScreenStatus!=null)
-                                remoteScreenStatus.setText("Ожидание кадра… Проверь разрешение и scrot на Вите.");
-                        });
-                    }
-                    Thread.sleep(2300);
-                }
-            }catch(Exception error){
-                runOnUiThread(()->{
-                    if(generation==screenGeneration){
-                        screenWatching=false;
-                        if(remoteScreenStatus!=null)remoteScreenStatus.setText("Ошибка VitaLink: "+error.getMessage());
-                    }
-                });
-            }finally{
-                try{screenRequest("stop","POST",token);}catch(Exception ignored){}
-            }
-        });
-    }
-    private void stopScreenWatch(){
-        if(!screenWatching)return;
-        screenWatching=false;
-        ++screenGeneration;
-        if(remoteScreenStatus!=null)remoteScreenStatus.setText("Просмотр остановлен");
-    }
-
-    private void rowButtons(LinearLayout p,String[] labels,String[] keys){$'
+}
