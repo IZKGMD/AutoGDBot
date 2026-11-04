@@ -53,6 +53,11 @@ public final class PinuxSmoke extends CtrlLife {
     }
   }
 
+  private void click(int x, int y) {
+    mouse(0, x, y);
+    mouse(2, x, y);
+  }
+
   private void screenshot(String name) {
     canvas().screenshot(System.getProperty("ctrl.shots") + "/pinux-" + (++nextShot) + "-" + name + ".png");
   }
@@ -66,6 +71,27 @@ public final class PinuxSmoke extends CtrlLife {
     steps.add(() -> screenshot("desktop"));
     steps.add(() -> tap(Keys.F1));
     steps.add(() -> screenshot("astra-code"));
+    steps.add(() -> click(220, 122)); // Open first contract.
+    steps.add(() -> screenshot("job-brief"));
+    steps.add(() -> click(220, 161)); // Choose algorithm for the cash-register job.
+    steps.add(() -> {
+      if (lifeScreens().codePage != 2) throw new AssertionError("Astra Code editor not opened");
+      screenshot("editor-typing");
+    });
+    steps.add(() -> { for (int i = 0; i < 80; i++) tap(Keys.A); });
+    steps.add(() -> click(176, 235)); // Run the real ByteScript tests.
+    steps.add(() -> {
+      if (lifeScreens().report == null || lifeScreens().report.passed())
+        throw new AssertionError("Expected the initial typo to fail tests");
+      screenshot("editor-first-error");
+    });
+    steps.add(() -> { for (int i = 0; i < 80; i++) tap(Keys.S); });
+    steps.add(() -> click(176, 235)); // Re-test corrected code.
+    steps.add(() -> {
+      if (lifeScreens().report == null || !lifeScreens().report.passed())
+        throw new AssertionError("Automatic typed fix did not pass tests");
+      screenshot("editor-fixed-tests");
+    });
     steps.add(() -> tap(Keys.F2));
     steps.add(() -> { type("help"); tap(Keys.ENTER); });
     steps.add(() -> screenshot("terminal"));
