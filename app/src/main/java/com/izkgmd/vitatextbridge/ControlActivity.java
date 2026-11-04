@@ -611,7 +611,7 @@ public final class ControlActivity extends Activity {
         Uri u=Uri.parse(url);
         if(!"https".equalsIgnoreCase(u.getScheme()) ||
             !"vita.muchogdps.space".equalsIgnoreCase(u.getHost()) ||
-            u.getPort()!=-1 || !("/".equals(u.getPath()) || "".equals(u.getPath()))){
+            u.getPort()!=-1  || !(u.getPath()==null || "/".equals(u.getPath()) || "".equals(u.getPath()))){
             bridgeUrl.setError("Нужен адрес https://vita.muchogdps.space");return;
         }
         if(token.length()<32 || token.length()>160 || !token.matches("[A-Za-z0-9_-]+")){

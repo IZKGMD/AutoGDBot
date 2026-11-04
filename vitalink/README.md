@@ -47,3 +47,10 @@ Vita agent uses outbound HTTPS only. No router port-forwarding, public SSH or ex
 ## Limitations
 
 I cannot automatically sign into your VPS or discover its private SSH credentials. DNS, TLS and GitHub secrets require a one-time setup by the owner. Nothing should be described as connected until /health and an authenticated Vita diagnostic job actually succeed.
+
+
+## VitaControl 2.5 Android pairing
+
+В приложении VitaControl есть вкладка «Мост». Владелец VPS вводит URL `https://vita.muchogdps.space` и отдельно `agent_token` из `/etc/vitalink/server.json`. Android подключается к уже работающему SSH Виты, устанавливает в Alpine `python3` и `ca-certificates`, скачивает `agent.py` из закреплённого коммита проекта, создаёт `/root/vitalink/agent.json` с `0600` и запускает агент. Установка и ошибки видны в Sakura и журнале. Ключ не сохраняется в Android SharedPreferences. В Alpine добавляется запуск агента из `/root/.profile`, чтобы при новом входе в графический сеанс он запускался вновь. Авторизация GitHub Actions использует другой ключ `operator_token`, который на телефон и Виту не передаётся.
+
+**Штатный режим:** только диагностика. Для установки пакетов на Vita в локальном `/root/vitalink/agent.json` должно быть `allow_install=true`; для shell ещё требуется `enable_shell=true` на сервере и `allow_shell=true` на устройстве. Не включайте shell с публичным GitHub-репозиторием.
