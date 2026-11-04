@@ -383,7 +383,9 @@ public final class PinuxDesktopStage {
   public void setDesktopVisible(boolean showDesktop) {
     wallpaper.setVisible(showDesktop);
     wallpaperDim.setVisible(showDesktop);
-    shortcuts.setVisible(showDesktop);
+    // Desktop launchers remain behind open applications but are not visually
+    // duplicated inside maximized application workspaces.
+    shortcuts.setVisible(showDesktop && !windows.hasOpen());
   }
 
   public boolean hasNativeWindows() { return windows.hasOpen(); }
