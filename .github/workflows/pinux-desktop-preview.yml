@@ -7,6 +7,7 @@ on:
       - '.github/workflows/pinux-desktop-preview.yml'
       - 'core/src/main/java/life/ctrl/ui/PinuxWallpaper.java'
       - 'core/src/main/java/life/ctrl/ui/PinuxAstra.java'
+      - 'core/src/main/java/life/ctrl/render/PixelCanvas.java'
       - 'core/src/main/java/life/ctrl/ui/LifeScreens.java'
       - 'core/src/main/java/life/ctrl/CtrlLife.java'
       - 'lwjgl3/src/smoke/java/life/ctrl/desktop/PinuxSmoke.java'
