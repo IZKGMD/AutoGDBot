@@ -1,5 +1,5 @@
 {
   "action": "diagnose",
   "args": {},
-  "note": "First live VitaLink OIDC diagnostic request after successful VPS installation, 2026-11-05"
+  "note": "OIDC live authentication diagnostic (prints only public GitHub claims; no tokens) 2026-11-05 second attempt"
 }
