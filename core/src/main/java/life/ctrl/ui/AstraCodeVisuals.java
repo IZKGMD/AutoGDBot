@@ -157,6 +157,8 @@ public final class AstraCodeVisuals implements Disposable {
 
   /** Текущая активная сессия редактора для быстрых инкрементальных обновлений без rebuild(). */
   private CodeEditorSession activeEditorSession;
+  private Table activeJobProgressBadge, activeTypingBadge;
+  private Label activeJobProgressLabel, activeTypingLabel;
 
   public AstraCodeVisuals(Skin skin) {
     this.skin = Objects.requireNonNull(skin, "skin cannot be null");
@@ -425,6 +427,10 @@ public final class AstraCodeVisuals implements Disposable {
       Runnable onRunTests,
       IntConsumer onNavigate) {
 
+    activeJobProgressBadge = null;
+    activeTypingBadge = null;
+    activeJobProgressLabel = null;
+    activeTypingLabel = null;
     Table wrapper = new Table();
     wrapper.setBackground(solid(BG_SURFACE));
 
@@ -454,6 +460,8 @@ public final class AstraCodeVisuals implements Disposable {
       Color badgeBg = typed >= state.codeSource.length() ? BADGE_OK_BG : BADGE_WARN_BG;
 
       Table jobIndicator = badge(jobBadgeText, badgeFg, badgeBg);
+      activeJobProgressBadge = jobIndicator;
+      activeJobProgressLabel = (Label) jobIndicator.getChildren().first();
       jobIndicator.addListener(new ClickListener() {
         @Override
         public void clicked(InputEvent event, float x, float y) {
@@ -484,10 +492,13 @@ public final class AstraCodeVisuals implements Disposable {
     } else if (report == null) {
       boolean readyToCompile = state.typedCount >= state.codeSource.length()
           && !state.codeSource.isEmpty();
-      bar.add(badge(
-          readyToCompile ? "● READY TO TEST" : "✎ TYPING...",
+      Table typingBadge = badge(
+          readyToCompile ? "● READY" : "✎ TYPING",
           readyToCompile ? ACCENT_CYAN : STATUS_WARN,
-          readyToCompile ? BADGE_INFO_BG : BADGE_WARN_BG)).padRight(8f);
+          readyToCompile ? BADGE_INFO_BG : BADGE_WARN_BG);
+      activeTypingBadge = typingBadge;
+      activeTypingLabel = (Label) typingBadge.getChildren().first();
+      bar.add(typingBadge).padRight(8f);
     } else if (!report.compiled()) {
       bar.add(badge("✕ COMPILE ERR", STATUS_ERR, BADGE_ERR_BG)).padRight(8f);
     } else if (report.passed()) {
@@ -504,7 +515,7 @@ public final class AstraCodeVisuals implements Disposable {
     addVerticalRule(bar, BORDER_SUBTLE, 8f);
 
     // 4. Телеметрия игрока (Ранг, XP, Баланс)
-    bar.add(label(Career.rank(state) + " · " + state.codingXp + " XP", FG_SECONDARY, FontRole.SMALL))
+    bar.add(label(state.codingXp + " XP", FG_SECONDARY, FontRole.SMALL))
         .padRight(10f);
     bar.add(monoLabel(state.money + " ₽", STATUS_WARN));
 
@@ -558,7 +569,7 @@ public final class AstraCodeVisuals implements Disposable {
     addSidebarItem(side, "Контракты", "◫", 0, currentPage, true,
         hasJob ? "1" : "", ACCENT_BLUE, onNavigate);
     addSidebarItem(side, "main.bs", "◇", 2, currentPage, hasJob,
-        hasJob ? formatTypingBadge(state) : "", ACCENT_CYAN, onNavigate);
+        "", ACCENT_CYAN, onNavigate);
     addSidebarItem(side, "Исправления", "⚙", 3, currentPage, hasJob,
         errCount > 0 ? String.valueOf(errCount) : "", STATUS_ERR, onNavigate);
     addSidebarItem(side, "Предпросмотр", "▷", 4, currentPage, hasJob,
@@ -573,7 +584,7 @@ public final class AstraCodeVisuals implements Disposable {
     // Группа PROGRESSION
     addSidebarSectionHeader(side, "PROGRESSION");
     addSidebarItem(side, "Карьера", "◈", 7, currentPage, true,
-        Career.rank(state), ACCENT_PURPLE, onNavigate);
+        "T" + Career.tier(state), ACCENT_PURPLE, onNavigate);
     addSidebarItem(side, "Портфолио", "▤", 11, currentPage, true,
         !state.shipped.isEmpty() ? String.valueOf(state.shipped.size()) : "", STATUS_OK, onNavigate);
     addSidebarItem(side, "Оборудование", "▣", 8, currentPage, true,
@@ -694,7 +705,26 @@ public final class AstraCodeVisuals implements Disposable {
     if (currentPage != 2 || activeEditorSession == null || activeJob == null) {
       return false;
     }
-    return activeEditorSession.syncIfCompatible(state, activeJob, report);
+    boolean synced = activeEditorSession.syncIfCompatible(state, activeJob, report);
+    if (synced) refreshTypingBadges(state, activeJob);
+    return synced;
+  }
+
+  private void refreshTypingBadges(GameState state, LifeContent.Job job) {
+    int length = Math.max(1, state.codeSource == null ? 0 : state.codeSource.length());
+    int typed = Math.max(0, Math.min(state.typedCount, length));
+    boolean ready = state.codeSource != null && typed >= state.codeSource.length();
+    int percent = (int) Math.round(typed * 100.0 / length);
+    if (activeJobProgressLabel != null && activeJobProgressBadge != null) {
+      activeJobProgressLabel.setText(job.title + " [" + percent + "%]");
+      activeJobProgressLabel.setColor(ready ? STATUS_OK : STATUS_WARN);
+      activeJobProgressBadge.setBackground(solid(ready ? BADGE_OK_BG : BADGE_WARN_BG));
+    }
+    if (activeTypingLabel != null && activeTypingBadge != null) {
+      activeTypingLabel.setText(ready ? "● READY" : "✎ TYPING");
+      activeTypingLabel.setColor(ready ? ACCENT_CYAN : STATUS_WARN);
+      activeTypingBadge.setBackground(solid(ready ? BADGE_INFO_BG : BADGE_WARN_BG));
+    }
   }
 
   /**
@@ -804,22 +834,21 @@ public final class AstraCodeVisuals implements Disposable {
       addVerticalRule(tabStrip, BORDER_SUBTLE, 0f);
 
       // Хлебные крошки задания
-      tabStrip.add(label("  " + job.title, FG_SECONDARY, FontRole.SMALL)).padLeft(8f).padRight(8f);
+      tabStrip.add(monoLabel("  " + job.id, FG_SECONDARY)).padLeft(8f).padRight(8f);
       stageHintLabel = label("", FG_MUTED, FontRole.SMALL);
-      tabStrip.add(stageHintLabel).left();
-      tabStrip.add().expandX().fillX();
+            tabStrip.add().expandX().fillX();
 
       // Компактные кнопки действий прямо в заголовке редактора
-      tabStrip.add(compactButton("⎇ Commit", ButtonVariant.GHOST, onCommit != null, onCommit))
+      tabStrip.add(compactButton("Commit", ButtonVariant.GHOST, onCommit != null, onCommit))
           .height(22f).padRight(4f);
-      tabStrip.add(compactButton("⚙ Исправления", ButtonVariant.SECONDARY, true, () -> {
+      tabStrip.add(compactButton("Исправить", ButtonVariant.SECONDARY, true, () -> {
         if (onNavigate != null) {
           onNavigate.accept(3);
         }
       })).height(22f).padRight(4f);
 
       boolean canPreview = report != null && report.passed();
-      tabStrip.add(compactButton("▷ Предпросмотр",
+      tabStrip.add(compactButton("▷ Превью",
           canPreview ? ButtonVariant.SUCCESS : ButtonVariant.SECONDARY,
           canPreview,
           () -> {
@@ -828,7 +857,7 @@ public final class AstraCodeVisuals implements Disposable {
             }
           })).height(22f).padRight(4f);
 
-      tabStrip.add(compactButton("▶ Сборка и тесты", ButtonVariant.PRIMARY, true, onRunTests))
+      tabStrip.add(compactButton("▶ Тесты", ButtonVariant.PRIMARY, true, onRunTests))
           .height(22f);
 
       rootTable.add(tabStrip).height(TAB_BAR_HEIGHT).growX().row();
@@ -862,9 +891,10 @@ public final class AstraCodeVisuals implements Disposable {
 
       editorStatusStrip.add(cursorStatusLabel).padRight(16f);
       addVerticalRule(editorStatusStrip, BORDER_SUBTLE, 6f);
-      editorStatusStrip.add(progressLabel).padLeft(6f).padRight(16f);
+      editorStatusStrip.add(progressLabel).padLeft(6f).padRight(14f);
+      editorStatusStrip.add(stageHintLabel).padRight(6f);
       editorStatusStrip.add().expandX().fillX();
-      editorStatusStrip.add(monoLabel("UTF-8  ·  ByteScript VM  ·  Tab Size: 2", FG_MUTED));
+      editorStatusStrip.add(monoLabel("ByteScript · UTF-8", FG_MUTED));
 
       rootTable.add(editorStatusStrip).height(STATUS_BAR_HEIGHT).growX().row();
       addHorizontalRule(rootTable, BORDER_SUBTLE, 0f, 0f);
@@ -985,12 +1015,10 @@ public final class AstraCodeVisuals implements Disposable {
       // Обновление статус-бара и прогресса набора
       cursorStatusLabel.setText("Ln " + (activeLineIndex + 1) + ", Col " + activeCol);
       int pct = totalLen == 0 ? 100 : (int) Math.round((typed * 100.0) / totalLen);
-      progressLabel.setText("Набрано: " + typed + " / " + totalLen + " симв. (" + pct + "%)");
+      progressLabel.setText(typed + "/" + totalLen + " · " + pct + "%");
       progressLabel.setColor(typed >= totalLen && totalLen > 0 ? STATUS_OK : STATUS_WARN);
 
-      stageHintLabel.setText(typed < totalLen
-          ? "· [Режим ввода: нажимай клавиши для набора ByteScript]"
-          : "· [Исходный код набран — готов к компиляции]");
+      stageHintLabel.setText(typed < totalLen ? "TYPING" : "READY");
       stageHintLabel.setColor(typed < totalLen ? STATUS_WARN : STATUS_OK);
 
       float trackWidth = Math.max(640f, rootTable.getWidth());
@@ -1223,7 +1251,7 @@ public final class AstraCodeVisuals implements Disposable {
   private void populateOutputTab(
       Table body, GameState state, LifeContent.Job job, Coding.Report report) {
 
-    addConsoleLogLine(body, "[Astra ByteScript toolchain v2.4 — Pinux Astra x86_64]", FG_MUTED);
+    addConsoleLogLine(body, "[Astra ByteScript toolchain — Pinux Astra]", FG_MUTED);
     if (job != null) {
       addConsoleLogLine(body, "> Target contract: " + job.title + " (stage " + state.jobStage + ")", FG_SECONDARY);
     }
@@ -1234,7 +1262,7 @@ public final class AstraCodeVisuals implements Disposable {
           "> Ожидание завершения ввода исходника: осталось " + (totalLen - state.typedCount) + " симв.",
           STATUS_WARN);
     } else {
-      addConsoleLogLine(body, "> Буфер исходного кода заполнен (" + totalLen + " bytes).", STATUS_OK);
+      addConsoleLogLine(body, "> Буфер исходного кода заполнен (" + totalLen + " chars).", STATUS_OK);
     }
 
     if (report != null) {
