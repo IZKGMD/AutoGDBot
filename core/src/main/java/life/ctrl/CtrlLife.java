@@ -181,6 +181,15 @@ public class CtrlLife extends ApplicationAdapter {
     button(text, x, y, w, h, enabled, run);
   }
 
+  /** Register a native game UI hit-target without painting a legacy rectangular button. */
+  public void uiHotspot(String label, int x, int y, int w, int h, Runnable action) {
+    int index = buttons.size();
+    Button b = new Button(label, x, y, w, h, true, action);
+    buttons.add(b);
+    if (mouseMoved && contains(b, c.mouseX(), c.mouseY())) selection = index;
+  }
+
+
   public void refreshState() {
     Social.expire(world.state);
     rebuildDrawItems();
