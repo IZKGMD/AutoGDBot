@@ -90,10 +90,10 @@ public final class PinuxAstra {
   private void desktopWallpaper() {
     wallpaper.draw(c.batch, warmTheme);
     if (wm.openCount() == 0) {
-      desktopIcon("<>", "Astra Code", 18, 44, App.CODE, "6358bb");
-      desktopIcon(">_", "Terminal", 18, 95, App.TERMINAL, "394965");
-      desktopIcon("[]", "Files", 18, 146, App.FILES, "b88b56");
-      desktopIcon("@", "TaskMail", 18, 197, App.MAIL, "735c97");
+      desktopIcon("<>", "Astra Code", 18, 32, App.CODE, "6555b6");
+      desktopIcon(">_", "Terminal", 18, 81, App.TERMINAL, "354364");
+      desktopIcon("[]", "Files", 18, 130, App.FILES, "a37c54");
+      desktopIcon("@", "TaskMail", 18, 179, App.MAIL, "675188");
     }
   }
 
@@ -114,10 +114,11 @@ public final class PinuxAstra {
   private void desktopIcon(String symbol, String label, int x, int y, App app, String color) {
     boolean hover = hovered(x, y, 75, 49);
     if (hover) c.roundRect(x, y, 75, 49, 6, "20213c91");
-    c.roundRect(x + 22, y + (hover ? 1 : 3), 29, 27, 7, "0b1128ad");
-    c.roundRect(x + 23, y + (hover ? 2 : 4), 27, 25, 6, color);
+    // One soft icon surface; the old thick dark outline is deliberately gone.
+    c.roundRect(x + 22, y + (hover ? 2 : 3), 29, 27, 7, "18172d55");
+    c.roundRect(x + 23, y + (hover ? 2 : 3), 27, 26, 7, color);
     c.small(symbol, x + 35 - c.smallWidth(symbol) / 2f,
-        y + (hover ? 8 : 10), "f4efff");
+        y + (hover ? 8 : 9), "f4efff");
     float textX = x + (75 - c.smallWidth(label)) / 2f;
     c.small(label, textX, y + 35, "f2ebfa");
     hotspot(label, x, y, 75, 49, () -> launch(app));
