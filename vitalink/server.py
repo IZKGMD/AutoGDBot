@@ -120,22 +120,10 @@ class Store:
 
     def add(self, body):
         action=body.get("action"); args=body.get("args",{})
-        if action not in ("diagnose","search","install","game","upload","download","shell","host_status","host_cpu","host_ping","host_shell") or not isinstance(args,dict):
+        if action not in ("diagnose","search","install","game","upload","download","shell","host_status","host_cpu") or not isinstance(args,dict):
             raise ValueError("Unknown action or invalid args")
         if action in ("host_status","host_cpu") and not self.config.get("enable_host_admin",False):
             raise ValueError("Host admin disabled by VPS policy")
-        if action in ("host_ping","host_shell") and not self.config.get("enable_host_shell",False):
-            raise ValueError("Root bridge disabled by VPS policy")
-        if action=="host_ping" and args:
-            raise ValueError("Host ping does not accept parameters")
-        if action=="host_shell":
-            command=args.get("command")
-            timeout=args.get("timeout",45)
-            if (not isinstance(command,str) or not command.strip()
-                    or len(command)>1600 or "\x00" in command or
-                    type(timeout)!=int or not 1<=timeout<=90 or
-                    set(args)-{"command","timeout"}):
-                raise ValueError("Invalid root command or timeout")
         if action=="host_cpu" and (args.get("profile") not in ("max","balanced","ondemand") or len(args)!=1):
             raise ValueError("Invalid stock CPU profile")
         if action=="host_status" and args:
@@ -248,7 +236,7 @@ def make_handler(store):
                 if path=="/v1/jobs":
                     if not self.authorized("operator"):return self.send(401,{"error":"Unauthorized"})
                     request=self.json()
-                    if request.get("action") in ("host_status","host_cpu","host_ping","host_shell"):
+                    if request.get("action") in ("host_status","host_cpu"):
                         # Never permit a long-lived operator_token to enqueue
                         # privileged kernel admin operations. Require signed
                         # exact-workflow GitHub OIDC identity on each request.
