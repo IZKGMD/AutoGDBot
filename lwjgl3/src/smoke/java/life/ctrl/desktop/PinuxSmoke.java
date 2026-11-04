@@ -5,6 +5,10 @@ import com.badlogic.gdx.Input;
 import com.badlogic.gdx.Input.Keys;
 import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.scenes.scene2d.ui.Window;
+import com.badlogic.gdx.scenes.scene2d.ui.TextButton;
+import com.badlogic.gdx.scenes.scene2d.Group;
+import com.badlogic.gdx.math.Vector2;
+import com.badlogic.gdx.scenes.scene2d.utils.ChangeListener;
 import com.badlogic.gdx.backends.lwjgl3.Lwjgl3Application;
 import com.badlogic.gdx.backends.lwjgl3.Lwjgl3ApplicationConfiguration;
 import java.nio.file.Files;
@@ -76,6 +80,30 @@ public final class PinuxSmoke extends CtrlLife {
     throw new AssertionError("Missing native VisUI window: " + name);
   }
 
+  private TextButton findButton(Actor actor, String text) {
+    if (actor instanceof TextButton b && b.getText().toString().equals(text)) return b;
+    if (actor instanceof Group g)
+      for (Actor child : g.getChildren()) {
+        TextButton result = findButton(child, text);
+        if (result != null) return result;
+      }
+    return null;
+  }
+
+  private void nativeAction(String text) {
+    TextButton b = findButton(findWindow("Astra Code"), text);
+    if (b == null || b.isDisabled()) throw new AssertionError("Missing native action: " + text);
+    b.fire(new ChangeListener.ChangeEvent());
+  }
+
+  private void nativeClick(String text) {
+    TextButton b = findButton(findWindow("Astra Code"), text);
+    if (b == null || b.isDisabled()) throw new AssertionError("Missing native button: " + text);
+    Vector2 p = b.localToStageCoordinates(new Vector2(b.getWidth() / 2, b.getHeight() / 2));
+    mouseAbsolute(0, Math.round(p.x), Gdx.graphics.getHeight() - Math.round(p.y));
+    mouseAbsolute(2, Math.round(p.x), Gdx.graphics.getHeight() - Math.round(p.y));
+  }
+
   private void screenshot(String name) {
     canvas().screenshot(System.getProperty("ctrl.shots") + "/pinux-" + (++nextShot) + "-" + name + ".png");
   }
@@ -94,27 +122,35 @@ public final class PinuxSmoke extends CtrlLife {
         throw new AssertionError("Scene2D desktop shortcut did not open Astra Code");
     });
     steps.add(() -> screenshot("astra-code"));
-    steps.add(() -> click(220, 122)); // Open first contract.
+    steps.add(() -> nativeClick("Открыть заказ")); // Real native hit test.
     steps.add(() -> screenshot("job-brief"));
-    steps.add(() -> click(220, 161)); // Choose algorithm for the cash-register job.
+    steps.add(() -> nativeAction(lifeScreens().data.job(world().state.activeJob).algorithms[0]));
     steps.add(() -> {
       if (lifeScreens().codePage != 2) throw new AssertionError("Astra Code editor not opened");
       screenshot("editor-typing");
     });
     steps.add(() -> { for (int i = 0; i < 80; i++) tap(Keys.A); });
-    steps.add(() -> click(176, 235)); // Run the real ByteScript tests.
+    steps.add(() -> nativeAction("▶ Компиляция / тесты")); // Run ByteScript tests.
     steps.add(() -> {
       if (lifeScreens().report == null || lifeScreens().report.passed())
         throw new AssertionError("Expected the initial typo to fail tests");
       screenshot("editor-first-error");
     });
     steps.add(() -> { for (int i = 0; i < 80; i++) tap(Keys.S); });
-    steps.add(() -> click(176, 235)); // Re-test corrected code.
+    steps.add(() -> nativeAction("▶ Компиляция / тесты")); // Re-test corrected code.
     steps.add(() -> {
       if (lifeScreens().report == null || !lifeScreens().report.passed())
         throw new AssertionError("Automatic typed fix did not pass tests");
       screenshot("editor-fixed-tests");
     });
+    steps.add(() -> nativeAction("Предпросмотр"));
+    steps.add(() -> screenshot("code-preview"));
+    steps.add(() -> nativeAction("← Вернуться к исходнику"));
+    steps.add(() -> nativeAction("Лаборатория"));
+    steps.add(() -> screenshot("code-profiler"));
+    steps.add(() -> nativeAction("← К исходнику"));
+    steps.add(() -> nativeAction("Git / версии"));
+    steps.add(() -> screenshot("code-versions"));
     steps.add(() -> tap(Keys.F2));
     steps.add(() -> {
       Window terminal = findWindow("Terminal");
