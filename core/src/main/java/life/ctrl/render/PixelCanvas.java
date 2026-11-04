@@ -28,6 +28,7 @@ public final class PixelCanvas implements Disposable {
   }
 
   private final Map<String, Texture> textures = new HashMap<>();
+  private final Map<String, Texture> roundedMasks = new HashMap<>();
   private final Map<String, TextureRegion[][]> actors = new HashMap<>();
   private final Texture white;
   public final BitmapFont font, small, title;
@@ -262,17 +263,41 @@ public final class PixelCanvas implements Disposable {
     rect(x, y, w, h, color(color));
   }
 
-  /** Small-radius filled panel, rendered in canvas units without HTML/native widgets. */
+  /**
+   * Smooth high-density rounded panels. A cached three-times-resolution signed-
+   * distance mask avoids the chunky stepped corners of the low-res prototype.
+   * The mask is white and can be tinted to any colour by the SpriteBatch.
+   */
   public void roundRect(float x, float y, float w, float h, int radius, String hex) {
     int r = Math.max(0, Math.min(radius, (int)Math.min(w, h) / 2));
-    if (r == 0) { rect(x, y, w, h, hex); return; }
-    rect(x, y + r, w, h - 2 * r, hex);
-    for (int iy = 0; iy < r; iy++) {
-      float d = r - iy - .5f;
-      float cut = r - (float)Math.sqrt(Math.max(0, r * r - d * d));
-      rect(x + cut, y + iy, w - cut * 2, 1, hex);
-      rect(x + cut, y + h - iy - 1, w - cut * 2, 1, hex);
+    if (r == 0 || w < 1 || h < 1) { rect(x, y, w, h, hex); return; }
+    int pw = Math.max(2, Math.round(w * 3)), ph = Math.max(2, Math.round(h * 3));
+    String key = pw + ":" + ph + ":" + r;
+    Texture mask = roundedMasks.get(key);
+    if (mask == null) {
+      Pixmap p = new Pixmap(pw, ph, Pixmap.Format.RGBA8888);
+      float radiusPx = r * 3f;
+      float bx = pw / 2f - radiusPx;
+      float by = ph / 2f - radiusPx;
+      for (int py = 0; py < ph; py++) {
+        float qy = Math.abs(py + .5f - ph / 2f) - by;
+        for (int px = 0; px < pw; px++) {
+          float qx = Math.abs(px + .5f - pw / 2f) - bx;
+          float ax = Math.max(0, qx), ay = Math.max(0, qy);
+          float distance = (float)Math.sqrt(ax * ax + ay * ay)
+              + Math.min(0, Math.max(qx, qy)) - radiusPx;
+          int alpha = Math.round(Math.max(0, Math.min(1, .5f - distance)) * 255);
+          p.drawPixel(px, py, 0xffffff00 | alpha);
+        }
+      }
+      mask = new Texture(p);
+      mask.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
+      p.dispose();
+      roundedMasks.put(key, mask);
     }
+    batch.setColor(color(hex));
+    batch.draw(mask, x, H - y - h, w, h);
+    batch.setColor(Color.WHITE);
   }
 
   public void panel(int x, int y, int w, int h) {
@@ -366,6 +391,7 @@ public final class PixelCanvas implements Disposable {
     small.dispose();
     title.dispose();
     textures.values().forEach(Texture::dispose);
+    roundedMasks.values().forEach(Texture::dispose);
     white.dispose();
     if (frame != null) frame.dispose();
     batch.dispose();
