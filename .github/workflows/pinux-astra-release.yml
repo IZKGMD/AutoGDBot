@@ -1,0 +1,121 @@
+name: Release CTRL+LIFE 0.5.0 Pinux Astra Windows x64
+
+on:
+  push:
+    branches: [ctrl-life]
+    paths: ['.github/workflows/pinux-astra-release.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pinux-astra-windows-release
+  cancel-in-progress: false
+
+jobs:
+  windows-portable:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Compile, test and install full game
+        run: bash ./gradlew --no-daemon :core:test :lwjgl3:smokeClasses :lwjgl3:installDist
+
+      - name: Graphical Pinux Astra smoke test in Xvfb
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          if ! command -v xvfb-run >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y xvfb libgl1-mesa-dri
+          fi
+          xvfb-run -a -s "-screen 0 1440x810x24" bash ./gradlew --no-daemon :lwjgl3:guiSmoke -Ppinux=true -PnoAudio=true
+
+      - name: Store UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinux-astra-ui-smoke
+          path: lwjgl3/build/smoke/screenshots/pinux-*.png
+          if-no-files-found: ignore
+
+      - name: Package portable Windows x64 game and bundled Java
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=release/CTRL-LIFE-0.5.0-Pinux-Astra
+          mkdir -p "$ROOT"
+          cp -a lwjgl3/build/install/ctrl-life/. "$ROOT/"
+          cp -f README.md LICENSE THIRD_PARTY.md run.bat "$ROOT/"
+          test -f "$ROOT/lib/core-0.5.0.jar"
+          test -f "$ROOT/lib/lwjgl3-0.5.0.jar"
+          curl -fLS --retry 4 --retry-all-errors --connect-timeout 30 \
+            "https://api.adoptium.net/v3/binary/latest/21/ga/windows/x64/jre/hotspot/normal/eclipse" \
+            -o "$RUNNER_TEMP/temurin21-windows-jre.zip"
+          unzip -q "$RUNNER_TEMP/temurin21-windows-jre.zip" -d "$RUNNER_TEMP/temurin21-windows"
+          JAVA_EXE="$(find "$RUNNER_TEMP/temurin21-windows" -type f -path '*/bin/java.exe' -print -quit)"
+          test -n "$JAVA_EXE"
+          JAVA_ROOT="$(dirname "$(dirname "$JAVA_EXE")")"
+          mkdir -p "$ROOT/runtime"
+          cp -a "$JAVA_ROOT/." "$ROOT/runtime/"
+          test -f "$ROOT/runtime/bin/java.exe"
+          printf '%s\n' \
+            "CTRL+LIFE 0.5.0 - Pinux Astra Global Update" \
+            "Branch: ctrl-life" \
+            "Commit: $GITHUB_SHA" \
+            "Windows x64 portable release. Run run.bat; Java 21 bundled." > "$ROOT/BUILD_INFO.txt"
+          python3 - <<'PY'
+          from pathlib import Path
+          import zipfile
+          release = Path('release')
+          folder = release / 'CTRL-LIFE-0.5.0-Pinux-Astra'
+          archive = release / 'CTRL-LIFE-0.5.0-Pinux-Astra-Windows-x64.zip'
+          with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED, compresslevel=6, allowZip64=True) as z:
+              for f in sorted(folder.rglob('*')):
+                  if f.is_file():
+                      z.write(f, f.relative_to(release).as_posix())
+          with zipfile.ZipFile(archive) as z:
+              assert z.testzip() is None
+              members = set(z.namelist())
+              for name in ('runtime/bin/java.exe', 'run.bat', 'lib/core-0.5.0.jar', 'lib/lwjgl3-0.5.0.jar'):
+                  assert 'CTRL-LIFE-0.5.0-Pinux-Astra/' + name in members
+          print(f'Packaged {archive}: {archive.stat().st_size:,} bytes')
+          PY
+          cd release
+          sha256sum CTRL-LIFE-0.5.0-Pinux-Astra-Windows-x64.zip > CTRL-LIFE-0.5.0-Pinux-Astra-Windows-x64.zip.sha256
+
+      - name: Upload complete ZIP to GitHub Actions
+        uses: actions/upload-artifact@v4
+        with:
+          name: CTRL-LIFE-0.5.0-Pinux-Astra-Windows-x64
+          path: |
+            release/CTRL-LIFE-0.5.0-Pinux-Astra-Windows-x64.zip
+            release/CTRL-LIFE-0.5.0-Pinux-Astra-Windows-x64.zip.sha256
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish downloadable GitHub pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v0.5.0-pinux-astra
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP=release/CTRL-LIFE-0.5.0-Pinux-Astra-Windows-x64.zip
+          SHA="$ZIP.sha256"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ZIP" "$SHA" --clobber
+          else
+            gh release create "$TAG" "$ZIP" "$SHA" \
+              --target "$GITHUB_SHA" \
+              --title "CTRL+LIFE 0.5.0 — Pinux Astra Global Update" \
+              --notes-file docs/PINUX_ASTRA.md \
+              --prerelease
+          fi
