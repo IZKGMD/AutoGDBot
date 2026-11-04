@@ -3,6 +3,8 @@ package com.izkgmd.vitatextbridge;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -19,6 +21,7 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -39,7 +42,7 @@ public final class MainActivity extends Activity {
     private SharedPreferences prefs;
     private EditText host, port, user, password, command, textToPaste;
     private TextView status, terminal;
-    private Button testButton, runButton, pasteButton;
+    private Button testButton, runButton, pasteButton, keyButton;
     private boolean running;
 
     @Override public void onCreate(Bundle state) {
@@ -154,9 +157,13 @@ public final class MainActivity extends Activity {
         row.addView(userColumn, left);
         row.addView(portColumn, new LinearLayout.LayoutParams(0, -2, 1));
         add(connection, row, 15);
-        add(connection, label("SSH-ПАРОЛЬ  ·  НЕ СОХРАНЯЕТСЯ", 11, MUTED, true), 15);
-        password = field("", "Пароль от Linux", true, false);
+        add(connection, label("SSH-ПАРОЛЬ  ·  НЕОБЯЗАТЕЛЕН", 11, MUTED, true), 15);
+        password = field("", "Оставь пустым для входа без пароля", true, false);
         add(connection, password, 7);
+        add(connection, label("Без пароля работает, если SSH-сервер принимает такой вход или уже настроен ключ. Рекомендуется SSH-ключ.", 12, MUTED, false), 7);
+        keyButton = action("🔑  Создать ключ для входа без пароля", false);
+        add(connection, keyButton, 12);
+        keyButton.setOnClickListener(v -> showOrCreateKey());
         testButton = action("Проверить SSH", true);
         add(connection, testButton, 15);
         testButton.setOnClickListener(v -> submit("Проверка подключения", "uname -a && whoami"));
@@ -204,7 +211,7 @@ public final class MainActivity extends Activity {
         Button clear = action("Очистить вывод", false);
         add(log, clear, 10);
         clear.setOnClickListener(v -> terminal.setText(""));
-        add(root, label("VitaTextBridge 1.0  •  Локальная сеть  •  Ключи SSH проверяются", 11, MUTED, false), 16);
+        add(root, label("VitaTextBridge 1.1  •  Локальная сеть  •  Ключи SSH проверяются", 11, MUTED, false), 16);
         setContentView(scroller);
     }
 
@@ -223,6 +230,7 @@ public final class MainActivity extends Activity {
         testButton.setEnabled(!busy);
         runButton.setEnabled(!busy);
         pasteButton.setEnabled(!busy);
+        keyButton.setEnabled(!busy);
         status.setText(busy ? "●  ПОДКЛЮЧЕНИЕ…" : "●  ГОТОВО");
         status.setTextColor(busy ? PRIMARY : Color.rgb(133, 223, 176));
     }
@@ -249,6 +257,43 @@ public final class MainActivity extends Activity {
         return gate.await(90, TimeUnit.SECONDS) && accept.get();
     }
 
+    private void showOrCreateKey() {
+        if (running) return;
+        setBusy(true);
+        executor.execute(() -> {
+            try {
+                String publicKey = SshClient.ensurePublicKey(new File(getFilesDir(), "id_rsa"));
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    setBusy(false);
+                    String quoteSafe = publicKey.replace("'", "'\\''");
+                    String install = "umask 077; mkdir -p ~/.ssh; printf '%s\\n' '" + quoteSafe
+                            + "' >> ~/.ssh/authorized_keys; chmod 700 ~/.ssh; chmod 600 ~/.ssh/authorized_keys";
+                    new AlertDialog.Builder(this)
+                            .setTitle("SSH-ключ готов")
+                            .setMessage("Чтобы входить без пароля, нужно один раз добавить публичный ключ "
+                                    + "в Linux на Вите. Скопируй команду и выполни её в Sakura "
+                                    + "(можно передать с ПК). После этого оставь поле пароля пустым.\n\n"
+                                    + "Приватный ключ хранится в защищённом каталоге приложения.\n\n"
+                                    + "Команда начинается с: umask 077; mkdir -p ~/.ssh; ...")
+                            .setPositiveButton("Копировать команду", (dialog, which) -> {
+                                ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                                clipboard.setPrimaryClip(ClipData.newPlainText("VitaTextBridge SSH public key setup", install));
+                                Toast.makeText(this, "Команда скопирована", Toast.LENGTH_LONG).show();
+                            })
+                            .setNegativeButton("Закрыть", null)
+                            .show();
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    setBusy(false);
+                    append("Не удалось создать SSH-ключ: " + e.getMessage());
+                });
+            }
+        });
+    }
+
     private void submit(String action, String cmd) {
         if (running) return;
         String h = host.getText().toString().trim();
@@ -262,7 +307,6 @@ public final class MainActivity extends Activity {
                     .setPositiveButton("OK", null).show();
             return;
         }
-        if (p.isEmpty()) { password.setError("Введи пароль SSH"); return; }
         prefs.edit().putString("host", h).putString("user", u)
                 .putString("port", String.valueOf(sshPort)).apply();
         ((InputMethodManager)getSystemService(Context.INPUT_METHOD_SERVICE))
@@ -273,10 +317,19 @@ public final class MainActivity extends Activity {
             String result;
             try {
                 SshClient client = new SshClient(h, sshPort, u, p,
-                        new File(getFilesDir(), "known_hosts"), this::confirmHostKey);
+                        new File(getFilesDir(), "known_hosts"),
+                        new File(getFilesDir(), "id_rsa"), this::confirmHostKey);
                 result = client.execute(cmd);
             } catch (Exception e) {
-                result = "Ошибка SSH: " + e.getClass().getSimpleName() + ": " + e.getMessage();
+                String detail = e.getMessage() == null ? "" : e.getMessage();
+                if (p.isEmpty() && (detail.toLowerCase(java.util.Locale.ROOT).contains("auth fail")
+                        || detail.toLowerCase(java.util.Locale.ROOT).contains("authentication"))) {
+                    result = "SSH-сервер Виты не пустил без пароля. Это нормально: пустой пароль обычно запрещён. "
+                            + "Можно один раз задать пароль в Sakura командой passwd, либо нажать «Создать ключ» и "
+                            + "добавить его на Виту. Не отключай проверку пароля на сервере.";
+                } else {
+                    result = "Ошибка SSH: " + e.getClass().getSimpleName() + ": " + detail;
+                }
             }
             String finalResult = result;
             runOnUiThread(() -> {

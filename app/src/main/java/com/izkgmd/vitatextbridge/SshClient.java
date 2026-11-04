@@ -3,12 +3,15 @@ package com.izkgmd.vitatextbridge;
 import com.jcraft.jsch.ChannelExec;
 import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.JSchException;
+import com.jcraft.jsch.KeyPair;
 import com.jcraft.jsch.Session;
 import com.jcraft.jsch.UIKeyboardInteractive;
 import com.jcraft.jsch.UserInfo;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.file.Files;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Properties;
@@ -22,16 +25,40 @@ final class SshClient {
     private final String username;
     private final String password;
     private final File knownHosts;
+    private final File keyFile;
     private final TrustPrompt trustPrompt;
 
     SshClient(String host, int port, String username, String password,
-              File knownHosts, TrustPrompt trustPrompt) {
+              File knownHosts, File keyFile, TrustPrompt trustPrompt) {
         this.host = host;
         this.port = port;
         this.username = username;
         this.password = password;
         this.knownHosts = knownHosts;
+        this.keyFile = keyFile;
         this.trustPrompt = trustPrompt;
+    }
+
+    static String ensurePublicKey(File privateKeyFile) throws Exception {
+        File publicKeyFile = new File(privateKeyFile.getAbsolutePath() + ".pub");
+        if (!privateKeyFile.exists()) {
+            JSch jsch = new JSch();
+            KeyPair pair = KeyPair.genKeyPair(jsch, KeyPair.RSA, 3072);
+            try {
+                try (FileOutputStream secret = new FileOutputStream(privateKeyFile)) {
+                    pair.writePrivateKey(secret);
+                }
+                privateKeyFile.setReadable(false, false);
+                privateKeyFile.setReadable(true, true);
+                privateKeyFile.setWritable(false, false);
+                privateKeyFile.setWritable(true, true);
+                try (FileOutputStream pub = new FileOutputStream(publicKeyFile)) {
+                    pair.writePublicKey(pub, "VitaTextBridge-Android");
+                }
+            } finally { pair.dispose(); }
+        }
+        if (!publicKeyFile.isFile()) throw new IllegalStateException("Не найден .pub для существующего приватного ключа");
+        return new String(Files.readAllBytes(publicKeyFile.toPath()), StandardCharsets.UTF_8).trim();
     }
 
     private Session open() throws Exception {
@@ -40,12 +67,14 @@ final class SshClient {
         }
         JSch jsch = new JSch();
         jsch.setKnownHosts(knownHosts.getAbsolutePath());
+        if (keyFile.isFile()) jsch.addIdentity(keyFile.getAbsolutePath());
         Session session = jsch.getSession(username, host, port);
         session.setPassword(password);
         Properties settings = new Properties();
         settings.put("StrictHostKeyChecking", "ask");
-        settings.put("PreferredAuthentications", "password,keyboard-interactive");
+        settings.put("PreferredAuthentications", "publickey,password,keyboard-interactive");
         settings.put("ConnectTimeout", "12000");
+        if (password.isEmpty()) settings.put("MaxAuthTries", "2");
         session.setConfig(settings);
         session.setUserInfo(new AuthInfo());
         try {
@@ -102,7 +131,7 @@ final class SshClient {
     private final class AuthInfo implements UserInfo, UIKeyboardInteractive {
             @Override public String getPassphrase() { return null; }
             @Override public String getPassword() { return password; }
-            @Override public boolean promptPassword(String message) { return true; }
+            @Override public boolean promptPassword(String message) { return !password.isEmpty(); }
             @Override public boolean promptPassphrase(String message) { return false; }
             @Override public void showMessage(String message) { }
             @Override public boolean promptYesNo(String message) {
