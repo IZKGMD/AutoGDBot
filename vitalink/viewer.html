@@ -47,7 +47,7 @@ code{background:#0a1525;padding:2px 5px;border-radius:5px}
 <script>
 "use strict";
 const $=id=>document.getElementById(id);
-const url=path=>new URL("v1/screen/"+path,window.location.href).toString();
+const url=path=>new URL(window.location.pathname.replace(/viewer\/?$/, "")+"v1/screen/"+path,window.location.origin).toString();
 let key="",watching=false,timer=null,sequence=-1,lastImage="";
 const setState=(msg,cls="")=>{$("state").textContent=msg;$("state").className="status "+cls;};
 async function api(path,method="GET"){
