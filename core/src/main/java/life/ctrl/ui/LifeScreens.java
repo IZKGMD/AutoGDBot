@@ -155,6 +155,18 @@ public final class LifeScreens {
     pinux.cancelPointer();
   }
 
+  public com.badlogic.gdx.scenes.scene2d.Stage pcNativeStage() {
+    return pinux.inputStage();
+  }
+
+  public void renderPcOverlay(float delta) {
+    pinux.renderNativeDesktop(delta);
+  }
+
+  public void resizePc(int width, int height) {
+    pinux.resizeNative(width, height);
+  }
+
   public void typeKey() {
     if (codePage != 2 || s().jobStage != 2) return;
     // Two tactile phases: after failed tests, the next real keystroke starts fixing.
