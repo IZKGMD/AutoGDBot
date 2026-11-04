@@ -3,6 +3,8 @@ package life.ctrl.desktop;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
 import com.badlogic.gdx.Input.Keys;
+import com.badlogic.gdx.scenes.scene2d.Actor;
+import com.badlogic.gdx.scenes.scene2d.ui.Window;
 import com.badlogic.gdx.backends.lwjgl3.Lwjgl3Application;
 import com.badlogic.gdx.backends.lwjgl3.Lwjgl3ApplicationConfiguration;
 import java.nio.file.Files;
@@ -58,6 +60,22 @@ public final class PinuxSmoke extends CtrlLife {
     mouse(2, x, y);
   }
 
+  private void mouseAbsolute(int operation, int sx, int sy) {
+    switch (operation) {
+      case 0 -> Gdx.input.getInputProcessor().touchDown(sx, sy, 0, Input.Buttons.LEFT);
+      case 1 -> Gdx.input.getInputProcessor().touchDragged(sx, sy, 0);
+      case 2 -> Gdx.input.getInputProcessor().touchUp(sx, sy, 0, Input.Buttons.LEFT);
+    }
+  }
+
+  private Window findWindow(String name) {
+    for (Actor actor : lifeScreens().pcNativeStage().getRoot().getChildren()) {
+      if (actor instanceof Window w && w.isVisible()
+          && w.getTitleLabel().getText().toString().equals(name)) return w;
+    }
+    throw new AssertionError("Missing native VisUI window: " + name);
+  }
+
   private void screenshot(String name) {
     canvas().screenshot(System.getProperty("ctrl.shots") + "/pinux-" + (++nextShot) + "-" + name + ".png");
   }
@@ -98,12 +116,25 @@ public final class PinuxSmoke extends CtrlLife {
       screenshot("editor-fixed-tests");
     });
     steps.add(() -> tap(Keys.F2));
-    steps.add(() -> { type("help"); tap(Keys.ENTER); });
-    steps.add(() -> screenshot("terminal"));
-    steps.add(() -> mouse(0, 158, 48));
-    steps.add(() -> mouse(1, 60, 82));
-    steps.add(() -> mouse(2, 60, 82));
-    steps.add(() -> screenshot("terminal-dragged"));
+    steps.add(() -> {
+      Window terminal = findWindow("Terminal");
+      if (!terminal.isMovable() || !terminal.isResizable())
+        throw new AssertionError("The native terminal must support drag and resize");
+      type("help\r");
+    });
+    steps.add(() -> screenshot("visui-terminal"));
+    steps.add(() -> {
+      Window terminal = findWindow("Terminal");
+      float before = terminal.getX();
+      int sx = Math.round(terminal.getX() + 110);
+      int sy = Gdx.graphics.getHeight() - Math.round(terminal.getTop() - 17);
+      mouseAbsolute(0, sx, sy);
+      mouseAbsolute(1, sx + 75, sy + 26);
+      mouseAbsolute(2, sx + 75, sy + 26);
+      if (Math.abs(terminal.getX() - before) < 20)
+        throw new AssertionError("Window title drag did not move VisWindow");
+    });
+    steps.add(() -> screenshot("visui-terminal-dragged"));
     steps.add(() -> tap(Keys.F3));
     steps.add(() -> tap(Keys.F4));
     steps.add(() -> tap(Keys.F6));
