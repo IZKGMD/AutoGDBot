@@ -63,6 +63,7 @@ public final class PinuxAstra {
   public com.badlogic.gdx.scenes.scene2d.Stage inputStage() { return nativeDesktop.inputStage(); }
 
   public String clockText() { return s().clock(); }
+  public boolean isLegacyEditorOpen() { return wm.isFront(App.CODE); }
 
   public void openApp(App app) { launch(app); }
 
