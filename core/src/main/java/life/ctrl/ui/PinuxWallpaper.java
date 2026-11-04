@@ -17,6 +17,11 @@ public final class PinuxWallpaper {
   private Texture city;
   private final Random random = new Random(0xA57A21);
 
+  public Texture texture() {
+    if (city == null) create();
+    return city;
+  }
+
   public void draw(SpriteBatch batch, boolean duskTheme) {
     if (city == null) create();
     batch.setColor(1f, duskTheme ? .89f : 1f, duskTheme ? .79f : 1f, 1f);
