@@ -18,6 +18,7 @@ import com.badlogic.gdx.scenes.scene2d.ui.Skin;
 import com.badlogic.gdx.scenes.scene2d.ui.Table;
 import com.badlogic.gdx.scenes.scene2d.utils.ChangeListener;
 import com.badlogic.gdx.scenes.scene2d.utils.NinePatchDrawable;
+import com.badlogic.gdx.scenes.scene2d.utils.Drawable;
 import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable;
 import com.badlogic.gdx.utils.Align;
 import com.badlogic.gdx.utils.Scaling;
@@ -47,11 +48,11 @@ public final class PinuxDesktopStage {
     BitmapFont small = font("fonts/hd/small.fnt", .48f);
     skin.add("ui-font", ui);
     skin.add("small-font", small);
-    skin.add("dock-bg", patch("dock-bg", 28, 31, 49, 83, 226, 244));
-    skin.add("top-bg", patch("top-bg", 12, 16, 34, 80, 78, 113));
-    skin.add("hover-bg", patch("hover-bg", 12, 20, 49, 100, 86, 154));
-    skin.add("button-bg", patch("button-bg", 13, 20, 43, 105, 90, 159));
-    skin.add("launcher-bg", patch("launcher-bg", 25, 29, 52, 95, 86, 128));
+    skin.add("dock-bg", patch("dock-bg", 28, 31, 49, 83, 226, 244), Drawable.class);
+    skin.add("top-bg", patch("top-bg", 12, 16, 34, 80, 78, 113), Drawable.class);
+    skin.add("hover-bg", patch("hover-bg", 12, 20, 49, 100, 86, 154), Drawable.class);
+    skin.add("button-bg", patch("button-bg", 13, 20, 43, 105, 90, 159), Drawable.class);
+    skin.add("launcher-bg", patch("launcher-bg", 25, 29, 52, 95, 86, 128), Drawable.class);
 
     addIcon("code", 93, 72, 188);
     addIcon("terminal", 60, 69, 111);
@@ -79,7 +80,7 @@ public final class PinuxDesktopStage {
   private NinePatchDrawable patch(String id, int r, int red, int green, int blue,
                                   int alpha, int unused) {
     // NinePatch texture created at 3x target radius to keep silhouettes smooth.
-    int size = 96, border = 32, radius = r * 3;
+    int size = 96, border = 32, radius = Math.min(38, r * 2);
     Pixmap pix = new Pixmap(size, size, Pixmap.Format.RGBA8888);
     for (int y = 0; y < size; y++) {
       float ay = Math.abs(y + .5f - size / 2f) - (size / 2f - radius);
@@ -181,8 +182,10 @@ public final class PinuxDesktopStage {
     style.over = skin.getDrawable("hover-bg");
     style.down = skin.getDrawable("hover-bg");
     Button b = new Button(style);
+    b.setProgrammaticChangeEvents(false);
     b.addListener(new ChangeListener() {
       @Override public void changed(ChangeEvent e, Actor actor) {
+        if (!b.isChecked()) return;
         b.setChecked(false);
         action.run();
       }
@@ -317,12 +320,19 @@ public final class PinuxDesktopStage {
     topBar.setBounds(0, height - 52 * scale, width, 52 * scale);
     topBar.padLeft(22 * scale);
     topBar.padRight(24 * scale);
-    shortcuts.setBounds(26 * scale, Math.max(95 * scale, height - 600 * scale), 125 * scale, 550 * scale);
+    shortcuts.setTransform(true);
+    shortcuts.setSize(125, 550);
+    shortcuts.setScale(scale);
+    shortcuts.setPosition(26 * scale, Math.max(95 * scale, height - 600 * scale));
     dock.invalidateHierarchy();
-    dock.pack();
-    dock.setSize(415 * scale, 80 * scale);
-    dock.setPosition((width - dock.getWidth()) / 2, 17 * scale);
-    launcher.setBounds(16 * scale, height - 52 * scale - 450 * scale, 325 * scale, 444 * scale);
+    dock.setTransform(true);
+    dock.setSize(415, 80);
+    dock.setScale(scale);
+    dock.setPosition((width - 415 * scale) / 2, 17 * scale);
+    launcher.setTransform(true);
+    launcher.setSize(325, 444);
+    launcher.setScale(scale);
+    launcher.setPosition(16 * scale, height - 52 * scale - 450 * scale);
     launcher.invalidateHierarchy();
   }
 
