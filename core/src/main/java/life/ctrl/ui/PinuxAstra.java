@@ -25,6 +25,7 @@ public final class PinuxAstra {
   private final Workbench workbench;
   private final PixelCanvas c;
   private final PinuxWindowManager wm = new PinuxWindowManager();
+  private final PinuxWallpaper wallpaper = new PinuxWallpaper();
   private final ArrayDeque<String> output = new ArrayDeque<>();
   private final ArrayList<String> commandHistory = new ArrayList<>();
   private int historyIndex;
@@ -85,29 +86,19 @@ public final class PinuxAstra {
     c.rect(132, 189, 216 * Math.min(1f, boot / .55f), 3, accent());
   }
 
+  /** Desktop artwork is authored independently from the window and application UI. */
   private void desktopWallpaper() {
-    String base = warmTheme ? "161d2b" : "081724";
-    c.rect(0, 0, 480, 270, base);
-    c.rect(0, 16, 480, 233, warmTheme ? "263044" : "102d47");
-    for (int i = 0; i < 15; i++) {
-      float y = 18 + i * 15;
-      c.rect(0, y, 480, 15, i % 2 == 0 ? "0c263a10" : "102b4515");
-    }
-    c.rect(25, 53, 430, 145, warmTheme ? "5861761c" : "28639a22");
-    c.rect(36, 75, 408, 100, "112d4b36");
-    for (int i = 0; i < 8; i++) {
-      int x = 56 + i * 49;
-      c.rect(x, 83 + (i % 3) * 13, 1, 90, warmTheme ? "9a979040" : "70b3dd33");
-    }
-    c.rect(0, 194, 480, 56, warmTheme ? "2a3548b0" : "071827aa");
-    c.title("PINUX ASTRA", 24, 199, "d9e9f3");
-    c.small("CREATE / COMPILE / LIVE", 26, 227, accent());
+    wallpaper.draw(c.batch, warmTheme);
     if (wm.openCount() == 0) {
       desktopIcon("</>  ASTRA CODE", 23, 45, App.CODE);
       desktopIcon(">_   TERMINAL", 23, 75, App.TERMINAL);
       desktopIcon("▣   FILES", 23, 105, App.FILES);
       desktopIcon("✉   TASKMAIL", 23, 135, App.MAIL);
     }
+  }
+
+  public void dispose() {
+    wallpaper.dispose();
   }
 
   private void desktopIcon(String title, int x, int y, App app) {
