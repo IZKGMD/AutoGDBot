@@ -169,9 +169,15 @@ final class AstraCodeApp {
 
   private void nav(Table side, String name, int page, boolean available) {
     boolean selected = life.codePage == page;
-    TextButton b = button((selected ? "●  " : "    ") + name, () -> navigate(page), available);
-    if (selected) b.getStyle().up = skin.getDrawable("hover-bg");
-    side.add(b).height(38).growX().minWidth(0).padBottom(4);
+    TextButton b = button((selected ? "▎  " : "     ") + name, () -> navigate(page), available);
+    // Desktop navigation uses a quiet flat surface, not the blue CTA capsules.
+    // Only the active document has an accent, like Archcraft's compact menus.
+    b.getStyle().up = skin.getDrawable(selected ? "term-tab" : "term-toolbar");
+    b.getStyle().over = skin.getDrawable("term-tab");
+    b.getStyle().down = skin.getDrawable("term-tab");
+    b.getStyle().fontColor = selected ? BLUE : MUTED;
+    b.getStyle().overFontColor = FG;
+    side.add(b).height(36).growX().minWidth(0).padBottom(2);
     side.row();
   }
 
