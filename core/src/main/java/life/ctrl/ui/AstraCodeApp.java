@@ -1,17 +1,13 @@
 package life.ctrl.ui;
 
 import com.badlogic.gdx.graphics.Color;
-import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.scenes.scene2d.ui.Label;
 import com.badlogic.gdx.scenes.scene2d.ui.ScrollPane;
 import com.badlogic.gdx.scenes.scene2d.ui.Skin;
 import com.badlogic.gdx.scenes.scene2d.ui.Table;
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton;
-import com.badlogic.gdx.scenes.scene2d.utils.ChangeListener;
-import com.badlogic.gdx.utils.Align;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Locale;
 import life.ctrl.CtrlLife;
 import life.ctrl.CtrlLife.Mode;
 import life.ctrl.bytescript.ByteScript;
@@ -42,6 +38,7 @@ final class AstraCodeApp {
   private String displayedStructuralKey = "", notice = "";
   private int displayedTypedCount = -1;
   private boolean dirty = true, rush;
+  private int layoutWidth = -1;
   private double[] inputs = {0};
   private String labResult = "Измени аргументы и запусти собственный тест.";
   private int baseline = -1, operations = -1;
@@ -69,6 +66,12 @@ final class AstraCodeApp {
 
   void tick() {
     visuals.tickLayout();
+    int width = (int) root.getWidth();
+    if (width > 0 && Math.abs(width - layoutWidth) > 1) {
+      layoutWidth = width;
+      visuals.setLayoutWidth(width);
+      dirty = true;
+    }
     if (job() == null && (life.codePage == 1 || life.codePage == 2 ||
         life.codePage == 3 || life.codePage == 4 || life.codePage == 5 ||
         life.codePage == 6 || life.codePage == 10)) life.codePage = 0;
@@ -115,8 +118,9 @@ final class AstraCodeApp {
       action.run();
       dirty = true;
     });
-    // Some existing contracts have long names; allow content to wrap without clipping.
-    b.getLabel().setWrap(true);
+    // Button captions occupy one line; action rows receive the available width.
+    b.getLabel().setWrap(false);
+    b.getLabel().setEllipsis(true);
     return b;
   }
 
@@ -124,7 +128,7 @@ final class AstraCodeApp {
     action(table, caption, run, true);
   }
   private void action(Table table, String caption, Runnable run, boolean enabled) {
-    table.add(button(caption, run, enabled)).height(30).left().minWidth(160).padBottom(5);
+    table.add(button(caption, run, enabled)).growX().minWidth(0).minHeight(38).padBottom(8);
     table.row();
   }
 
@@ -232,7 +236,7 @@ final class AstraCodeApp {
     body.top().left();
     Table side = visuals.buildSidebar(state(), job(), life.codePage, life.report,
         this::navigate, this::leave);
-    body.add(side).width(AstraCodeVisuals.SIDEBAR_WIDTH).growY().top();
+    body.add(side).width(AstraCodeVisuals.SIDEBAR_WIDTH).growY().minHeight(0).top();
 
     Table workspace = new Table();
     workspace.top().left();
@@ -329,7 +333,7 @@ final class AstraCodeApp {
   private void brief(Table t, LifeContent.Job j) {
     title(t, "CONTRACT / " + j.id, j.title, j.client + "   •   " + j.pay + " ₽");
     Table card = block();
-    card.add(wrap(j.brief, FG)).width(610).growX().minWidth(0).padBottom(16);
+    card.add(wrap(j.brief, FG)).growX().minWidth(0).padBottom(16);
     card.row();
     card.add(label("Время: " + Career.duration(state(), j) + " мин   /   запуск: " +
         j.cost + " ₽", GOLD, true)).left();
@@ -367,8 +371,12 @@ final class AstraCodeApp {
   }
 
   private void editor(Table t, LifeContent.Job j) {
-    title(t, "EDITOR / SRC", j.title,
-        "main.bs   ·   ByteScript   /   Нажимай буквенные клавиши: игровой код печатается автоматически.");
+    title(
+        t,
+        "EDITOR / SRC",
+        j.title,
+        "main.bs   ·   ByteScript   /   Нажимай буквенные клавиши: игровой код печатается"
+            + " автоматически.");
     Table code = block();
     code.add(label("◇  main.bs", BLUE, true)).left().padBottom(13);
     code.row();
@@ -400,18 +408,30 @@ final class AstraCodeApp {
     console.add(label("ПРОБЛЕМЫ   /   ВЫВОД   /   ТЕСТЫ", BLUE, true)).left().padBottom(11);
     console.row();
     if (life.report == null) {
-      console.add(wrap(typed < source.length() ?
-          "РЕЖИМ ВВОДА • нажимай клавиши, чтобы допечатать исходник." :
-          "Код готов. Запусти компиляцию и тесты.", MUTED))
-          .width(610).growX().minWidth(0);
+      console
+          .add(
+              wrap(
+                  typed < source.length()
+                      ? "РЕЖИМ ВВОДА • нажимай клавиши, чтобы допечатать исходник."
+                      : "Код готов. Запусти компиляцию и тесты.",
+                  MUTED))
+          .growX()
+          .minWidth(0);
     } else {
-      console.add(wrap((life.report.passed() ? "PASS • " : "FAIL • ") +
-          life.report.message(), life.report.passed() ? GREEN : ERROR))
-          .width(610).growX().minWidth(0);
+      console
+          .add(
+              wrap(
+                  (life.report.passed() ? "PASS • " : "FAIL • ") + life.report.message(),
+                  life.report.passed() ? GREEN : ERROR))
+          .growX()
+          .minWidth(0);
       console.row();
       for (String result : life.report.cases()) {
-        console.add(wrap(result, result.endsWith("OK") ? GREEN : ERROR))
-            .width(610).growX().minWidth(0).padTop(5);
+        console
+            .add(wrap(result, result.endsWith("OK") ? GREEN : ERROR))
+            .growX()
+            .minWidth(0)
+            .padTop(5);
         console.row();
       }
     }
@@ -446,11 +466,18 @@ final class AstraCodeApp {
   }
 
   private void patches(Table t, LifeContent.Job j) {
-    title(t, "DEBUGGER / CODE REVIEW", "Исправление ошибок",
-        "Выбери изменение и заново напечатай код. Ошибки компиляции проверяются настоящим ByteScript.");
-    note(t, state().codeSource.contains("prce") ?
-        "Имя prce не объявлено. В аргументах есть price и count — что должно участвовать в произведении?"
-        : j.hint);
+    title(
+        t,
+        "DEBUGGER / CODE REVIEW",
+        "Исправление ошибок",
+        "Выбери изменение и заново напечатай код. Ошибки компиляции проверяются настоящим"
+            + " ByteScript.");
+    note(
+        t,
+        state().codeSource.contains("prce")
+            ? "Имя prce не объявлено. В аргументах есть price и count — что должно участвовать в"
+                  + " произведении?"
+            : j.hint);
     for (int i = 0; i < j.patches.length; i++) {
       int choice = i;
       action(t, j.patches[i], () -> {
@@ -465,8 +492,12 @@ final class AstraCodeApp {
   }
 
   private void preview(Table t, LifeContent.Job j) {
-    title(t, "RUN / LIVE PREVIEW", "Предпросмотр",
-        "Результат выполняется игровым интерпретатором ByteScript. Перед отправкой обязательно запусти его.");
+    title(
+        t,
+        "RUN / LIVE PREVIEW",
+        "Предпросмотр",
+        "Результат выполняется игровым интерпретатором ByteScript. Перед отправкой обязательно"
+            + " запусти его.");
     if (life.report == null || !life.report.passed()) {
       note(t, "Чтобы открыть предпросмотр, сначала запусти тесты в редакторе.");
       action(t, "К тестам", () -> page(2));
@@ -487,14 +518,26 @@ final class AstraCodeApp {
         Coding.format(value), GREEN, false)).left().padBottom(16);
     result.row();
     Table controls = new Table();
-    controls.add(button("−10", () -> life.previewInput = Math.max(-10000, life.previewInput - 10), true))
-        .width(76).height(40).padRight(5);
-    controls.add(button("−1", () -> life.previewInput = Math.max(-10000, life.previewInput - 1), true))
-        .width(76).height(40).padRight(5);
-    controls.add(button("+1", () -> life.previewInput = Math.min(10000, life.previewInput + 1), true))
-        .width(76).height(40).padRight(5);
-    controls.add(button("+10", () -> life.previewInput = Math.min(10000, life.previewInput + 10), true))
-        .width(76).height(40);
+    controls
+        .add(
+            button("−10", () -> life.previewInput = Math.max(-10000, life.previewInput - 10), true))
+        .width(76)
+        .height(40)
+        .padRight(5);
+    controls
+        .add(button("−1", () -> life.previewInput = Math.max(-10000, life.previewInput - 1), true))
+        .width(76)
+        .height(40)
+        .padRight(5);
+    controls
+        .add(button("+1", () -> life.previewInput = Math.min(10000, life.previewInput + 1), true))
+        .width(76)
+        .height(40)
+        .padRight(5);
+    controls
+        .add(button("+10", () -> life.previewInput = Math.min(10000, life.previewInput + 10), true))
+        .width(76)
+        .height(40);
     result.add(controls).left();
     addBlock(t, result);
     note(t, "Время работы: " + Career.duration(state(), j) + " мин. " +
@@ -559,7 +602,7 @@ final class AstraCodeApp {
         (j.operationBudget > 0 ? "  /  лимит " + j.operationBudget : "") +
         "     •     собственные тесты " + Math.min(2, state().customCases.size()) + " / 2");
     Table box = block();
-    box.add(wrap(labResult, FG)).width(600).growX().minWidth(0);
+    box.add(wrap(labResult, FG)).growX().minWidth(0);
     addBlock(t, box);
     action(t, "▶ Запустить свой тест", () -> {
       labResult = Coding.probe(state(), j, inputs.clone());
@@ -615,9 +658,15 @@ final class AstraCodeApp {
     Table feedback = block();
     feedback.add(label("ПОСЛЕДНЕЕ СООБЩЕНИЕ КЛИЕНТА", BLUE, true)).left().padBottom(12);
     feedback.row();
-    feedback.add(wrap(state().lastClientMessage.isEmpty() ?
-        "Первый клиент ещё ждёт твою работу." : state().lastClientMessage, FG))
-        .width(600).growX().minWidth(0);
+    feedback
+        .add(
+            wrap(
+                state().lastClientMessage.isEmpty()
+                    ? "Первый клиент ещё ждёт твою работу."
+                    : state().lastClientMessage,
+                FG))
+        .growX()
+        .minWidth(0);
     addBlock(t, feedback);
     action(t, "Готовые проекты: " + state().shipped.size(), () -> page(11));
     action(t, "← К заказам", () -> page(0));
@@ -646,7 +695,7 @@ final class AstraCodeApp {
       Table row = block();
       row.add(label(g.title(), FG, false)).left().padBottom(10);
       row.row();
-      row.add(wrap(g.description(), MUTED)).width(600).growX().minWidth(0);
+      row.add(wrap(g.description(), MUTED)).growX().minWidth(0);
       row.row();
       boolean installed = state().upgrades.contains(g.id());
       action(row, installed ? "✓ Установлено" : "Купить • " + g.price() + " ₽",
@@ -665,18 +714,27 @@ final class AstraCodeApp {
     int stage = Career.projectStage(state());
     note(t, "Выполнено этапов: " + stage + " / 3");
     if (stage == 3) {
-      note(t, "Бот работает и приносит 160 ₽ за игровой день. Все три этапа находятся в портфолио.");
+      note(
+          t, "Бот работает и приносит 160 ₽ за игровой день. Все три этапа находятся в портфолио.");
     } else {
       LifeContent.Job j = life.data.job(List.of("board", "remind", "support").get(stage));
       Table card = block();
       card.add(label(j.title, FG, false)).left().padBottom(12);
       card.row();
-      card.add(wrap("Нужны код, тесты и " + j.cost + " ₽ на запуск. " +
-          Career.duration(state(), j) + " мин работы.", MUTED)).width(600).growX().minWidth(0);
+      card.add(
+              wrap(
+                  "Нужны код, тесты и "
+                      + j.cost
+                      + " ₽ на запуск. "
+                      + Career.duration(state(), j)
+                      + " мин работы.",
+                  MUTED))
+          .growX()
+          .minWidth(0);
       card.row();
       action(card, "Взяться за этап", () -> choose(j), Career.blocked(state(), j).isEmpty());
       if (!Career.blocked(state(), j).isEmpty()) {
-        card.add(wrap(Career.blocked(state(), j), GOLD)).width(600).growX().minWidth(0);
+        card.add(wrap(Career.blocked(state(), j), GOLD)).growX().minWidth(0);
       }
       addBlock(t, card);
     }

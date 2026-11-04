@@ -32,7 +32,7 @@ configurations {
 tasks.register('guiSmoke', JavaExec) {
     dependsOn smokeClasses
     classpath = sourceSets.smoke.runtimeClasspath
-    mainClass = providers.gradleProperty('relationships').isPresent() ? 'life.ctrl.desktop.RelationshipSmoke' : providers.gradleProperty('pinux').isPresent() ? 'life.ctrl.desktop.PinuxSmoke' : providers.gradleProperty('visual').isPresent() ? 'life.ctrl.desktop.VisualSmoke' : providers.gradleProperty('workbench').isPresent() ? 'life.ctrl.desktop.WorkbenchSmoke' : 'life.ctrl.desktop.ChapterSmoke'
+    mainClass = providers.gradleProperty('layoutAudit').isPresent() ? 'life.ctrl.desktop.AstraLayoutSmoke' : providers.gradleProperty('relationships').isPresent() ? 'life.ctrl.desktop.RelationshipSmoke' : providers.gradleProperty('pinux').isPresent() ? 'life.ctrl.desktop.PinuxSmoke' : providers.gradleProperty('visual').isPresent() ? 'life.ctrl.desktop.VisualSmoke' : providers.gradleProperty('workbench').isPresent() ? 'life.ctrl.desktop.WorkbenchSmoke' : 'life.ctrl.desktop.ChapterSmoke'
     systemProperty 'ctrl.test', 'true'
     systemProperty 'ctrl.noAudio', providers.gradleProperty('noAudio').getOrElse('true')
     systemProperty 'ctrl.fps', providers.gradleProperty('fps').getOrElse('60')

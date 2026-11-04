@@ -1,3 +1,7 @@
+# Актуальное исправление 0.6.1
+
+[Скачать на GitHub](https://github.com/IZKGMD/AutoGDBot/releases/tag/v0.6.1-astra-layout) · [Проверка разметки](../docs/ASTRA_LAYOUT_QA.md)
+
 # CTRL+LIFE 0.6.0
 
 [Скачать полную Windows-сборку с Java на GitHub](https://github.com/IZKGMD/AutoGDBot/releases/tag/v0.6.0-relationships) · [Что нового в отношениях](../docs/RELATIONSHIPS.md)

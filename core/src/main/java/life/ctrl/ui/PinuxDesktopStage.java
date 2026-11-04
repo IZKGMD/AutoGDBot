@@ -1067,8 +1067,8 @@ public final class PinuxDesktopStage {
     scale = Math.max(.67f, Math.min(1.35f, height / 810f));
     skin.getFont("ui-font").getData().setScale(.40f * scale);
     skin.getFont("small-font").getData().setScale(.40f * scale);
-    skin.getFont("app-ui-font").getData().setScale(.40f * Math.max(1f, scale));
-    skin.getFont("app-small-font").getData().setScale(.40f * Math.max(1f, scale));
+    skin.getFont("app-ui-font").getData().setScale(.40f);
+    skin.getFont("app-small-font").getData().setScale(.40f);
 
     wallpaper.setBounds(0, 0, width, height);
     wallpaperDim.setBounds(0, 0, width, height);

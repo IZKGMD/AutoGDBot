@@ -1,4 +1,4 @@
-name: Release CTRL+LIFE 0.6.0 Relationships Windows x64
+name: Release CTRL+LIFE 0.6.1 Astra Layout Windows x64
 
 on:
   push:
@@ -12,6 +12,8 @@ on:
       - 'docs/RELATIONSHIPS.md'
       - 'core/src/main/resources/data/relationships.json'
       - 'lwjgl3/src/smoke/java/life/ctrl/desktop/RelationshipSmoke.java'
+      - 'lwjgl3/src/smoke/java/life/ctrl/desktop/AstraLayoutSmoke.java'
+      - 'lwjgl3/build.gradle'
   workflow_dispatch:
 
 permissions:
@@ -51,6 +53,11 @@ jobs:
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: xvfb-run -a -s "-screen 0 1920x1080x24" bash ./gradlew --no-daemon :lwjgl3:guiSmoke -Prelationships=true -PnoAudio=true
 
+      - name: All Astra Code pages at restored and maximized sizes
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: xvfb-run -a -s "-screen 0 1920x1080x24" bash ./gradlew --no-daemon :lwjgl3:guiSmoke -PlayoutAudit=true -PnoAudio=true
+
       - name: Store UI screenshots
         if: always()
         uses: actions/upload-artifact@v4
@@ -59,22 +66,24 @@ jobs:
           path: |
             lwjgl3/build/smoke/screenshots/pinux-*.png
             lwjgl3/build/smoke/screenshots/relationships-*.png
+            lwjgl3/build/smoke/screenshots/layout-*.png
           if-no-files-found: ignore
 
       - name: Package portable Windows x64 game and bundled Java
         shell: bash
         run: |
           set -euo pipefail
-          ROOT=release/CTRL-LIFE-0.6.0-Relationships
+          ROOT=release/CTRL-LIFE-0.6.1-Astra-Layout
           mkdir -p "$ROOT"
           cp -a lwjgl3/build/install/ctrl-life/. "$ROOT/"
           cp -f README.md LICENSE THIRD_PARTY.md run.bat GAME_DESIGN.md ARCHITECTURE.md CHANGELOG.md "$ROOT/"
           mkdir -p "$ROOT/docs/screenshots" "$ROOT/TODO"
-          cp docs/RELATIONSHIPS.md docs/PINUX_ASTRA.md docs/PINUX_AUDIT_QA.md docs/relationships-0.6-*.log "$ROOT/docs/"
+          cp docs/ASTRA_LAYOUT_QA.md docs/astra-layout-0.6.1.log docs/RELATIONSHIPS.md docs/PINUX_ASTRA.md docs/PINUX_AUDIT_QA.md docs/relationships-0.6-*.log "$ROOT/docs/"
           cp TODO/ROADMAP.md "$ROOT/TODO/"
           cp -a docs/screenshots/relationships "$ROOT/docs/screenshots/"
-          test -f "$ROOT/lib/core-0.6.0.jar"
-          test -f "$ROOT/lib/lwjgl3-0.6.0.jar"
+          cp -a docs/screenshots/astra-layout "$ROOT/docs/screenshots/"
+          test -f "$ROOT/lib/core-0.6.1.jar"
+          test -f "$ROOT/lib/lwjgl3-0.6.1.jar"
           curl -fLS --retry 4 --retry-all-errors --connect-timeout 30 \
             "https://api.adoptium.net/v3/binary/latest/21/ga/windows/x64/jre/hotspot/normal/eclipse" \
             -o "$RUNNER_TEMP/temurin21-windows-jre.zip"
@@ -86,7 +95,7 @@ jobs:
           cp -a "$JAVA_ROOT/." "$ROOT/runtime/"
           test -f "$ROOT/runtime/bin/java.exe"
           printf '%s\n' \
-            "CTRL+LIFE 0.6.0 - Relationship Stories" \
+            "CTRL+LIFE 0.6.1 - Astra Code Layout" \
             "Branch: ctrl-life" \
             "Commit: $GITHUB_SHA" \
             "Windows x64 portable release. Run run.bat; Java 21 bundled." > "$ROOT/BUILD_INFO.txt"
@@ -94,8 +103,8 @@ jobs:
           from pathlib import Path
           import zipfile
           release = Path('release')
-          folder = release / 'CTRL-LIFE-0.6.0-Relationships'
-          archive = release / 'CTRL-LIFE-0.6.0-Relationships-Windows-x64.zip'
+          folder = release / 'CTRL-LIFE-0.6.1-Astra-Layout'
+          archive = release / 'CTRL-LIFE-0.6.1-Astra-Layout-Windows-x64.zip'
           with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED, compresslevel=6, allowZip64=True) as z:
               for f in sorted(folder.rglob('*')):
                   if f.is_file():
@@ -103,41 +112,41 @@ jobs:
           with zipfile.ZipFile(archive) as z:
               assert z.testzip() is None
               members = set(z.namelist())
-              for name in ('runtime/bin/java.exe', 'run.bat', 'lib/core-0.6.0.jar', 'lib/lwjgl3-0.6.0.jar'):
-                  assert 'CTRL-LIFE-0.6.0-Relationships/' + name in members
+              for name in ('runtime/bin/java.exe', 'run.bat', 'lib/core-0.6.1.jar', 'lib/lwjgl3-0.6.1.jar'):
+                  assert 'CTRL-LIFE-0.6.1-Astra-Layout/' + name in members
           print(f'Packaged {archive}: {archive.stat().st_size:,} bytes')
           PY
           cd release
-          sha256sum CTRL-LIFE-0.6.0-Relationships-Windows-x64.zip > CTRL-LIFE-0.6.0-Relationships-Windows-x64.zip.sha256
+          sha256sum CTRL-LIFE-0.6.1-Astra-Layout-Windows-x64.zip > CTRL-LIFE-0.6.1-Astra-Layout-Windows-x64.zip.sha256
 
       - name: Upload complete ZIP to GitHub Actions
         uses: actions/upload-artifact@v4
         with:
-          name: CTRL-LIFE-0.6.0-Relationships-Windows-x64
+          name: CTRL-LIFE-0.6.1-Astra-Layout-Windows-x64
           path: |
-            release/CTRL-LIFE-0.6.0-Relationships-Windows-x64.zip
-            release/CTRL-LIFE-0.6.0-Relationships-Windows-x64.zip.sha256
+            release/CTRL-LIFE-0.6.1-Astra-Layout-Windows-x64.zip
+            release/CTRL-LIFE-0.6.1-Astra-Layout-Windows-x64.zip.sha256
           if-no-files-found: error
           retention-days: 90
 
       - name: Publish downloadable GitHub pre-release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: v0.6.0-relationships
+          TAG: v0.6.1-astra-layout
         shell: bash
         run: |
           set -euo pipefail
-          ZIP=release/CTRL-LIFE-0.6.0-Relationships-Windows-x64.zip
+          ZIP=release/CTRL-LIFE-0.6.1-Astra-Layout-Windows-x64.zip
           SHA="$ZIP.sha256"
           if gh release view "$TAG" >/dev/null 2>&1; then
             # A pre-release can be rebuilt; keep its tag pointing at the actual archive source.
             gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" -f sha="$GITHUB_SHA" -F force=true
             gh release upload "$TAG" "$ZIP" "$SHA" --clobber
-            gh release edit "$TAG" --notes-file docs/RELATIONSHIPS.md
+            gh release edit "$TAG" --notes-file docs/ASTRA_LAYOUT_QA.md
           else
             gh release create "$TAG" "$ZIP" "$SHA" \
               --target "$GITHUB_SHA" \
-              --title "CTRL+LIFE 0.6.0 — Личные истории" \
-              --notes-file docs/RELATIONSHIPS.md \
+              --title "CTRL+LIFE 0.6.1 — Исправление интерфейса Astra Code" \
+              --notes-file docs/ASTRA_LAYOUT_QA.md \
               --prerelease
           fi

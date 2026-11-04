@@ -156,6 +156,13 @@ public final class AstraCodeVisuals implements Disposable {
 
   /** Выбранная вкладка нижней консоли: 0 = PROBLEMS, 1 = OUTPUT, 2 = TEST RESULTS. */
   private int activeConsoleTab = 2;
+
+  private float layoutWidth = 1180;
+
+  public void setLayoutWidth(float width) {
+    layoutWidth = width;
+  }
+
   private boolean inspectorRequested = true;
 
   /** Текущая активная сессия редактора для быстрых инкрементальных обновлений без rebuild(). */
@@ -227,7 +234,7 @@ public final class AstraCodeVisuals implements Disposable {
    */
   public BitmapFont font(FontRole role) {
     return switch (role) {
-      case MONO -> resolveFont("mono-font", "code-font", "small-font", "ui-font");
+      case MONO -> resolveFont("mono-font", "code-font", "app-small-font", "small-font", "ui-font");
       case SMALL -> resolveFont("app-small-font", "small-font", "ui-font");
       case UI -> resolveFont("app-ui-font", "ui-font", "small-font");
     };
@@ -339,59 +346,62 @@ public final class AstraCodeVisuals implements Disposable {
       String caption, ButtonVariant variant, boolean enabled, Runnable onClick) {
 
     String styleKey = variant.name() + ":" + enabled;
-    TextButton.TextButtonStyle style = buttonStyleCache.computeIfAbsent(styleKey, k -> {
-      TextButton.TextButtonStyle s = new TextButton.TextButtonStyle();
-      s.font = font(FontRole.SMALL);
+    TextButton.TextButtonStyle style =
+        buttonStyleCache.computeIfAbsent(
+            styleKey,
+            k -> {
+              TextButton.TextButtonStyle s = new TextButton.TextButtonStyle();
+              s.font = font(FontRole.SMALL);
 
-      if (!enabled) {
-        s.up = paddedSolid(BG_SURFACE, 4f, 10f);
-        s.over = s.up;
-        s.down = s.up;
-        s.disabled = s.up;
-        s.fontColor = FG_MUTED;
-        s.disabledFontColor = FG_MUTED;
-        return s;
-      }
+              if (!enabled) {
+                s.up = paddedSolid(BG_SURFACE, 2f, 10f);
+                s.over = s.up;
+                s.down = s.up;
+                s.disabled = s.up;
+                s.fontColor = FG_MUTED;
+                s.disabledFontColor = FG_MUTED;
+                return s;
+              }
 
-      switch (variant) {
-        case PRIMARY -> {
-          s.up = paddedSolid(BADGE_INFO_BG, 4f, 10f);
-          s.over = paddedSolid(Color.valueOf("263352"), 4f, 10f);
-          s.down = paddedSolid(Color.valueOf("1b243b"), 4f, 10f);
-          s.fontColor = ACCENT_BLUE;
-          s.overFontColor = Color.WHITE;
-        }
-        case SUCCESS -> {
-          s.up = paddedSolid(BADGE_OK_BG, 4f, 10f);
-          s.over = paddedSolid(Color.valueOf("253b31"), 4f, 10f);
-          s.down = paddedSolid(Color.valueOf("182620"), 4f, 10f);
-          s.fontColor = STATUS_OK;
-          s.overFontColor = Color.WHITE;
-        }
-        case DANGER -> {
-          s.up = paddedSolid(BADGE_ERR_BG, 4f, 10f);
-          s.over = paddedSolid(Color.valueOf("3d222e"), 4f, 10f);
-          s.down = paddedSolid(Color.valueOf("26151d"), 4f, 10f);
-          s.fontColor = STATUS_ERR;
-          s.overFontColor = Color.WHITE;
-        }
-        case GHOST -> {
-          s.up = paddedSolid(new Color(0, 0, 0, 0), 4f, 8f);
-          s.over = paddedSolid(BG_HOVER, 4f, 8f);
-          s.down = paddedSolid(BG_ACTIVE_LINE, 4f, 8f);
-          s.fontColor = FG_SECONDARY;
-          s.overFontColor = FG_PRIMARY;
-        }
-        case SECONDARY -> {
-          s.up = paddedSolid(BG_ELEVATED, 4f, 10f);
-          s.over = paddedSolid(BG_HOVER, 4f, 10f);
-          s.down = paddedSolid(BG_ACTIVE_LINE, 4f, 10f);
-          s.fontColor = FG_PRIMARY;
-          s.overFontColor = Color.WHITE;
-        }
-      }
-      return s;
-    });
+              switch (variant) {
+                case PRIMARY -> {
+                  s.up = paddedSolid(BADGE_INFO_BG, 2f, 10f);
+                  s.over = paddedSolid(Color.valueOf("263352"), 2f, 10f);
+                  s.down = paddedSolid(Color.valueOf("1b243b"), 2f, 10f);
+                  s.fontColor = ACCENT_BLUE;
+                  s.overFontColor = Color.WHITE;
+                }
+                case SUCCESS -> {
+                  s.up = paddedSolid(BADGE_OK_BG, 2f, 10f);
+                  s.over = paddedSolid(Color.valueOf("253b31"), 2f, 10f);
+                  s.down = paddedSolid(Color.valueOf("182620"), 2f, 10f);
+                  s.fontColor = STATUS_OK;
+                  s.overFontColor = Color.WHITE;
+                }
+                case DANGER -> {
+                  s.up = paddedSolid(BADGE_ERR_BG, 2f, 10f);
+                  s.over = paddedSolid(Color.valueOf("3d222e"), 2f, 10f);
+                  s.down = paddedSolid(Color.valueOf("26151d"), 2f, 10f);
+                  s.fontColor = STATUS_ERR;
+                  s.overFontColor = Color.WHITE;
+                }
+                case GHOST -> {
+                  s.up = paddedSolid(new Color(0, 0, 0, 0), 2f, 8f);
+                  s.over = paddedSolid(BG_HOVER, 2f, 8f);
+                  s.down = paddedSolid(BG_ACTIVE_LINE, 2f, 8f);
+                  s.fontColor = FG_SECONDARY;
+                  s.overFontColor = FG_PRIMARY;
+                }
+                case SECONDARY -> {
+                  s.up = paddedSolid(BG_ELEVATED, 2f, 10f);
+                  s.over = paddedSolid(BG_HOVER, 2f, 10f);
+                  s.down = paddedSolid(BG_ACTIVE_LINE, 2f, 10f);
+                  s.fontColor = FG_PRIMARY;
+                  s.overFontColor = Color.WHITE;
+                }
+              }
+              return s;
+            });
 
     TextButton btn = new TextButton(caption, style);
     btn.setDisabled(!enabled);
@@ -460,7 +470,7 @@ public final class AstraCodeVisuals implements Disposable {
 
     // 2. Активный файл и индикатор текущего контракта
     String activeFileName = activeJob != null ? "src/main.bs" : "workspace/contracts.bs";
-    bar.add(monoLabel(activeFileName, ACCENT_CYAN)).padRight(10f);
+    if (layoutWidth >= 850) bar.add(monoLabel(activeFileName, ACCENT_CYAN)).padRight(10f);
 
     if (activeJob != null) {
       int totalLen = Math.max(1, state.codeSource.length());
@@ -522,7 +532,7 @@ public final class AstraCodeVisuals implements Disposable {
 
     // Состояние проекта / ревизий Git
     String revState = "rev:" + state.revisions.size() + " · ship:" + state.shipped.size();
-    bar.add(monoLabel(revState, FG_MUTED)).padRight(6f);
+    if (layoutWidth >= 1100) bar.add(monoLabel(revState, FG_MUTED)).padRight(6f);
 
     addVerticalRule(bar, BORDER_SUBTLE, 8f);
 
@@ -588,8 +598,16 @@ public final class AstraCodeVisuals implements Disposable {
         (report != null && report.passed()) ? "OK" : "", STATUS_OK, onNavigate);
     addSidebarItem(side, "Лаборатория", "λ", 5, currentPage, hasJob,
         "", FG_MUTED, onNavigate);
-    addSidebarItem(side, "Git / версии", "⎇", 6, currentPage, hasJob,
-        !state.revisions.isEmpty() ? String.valueOf(state.revisions.size()) : "", FG_MUTED, onNavigate);
+    addSidebarItem(
+        side,
+        "Git / версии",
+        "⎇",
+        6,
+        currentPage,
+        hasJob,
+        !state.revisions.isEmpty() ? String.valueOf(state.revisions.size()) : "",
+        FG_MUTED,
+        onNavigate);
 
     addHorizontalRule(side, BORDER_SUBTLE, 8f, 6f);
 
@@ -597,26 +615,41 @@ public final class AstraCodeVisuals implements Disposable {
     addSidebarSectionHeader(side, "PROGRESSION");
     addSidebarItem(side, "Карьера", "◈", 7, currentPage, true,
         "T" + Career.tier(state), ACCENT_PURPLE, onNavigate);
-    addSidebarItem(side, "Портфолио", "▤", 11, currentPage, true,
-        !state.shipped.isEmpty() ? String.valueOf(state.shipped.size()) : "", STATUS_OK, onNavigate);
-    addSidebarItem(side, "Оборудование", "▣", 8, currentPage, true,
-        !state.upgrades.isEmpty() ? String.valueOf(state.upgrades.size()) : "", STATUS_WARN, onNavigate);
+    addSidebarItem(
+        side,
+        "Портфолио",
+        "▤",
+        11,
+        currentPage,
+        true,
+        !state.shipped.isEmpty() ? String.valueOf(state.shipped.size()) : "",
+        STATUS_OK,
+        onNavigate);
+    addSidebarItem(
+        side,
+        "Оборудование",
+        "▣",
+        8,
+        currentPage,
+        true,
+        !state.upgrades.isEmpty() ? String.valueOf(state.upgrades.size()) : "",
+        STATUS_WARN,
+        onNavigate);
     addSidebarItem(side, "Свой бот", "⚡", 9, currentPage, true,
         "", ACCENT_CYAN, onNavigate);
 
-    side.add().expandY().fillY().row();
-
-    // Компактная нижняя панель состояния и выхода из ПК
-    addHorizontalRule(side, BORDER_SUBTLE, 6f, 6f);
+    // Navigation scrolls independently; the exit action stays reachable at every height.
 
     Table footer = new Table();
     footer.padLeft(8f).padRight(8f);
     TextButton leaveBtn = compactButton("⏻ Выйти из ПК", ButtonVariant.GHOST, true, onLeavePc);
     leaveBtn.getLabel().setAlignment(Align.left);
     footer.add(leaveBtn).height(26f).growX();
-    side.add(footer).growX().row();
-
-    sideContainer.add(side).width(SIDEBAR_WIDTH - 1f).growY();
+    Table navigation = new Table();
+    navigation.add(createScrollPane(side, false)).grow().minWidth(0f).minHeight(0f).row();
+    addHorizontalRule(navigation, BORDER_SUBTLE, 0f, 0f);
+    navigation.add(footer).height(38f).growX().row();
+    sideContainer.add(navigation).width(SIDEBAR_WIDTH - 1f).growY().minHeight(0f);
     addVerticalRule(sideContainer, BORDER_SUBTLE, 0f);
     return sideContainer;
   }
@@ -788,7 +821,7 @@ public final class AstraCodeVisuals implements Disposable {
         state, job, report, onRunTests, onCommit, onNavigate, onTabSwitchRebuild);
     this.activeEditorSession = session;
 
-    container.add(session.rootTable).grow();
+    container.add(session.rootTable).grow().minWidth(0f).minHeight(0f);
   }
 
   /**
@@ -816,6 +849,7 @@ public final class AstraCodeVisuals implements Disposable {
     private final Label stageHintLabel;
     private final Cell<Table> progressFillCell;
     private final Table progressTrack = new Table();
+    private Cell<Table> bottomDockCell;
 
     private final List<LineRowWidgets> lineRows = new ArrayList<>();
     private int lastTypedCount = -1;
@@ -838,6 +872,7 @@ public final class AstraCodeVisuals implements Disposable {
       rootTable.setBackground(solid(BG_EDITOR));
 
       // 1. Вкладочная полоса редактора (main.bs + быстрые действия)
+      boolean compactEditor = layoutWidth - SIDEBAR_WIDTH < 740;
       Table tabStrip = new Table();
       tabStrip.setBackground(solid(BG_SURFACE));
       tabStrip.left().padLeft(0f).padRight(10f);
@@ -853,44 +888,70 @@ public final class AstraCodeVisuals implements Disposable {
       tabInner.padLeft(12f).padRight(14f);
       tabInner.add(monoLabel("◇ ", ACCENT_BLUE));
       tabInner.add(monoLabel("main.bs", FG_PRIMARY)).padRight(8f);
-      tabInner.add(monoLabel("ByteScript", FG_MUTED));
+      if (!compactEditor) tabInner.add(monoLabel("ByteScript", FG_MUTED));
       activeTab.add(tabInner).height(TAB_BAR_HEIGHT - 2f);
 
       tabStrip.add(activeTab).height(TAB_BAR_HEIGHT);
       addVerticalRule(tabStrip, BORDER_SUBTLE, 0f);
 
       // Хлебные крошки задания
-      tabStrip.add(monoLabel("  " + job.id, FG_SECONDARY)).padLeft(8f).padRight(8f);
+      if (!compactEditor)
+        tabStrip.add(monoLabel("  " + job.id, FG_SECONDARY)).padLeft(8f).padRight(8f);
       stageHintLabel = label("", FG_MUTED, FontRole.SMALL);
             tabStrip.add().expandX().fillX();
 
       // Компактные кнопки действий прямо в заголовке редактора
-      tabStrip.add(compactButton("▤ Details", ButtonVariant.GHOST, true, () -> {
-        inspectorRequested = !inspectorRequested;
-        syncResponsive(true);
-      })).height(22f).padRight(4f);
-      tabStrip.add(compactButton("Commit", ButtonVariant.GHOST, onCommit != null, onCommit))
-          .height(22f).padRight(4f);
-      tabStrip.add(compactButton("Исправить", ButtonVariant.SECONDARY, true, () -> {
-        if (onNavigate != null) {
-          onNavigate.accept(3);
-        }
-      })).height(22f).padRight(4f);
+      tabStrip
+          .add(
+              compactButton(
+                  "▤ Details",
+                  ButtonVariant.GHOST,
+                  !compactEditor,
+                  () -> {
+                    inspectorRequested = !inspectorRequested;
+                    syncResponsive(true);
+                  }))
+          .height(COMPACT_BTN_HEIGHT)
+          .padRight(4f);
+      if (!compactEditor)
+        tabStrip
+            .add(compactButton("Commit", ButtonVariant.GHOST, onCommit != null, onCommit))
+            .height(COMPACT_BTN_HEIGHT)
+            .padRight(4f);
+      tabStrip
+          .add(
+              compactButton(
+                  "Исправить",
+                  ButtonVariant.SECONDARY,
+                  true,
+                  () -> {
+                    if (onNavigate != null) {
+                      onNavigate.accept(3);
+                    }
+                  }))
+          .height(COMPACT_BTN_HEIGHT)
+          .padRight(4f);
 
       boolean canPreview = report != null && report.passed();
-      tabStrip.add(compactButton("▷ Превью",
-          canPreview ? ButtonVariant.SUCCESS : ButtonVariant.SECONDARY,
-          canPreview,
-          () -> {
-            if (onNavigate != null) {
-              onNavigate.accept(4);
-            }
-          })).height(22f).padRight(4f);
+      tabStrip
+          .add(
+              compactButton(
+                  "▷ Превью",
+                  canPreview ? ButtonVariant.SUCCESS : ButtonVariant.SECONDARY,
+                  canPreview,
+                  () -> {
+                    if (onNavigate != null) {
+                      onNavigate.accept(4);
+                    }
+                  }))
+          .height(COMPACT_BTN_HEIGHT)
+          .padRight(4f);
 
-      tabStrip.add(compactButton("▶ Тесты", ButtonVariant.PRIMARY, true, onRunTests))
-          .height(22f);
+      tabStrip
+          .add(compactButton("▶ Тесты", ButtonVariant.PRIMARY, true, onRunTests))
+          .height(COMPACT_BTN_HEIGHT);
 
-      rootTable.add(tabStrip).height(TAB_BAR_HEIGHT).growX().row();
+      rootTable.add(tabStrip).height(TAB_BAR_HEIGHT).growX().minWidth(0f).row();
       addHorizontalRule(rootTable, BORDER_SUBTLE, 0f, 0f);
 
       // 2. Тонкая полоса прогресса набора (2px) под вкладкой
@@ -900,7 +961,7 @@ public final class AstraCodeVisuals implements Disposable {
       fillBar.setBackground(solid(ACCENT_BLUE));
       progressFillCell = progressTrack.add(fillBar).height(2f).width(0f).left();
       progressTrack.add().expandX().fillX();
-      rootTable.add(progressTrack).height(2f).growX().row();
+      rootTable.add(progressTrack).height(2f).growX().minWidth(0f).row();
 
       // 3. Основное полотно кода со скроллом (вертикальным и горизонтальным)
       codeLinesTable.top().left();
@@ -912,7 +973,7 @@ public final class AstraCodeVisuals implements Disposable {
       // The inspector uses the otherwise empty space beside short ByteScript programs.
       // It is automatically removed from the layout when the IDE window is narrow.
       editorArea.top().left();
-      editorArea.add(codeScrollPane).grow().minWidth(0f).minHeight(140f);
+      editorArea.add(codeScrollPane).grow().minWidth(0f).minHeight(72f);
       inspector = new Table();
       Table inspectorBody = buildContractInspector(state, job, report, onRunTests, onCommit,
           onNavigate);
@@ -920,7 +981,7 @@ public final class AstraCodeVisuals implements Disposable {
       ScrollPane inspectorScroll = createScrollPane(inspectorBody, false);
       inspector.add(inspectorScroll).grow().minWidth(0f).minHeight(0f);
       inspectorCell = editorArea.add(inspector).width(224f).growY().padLeft(1f);
-      rootTable.add(editorArea).grow().minHeight(140f).row();
+      rootTable.add(editorArea).grow().minHeight(72f).row();
 
       // 4. Компактная строка статуса редактора (Ln/Col, Прогресс символов, Кодировка)
       addHorizontalRule(rootTable, BORDER_SUBTLE, 0f, 0f);
@@ -938,12 +999,13 @@ public final class AstraCodeVisuals implements Disposable {
       editorStatusStrip.add().expandX().fillX();
       editorStatusStrip.add(monoLabel("ByteScript · UTF-8", FG_MUTED));
 
-      rootTable.add(editorStatusStrip).height(STATUS_BAR_HEIGHT).growX().row();
+      rootTable.add(editorStatusStrip).height(STATUS_BAR_HEIGHT).growX().minWidth(0f).row();
       addHorizontalRule(rootTable, BORDER_SUBTLE, 0f, 0f);
 
       // 5. Нижняя док-панель (PROBLEMS / OUTPUT / TEST RESULTS)
       Table bottomDock = buildBottomConsoleDock(state, job, report, onRunTests, onTabSwitchRebuild);
-      rootTable.add(bottomDock).height(BOTTOM_DOCK_HEIGHT).growX().row();
+      bottomDockCell = rootTable.add(bottomDock).height(BOTTOM_DOCK_HEIGHT).growX().minWidth(0f);
+      rootTable.row();
 
       // Initial state, then responsive sizing is maintained without rebuilding code widgets.
       updateTypedCodeView(state.typedCount);
@@ -970,7 +1032,11 @@ public final class AstraCodeVisuals implements Disposable {
       addHorizontalRule(panel, BORDER_SUBTLE, 6f, 12f);
 
       panel.add(monoLabel("WORKFLOW", FG_MUTED)).left().padBottom(11f).row();
-      panel.add(label("01  ● Контракт принят", STATUS_OK, FontRole.SMALL)).left().padBottom(8f).row();
+      panel
+          .add(label("01  ● Контракт принят", STATUS_OK, FontRole.SMALL))
+          .left()
+          .padBottom(8f)
+          .row();
       inspectorStatus = label("", ACCENT_CYAN, FontRole.SMALL);
       panel.add(inspectorStatus).left().padBottom(8f).row();
       panel.add(label("03  ● Проверка ByteScript", report == null ? FG_MUTED :
@@ -1003,6 +1069,25 @@ public final class AstraCodeVisuals implements Disposable {
 
     void syncResponsive(boolean forced) {
       float available = rootTable.getWidth();
+      float height = rootTable.getHeight();
+      if (progressFillCell != null && available > 0) {
+        float progress =
+            boundCodeSource.isEmpty()
+                ? 1f
+                : Math.max(0, lastTypedCount) / (float) boundCodeSource.length();
+        float target = available * Math.min(1f, progress);
+        if (Math.abs(progressFillCell.getMaxWidth() - target) > 1) {
+          progressFillCell.width(target);
+          progressTrack.invalidateHierarchy();
+        }
+      }
+      if (bottomDockCell != null && height > 0) {
+        float target = Math.max(96, Math.min(BOTTOM_DOCK_HEIGHT, height * .30f));
+        if (Math.abs(bottomDockCell.getMaxHeight() - target) > 1) {
+          bottomDockCell.height(target);
+          rootTable.invalidateHierarchy();
+        }
+      }
       if (!forced && available <= 0f) return;
       boolean show = inspectorRequested && available >= 740f;
       if (!forced && inspectorVisible == show) return;
@@ -1121,9 +1206,11 @@ public final class AstraCodeVisuals implements Disposable {
       int pct = totalLen == 0 ? 100 : (int) Math.round((typed * 100.0) / totalLen);
       progressLabel.setText(typed + "/" + totalLen + " · " + pct + "%");
       progressLabel.setColor(typed >= totalLen && totalLen > 0 ? STATUS_OK : STATUS_WARN);
-      if (inspectorProgress != null) inspectorProgress.setText(typed + " / " + totalLen + " · " + pct + "%");
+      if (inspectorProgress != null)
+        inspectorProgress.setText(typed + " / " + totalLen + " · " + pct + "%");
       if (inspectorStatus != null) {
-        inspectorStatus.setText(typed >= totalLen ? "02  ✓ Исходник набран" : "02  ◌ Ввод кода: " + pct + "%");
+        inspectorStatus.setText(
+            typed >= totalLen ? "02  ✓ Исходник набран" : "02  ◌ Ввод кода: " + pct + "%");
         inspectorStatus.setColor(typed >= totalLen ? STATUS_OK : STATUS_WARN);
       }
       if (inspectorNext != null) {
@@ -1140,7 +1227,7 @@ public final class AstraCodeVisuals implements Disposable {
       stageHintLabel.setText(typed < totalLen ? "TYPING" : "READY");
       stageHintLabel.setColor(typed < totalLen ? STATUS_WARN : STATUS_OK);
 
-      float trackWidth = Math.max(640f, rootTable.getWidth());
+      float trackWidth = Math.max(0f, rootTable.getWidth());
       progressFillCell.width((trackWidth * pct) / 100f);
       progressTrack.invalidateHierarchy();
 
@@ -1326,12 +1413,13 @@ public final class AstraCodeVisuals implements Disposable {
 
     tabBar.add().expandX().fillX();
 
-    if (onRunTests != null && job != null) {
-      tabBar.add(compactButton("↻ Перезапустить тесты", ButtonVariant.GHOST, true, onRunTests))
-          .height(22f);
+    if (onRunTests != null && job != null && layoutWidth - SIDEBAR_WIDTH >= 740) {
+      tabBar
+          .add(compactButton("↻ Перезапустить тесты", ButtonVariant.GHOST, true, onRunTests))
+          .height(COMPACT_BTN_HEIGHT);
     }
 
-    dock.add(tabBar).height(26f).growX().row();
+    dock.add(tabBar).height(26f).growX().minWidth(0f).row();
     addHorizontalRule(dock, BORDER_SUBTLE, 0f, 0f);
 
     // Тело выбранной вкладки со скроллом
@@ -1436,16 +1524,23 @@ public final class AstraCodeVisuals implements Disposable {
 
     addConsoleLogLine(body, "[Astra ByteScript toolchain — Pinux Astra]", FG_MUTED);
     if (job != null) {
-      addConsoleLogLine(body, "> Target contract: " + job.title + " (stage " + state.jobStage + ")", FG_SECONDARY);
+      addConsoleLogLine(
+          body,
+          "> Target contract: " + job.title + " (stage " + state.jobStage + ")",
+          FG_SECONDARY);
     }
 
     int totalLen = state.codeSource == null ? 0 : state.codeSource.length();
     if (state.typedCount < totalLen) {
-      addConsoleLogLine(body,
-          "> Ожидание завершения ввода исходника: осталось " + (totalLen - state.typedCount) + " симв.",
+      addConsoleLogLine(
+          body,
+          "> Ожидание завершения ввода исходника: осталось "
+              + (totalLen - state.typedCount)
+              + " симв.",
           STATUS_WARN);
     } else {
-      addConsoleLogLine(body, "> Буфер исходного кода заполнен (" + totalLen + " chars).", STATUS_OK);
+      addConsoleLogLine(
+          body, "> Буфер исходного кода заполнен (" + totalLen + " chars).", STATUS_OK);
     }
 
     if (report != null) {
@@ -1529,7 +1624,7 @@ public final class AstraCodeVisuals implements Disposable {
    */
   public Table buildSectionHeader(String category, String title, String subtitle, Actor rightWidget) {
     Table header = new Table();
-    header.left().pad(10f, 14f, 10f, 14f);
+    header.left().pad(10f, 12f, 10f, 14f);
     header.setBackground(solid(BG_SURFACE));
 
     Table leftCol = new Table();
@@ -1537,9 +1632,9 @@ public final class AstraCodeVisuals implements Disposable {
 
     Table crumbRow = new Table();
     crumbRow.left();
-    crumbRow.add(monoLabel(category.toUpperCase(Locale.ROOT), ACCENT_BLUE)).padRight(8f);
-    crumbRow.add(label("·  " + title, FG_PRIMARY, FontRole.UI)).left();
-    leftCol.add(crumbRow).left().padBottom(3f).row();
+    crumbRow.add(wrapLabel(category.toUpperCase(Locale.ROOT), ACCENT_BLUE)).growX().minWidth(0);
+    leftCol.add(crumbRow).growX().minWidth(0).padBottom(4f).row();
+    leftCol.add(wrapLabel(title, FG_PRIMARY)).growX().minWidth(0).padBottom(4f).row();
 
     if (subtitle != null && !subtitle.isEmpty()) {
       leftCol.add(wrapLabel(subtitle, FG_MUTED)).growX().minWidth(0f);
@@ -1552,7 +1647,7 @@ public final class AstraCodeVisuals implements Disposable {
     }
 
     Table outer = new Table();
-    outer.add(header).growX().row();
+    outer.add(header).growX().minWidth(0).row();
     addHorizontalRule(outer, BORDER_SUBTLE, 0f, 0f);
     return outer;
   }
@@ -1628,7 +1723,7 @@ public final class AstraCodeVisuals implements Disposable {
    */
   public Table buildKeyValueRow(String key, String value, Color valueColor) {
     Table row = new Table();
-    row.left().pad(4f, 10f, 4f, 10f);
+    row.left().pad(2f, 10f, 2f, 10f);
     row.setBackground(solid(BG_SURFACE));
     row.add(label(key, FG_MUTED, FontRole.SMALL)).width(160f).left();
     row.add(monoLabel(value, valueColor)).left().growX();
@@ -1643,7 +1738,8 @@ public final class AstraCodeVisuals implements Disposable {
     Table strip = new Table();
     strip.left().pad(5f, 10f, 5f, 10f);
 
-    boolean isError = noticeText.startsWith("✕") || noticeText.toLowerCase(Locale.ROOT).contains("ошиб");
+    boolean isError =
+        noticeText.startsWith("✕") || noticeText.toLowerCase(Locale.ROOT).contains("ошиб");
     boolean isOk = noticeText.startsWith("✓");
 
     Color bg = isError ? BADGE_ERR_BG : (isOk ? BADGE_OK_BG : BADGE_WARN_BG);
@@ -1673,8 +1769,11 @@ public final class AstraCodeVisuals implements Disposable {
     box.add(wrapLabel(hint, FG_SECONDARY)).width(460f).left().padBottom(12f).row();
 
     if (onOpenContracts != null) {
-      box.add(compactButton("Перейти к бирже контрактов", ButtonVariant.PRIMARY, true, onOpenContracts))
-          .height(ACTION_BTN_HEIGHT).left();
+      box.add(
+              compactButton(
+                  "Перейти к бирже контрактов", ButtonVariant.PRIMARY, true, onOpenContracts))
+          .height(ACTION_BTN_HEIGHT)
+          .left();
     }
     return box;
   }

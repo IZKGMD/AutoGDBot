@@ -211,8 +211,8 @@ final class PinuxNativeWindows {
                 PinuxGeometry.fit(
                     initialX,
                     initialY + dy,
-                    initialW + dx,
-                    initialH - dy,
+                    Math.max(app == App.CODE ? 800 : 460, initialW + dx),
+                    Math.max(app == App.CODE ? 360 : 300, initialH - dy),
                     stage.getWidth(),
                     stage.getHeight());
             window.setBounds(bounds.x(), bounds.y(), bounds.width(), bounds.height());
@@ -608,8 +608,8 @@ final class PinuxNativeWindows {
             : PinuxGeometry.fit(
                 w.getX(),
                 w.getY(),
-                w.getWidth(),
-                w.getHeight(),
+                Math.max(app == App.CODE ? 800 : 460, w.getWidth()),
+                Math.max(app == App.CODE ? 360 : 300, w.getHeight()),
                 stage.getWidth(),
                 stage.getHeight());
     w.setBounds(b.x(), b.y(), b.width(), b.height());
