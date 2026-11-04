@@ -132,11 +132,30 @@ public class CtrlLife extends ApplicationAdapter {
           @Override
           public boolean touchDown(int x, int y, int pointer, int button) {
             if (button == Input.Buttons.LEFT) {
+              int px = Math.round(c.logicalX(x)), py = Math.round(c.logicalY(y));
+              if (mode == Mode.IDE && life.pcPointerDown(px, py)) {
+                clicked = false;
+                return true;
+              }
               clicked = true;
               clickX = c.logicalX(x);
               clickY = c.logicalY(y);
             }
             return true;
+          }
+
+          @Override
+          public boolean touchDragged(int x, int y, int pointer) {
+            if (mode == Mode.IDE)
+              return life.pcPointerDragged(Math.round(c.logicalX(x)), Math.round(c.logicalY(y)));
+            return false;
+          }
+
+          @Override
+          public boolean touchUp(int x, int y, int pointer, int button) {
+            if (mode == Mode.IDE && button == Input.Buttons.LEFT)
+              return life.pcPointerUp(Math.round(c.logicalX(x)), Math.round(c.logicalY(y)));
+            return false;
           }
 
           @Override
@@ -193,6 +212,7 @@ public class CtrlLife extends ApplicationAdapter {
   }
 
   private void change(Mode next) {
+    if (mode == Mode.IDE && next != Mode.IDE && life != null) life.pcCancelPointer();
     mode = next;
     held.clear();
     accumulator = 0;
@@ -1014,11 +1034,14 @@ public class CtrlLife extends ApplicationAdapter {
   private void activateButtons() {
     Button target = null;
     if (clicked) {
-      for (var b : buttons)
+      // Late-drawn window/dock buttons appear on top; give them click priority.
+      for (int i = buttons.size() - 1; i >= 0; i--) {
+        var b = buttons.get(i);
         if (b.enabled && contains(b, clickX, clickY)) {
           target = b;
           break;
         }
+      }
     } else if (confirm
         && selection >= 0
         && selection < buttons.size()
