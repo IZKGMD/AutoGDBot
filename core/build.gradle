@@ -1,5 +1,7 @@
 dependencies {
     implementation 'com.badlogicgames.gdx:gdx:1.13.1'
+    // Matched to libGDX 1.13.1: reuse real VisUI scene2d controls/windows.
+    implementation 'com.kotcrab.vis:vis-ui:1.5.6'
     testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.11.4'
 }
