@@ -34,6 +34,11 @@ final class PinuxNativeWindows {
   private static final Color PRIMARY = Color.valueOf("e8eaf5");
   private static final Color MUTED = Color.valueOf("a9b5cd");
   private static final Color ACCENT = Color.valueOf("b8acff");
+  // Archcraft bspwm/OneDark chroma, adapted rather than copying Linux UI files.
+  private static final Color TERM_FG = Color.valueOf("ABB2BF");
+  private static final Color TERM_MUTED = Color.valueOf("7F8998");
+  private static final Color TERM_BLUE = Color.valueOf("5294E2");
+  private static final Color TERM_GREEN = Color.valueOf("98C379");
 
   private final Stage stage;
   private final Skin skin;
@@ -42,6 +47,7 @@ final class PinuxNativeWindows {
   private final EnumMap<App, Boolean> maximized = new EnumMap<>(App.class);
   private final EnumMap<App, float[]> restored = new EnumMap<>(App.class);
   private final Window.WindowStyle windowStyle;
+  private final Window.WindowStyle terminalWindowStyle;
   private VisTextField terminalInput;
   private Label terminalOutput;
   private float scale = 1;
@@ -54,6 +60,8 @@ final class PinuxNativeWindows {
     if (!VisUI.isLoaded()) VisUI.load();
     windowStyle = new Window.WindowStyle(
         skin.getFont("ui-font"), PRIMARY, skin.getDrawable("window-bg"));
+    terminalWindowStyle = new Window.WindowStyle(
+        skin.getFont("ui-font"), TERM_FG, skin.getDrawable("term-frame"));
   }
 
   private Label text(String value, boolean secondary) {
@@ -89,13 +97,16 @@ final class PinuxNativeWindows {
     return button;
   }
 
-  private TextButton chrome(String glyph, Runnable run, boolean danger) {
+  private TextButton chrome(String glyph, Runnable run, boolean danger, boolean terminal) {
     TextButton.TextButtonStyle style = new TextButton.TextButtonStyle();
     style.font = skin.getFont("small-font");
-    style.fontColor = danger ? Color.valueOf("e6bac4") : Color.valueOf("acb9ce");
+    style.fontColor = terminal ? TERM_MUTED
+        : danger ? Color.valueOf("e6bac4") : Color.valueOf("acb9ce");
     style.overFontColor = Color.WHITE;
-    style.up = skin.getDrawable("title-button");
-    style.over = skin.getDrawable(danger ? "title-close-hover" : "title-button-hover");
+    style.up = skin.getDrawable(terminal ? "term-title-button" : "title-button");
+    style.over = skin.getDrawable(terminal
+        ? danger ? "term-title-close" : "term-title-hover"
+        : danger ? "title-close-hover" : "title-button-hover");
     style.down = style.over;
     TextButton b = new TextButton(glyph, style);
     b.addListener(new ChangeListener() {
@@ -105,25 +116,27 @@ final class PinuxNativeWindows {
   }
 
   private VisWindow make(App app, String title, int width, int height, int x, int y) {
-    VisWindow window = new VisWindow(title, windowStyle);
+    boolean terminal = app == App.TERMINAL;
+    VisWindow window = new VisWindow(title, terminal ? terminalWindowStyle : windowStyle);
     window.setMovable(true);
     window.setResizable(true);
     window.setResizeBorder(12);
     window.setKeepWithinStage(true);
-    window.padTop(44);
-    window.padLeft(19);
-    window.padRight(19);
-    window.padBottom(18);
-    window.getTitleLabel().setColor(PRIMARY);
+    window.padTop(terminal ? 41 : 44);
+    window.padLeft(terminal ? 10 : 19);
+    window.padRight(terminal ? 10 : 19);
+    window.padBottom(terminal ? 10 : 18);
+    window.getTitleLabel().setColor(terminal ? TERM_FG : PRIMARY);
     window.getTitleLabel().setAlignment(Align.left);
-    window.getTitleTable().setBackground(skin.getDrawable("window-header"));
+    window.getTitleTable().setBackground(skin.getDrawable(
+        terminal ? "term-header" : "window-header"));
     window.getTitleTable().add().expandX();
-    window.getTitleTable().add(chrome("—", () -> minimize(app), false))
-        .width(33).height(25).padRight(5);
-    window.getTitleTable().add(chrome("[]", () -> toggleMaximize(app), false))
-        .width(33).height(25).padRight(5);
-    window.getTitleTable().add(chrome("×", () -> close(app), true))
-        .width(33).height(25).padRight(5);
+    window.getTitleTable().add(chrome("—", () -> minimize(app), false, terminal))
+        .width(terminal ? 30 : 33).height(25).padRight(5);
+    window.getTitleTable().add(chrome("[]", () -> toggleMaximize(app), false, terminal))
+        .width(terminal ? 30 : 33).height(25).padRight(5);
+    window.getTitleTable().add(chrome("×", () -> close(app), true, terminal))
+        .width(terminal ? 30 : 33).height(25).padRight(5);
     window.setBounds(x, y, width, height);
     // Explicit resize capture fixes a libGDX/VisWindow corner hit-test conflict
     // when the content Table fills the body. The rest of the window stays native.
@@ -172,47 +185,109 @@ final class PinuxNativeWindows {
     int x = 195 + offset * 30, y = 122 + offset * 14;
     switch (app) {
       case TERMINAL -> {
-        VisWindow w = make(app, "Terminal", 800, 528, 190, 132);
-        Table main = new Table();
-        main.top().left();
-        main.setBackground(skin.getDrawable("pane-bg"));
-        main.pad(19);
-        Label badge = text("●  PINUX ASTRA SHELL   /   dev@astra", true);
-        badge.setColor(Color.valueOf("91d9c1"));
-        main.add(badge).expandX().left().padBottom(17);
-        main.row();
-        terminalOutput = text(shell.terminalHistory(), true);
+        // Archcraft/OneDark: a quiet, flat kitty-style console with a real
+        // Scene2D text field. Only this application receives the new skin.
+        VisWindow w = make(app, "Terminal", 838, 537, 195, 130);
+        Table surface = new Table();
+        surface.top().left();
+        surface.setBackground(skin.getDrawable("term-surface"));
+
+        Table toolbar = new Table();
+        toolbar.left().padLeft(17).padRight(17);
+        toolbar.setBackground(skin.getDrawable("term-toolbar"));
+        Label appMark = text("●", true);
+        appMark.setColor(TERM_BLUE);
+        toolbar.add(appMark).width(23).left();
+        Label header = text("PINUX  /  TERMINAL", true);
+        header.setColor(TERM_FG);
+        toolbar.add(header).left();
+        toolbar.add().expandX();
+        Label place = text("~/projects", true);
+        place.setColor(TERM_MUTED);
+        toolbar.add(place).padRight(15);
+        Label session = text("01  /  01", true);
+        session.setColor(TERM_MUTED);
+        toolbar.add(session).right();
+        surface.add(toolbar).height(44).growX();
+        surface.row();
+
+        Table tabLine = new Table();
+        tabLine.left().padLeft(14);
+        tabLine.setBackground(skin.getDrawable("term-surface"));
+        Table selectedTab = new Table();
+        selectedTab.setBackground(skin.getDrawable("term-tab"));
+        Label tabTitle = text("●   dev@astra: ~", true);
+        tabTitle.setColor(TERM_FG);
+        selectedTab.add(tabTitle).padLeft(17).padRight(17);
+        tabLine.add(selectedTab).height(34).width(205).left().padTop(9);
+        tabLine.add().expandX();
+        Label tabHint = text("astra-sh  0.5", true);
+        tabHint.setColor(TERM_MUTED);
+        tabLine.add(tabHint).padRight(20).padTop(9);
+        surface.add(tabLine).height(48).growX();
+        surface.row();
+
+        terminalOutput = text(shell.terminalHistory(), false);
+        terminalOutput.setStyle(new Label.LabelStyle(skin.getFont("small-font"), TERM_FG));
         terminalOutput.setWrap(true);
         terminalOutput.setAlignment(Align.topLeft);
         ScrollPane.ScrollPaneStyle scrollStyle = new ScrollPane.ScrollPaneStyle();
         ScrollPane scroll = new ScrollPane(terminalOutput, scrollStyle);
         scroll.setFadeScrollBars(true);
+        scroll.setOverscroll(false, false);
         scroll.setScrollingDisabled(true, false);
-        main.add(scroll).grow().padBottom(15);
-        main.row();
+        surface.add(scroll).grow().padLeft(26).padRight(23).padTop(12).padBottom(16);
+        surface.row();
+
+        Table prompt = new Table();
+        prompt.left().padLeft(18).padRight(11);
+        prompt.setBackground(skin.getDrawable("term-prompt"));
+        Label user = text("dev", true);
+        user.setColor(TERM_GREEN);
+        prompt.add(user);
+        Label atHost = text("@astra", true);
+        atHost.setColor(TERM_BLUE);
+        prompt.add(atHost);
+        Label directory = text("  ~  >", true);
+        directory.setColor(TERM_FG);
+        prompt.add(directory).padRight(13);
+
         VisTextField.VisTextFieldStyle inputStyle = new VisTextField.VisTextFieldStyle();
         inputStyle.font = skin.getFont("small-font");
-        inputStyle.fontColor = Color.valueOf("d6ede9");
-        inputStyle.background = skin.getDrawable("input-bg");
-        inputStyle.cursor = skin.newDrawable("button-bg", Color.valueOf("c0f3e1"));
-        inputStyle.selection = skin.newDrawable("hover-bg", Color.valueOf("514f81"));
+        inputStyle.fontColor = TERM_FG;
+        inputStyle.messageFontColor = TERM_MUTED;
+        inputStyle.cursor = skin.newDrawable("term-title-button", TERM_BLUE);
+        inputStyle.selection = skin.newDrawable("term-title-hover", TERM_BLUE);
         terminalInput = new VisTextField("", inputStyle);
-        terminalInput.setMessageText("Введите команду");
+        terminalInput.setMessageText("Type a command...");
         terminalInput.setEnterKeyFocusTraversal(false);
         terminalInput.setTextFieldListener((field, ch) -> {
           if (ch == '\r' || ch == '\n') {
             terminalOutput.setText(shell.terminalSubmit(field.getText()));
             field.setText("");
+            scroll.layout();
+            scroll.setScrollPercentY(1);
           }
         });
-        Table prompt = new Table();
-        prompt.setBackground(skin.getDrawable("input-bg"));
-        Label prefix = text("dev@astra:~$ ", true);
-        prefix.setColor(Color.valueOf("8bdec3"));
-        prompt.add(prefix).padLeft(14).padRight(5);
-        prompt.add(terminalInput).growX().height(40).padRight(8);
-        main.add(prompt).height(44).growX();
-        w.add(main).grow();
+        prompt.add(terminalInput).growX().height(37).padRight(8);
+        surface.add(prompt).height(49).growX().padLeft(18).padRight(18).padBottom(13);
+        surface.row();
+
+        Table statusBar = new Table();
+        statusBar.left().padLeft(18).padRight(18);
+        statusBar.setBackground(skin.getDrawable("term-toolbar"));
+        Label ready = text("●  READY", true);
+        ready.setColor(TERM_GREEN);
+        statusBar.add(ready).left().padRight(18);
+        Label tty = text("tty1    •    LOCAL SESSION", true);
+        tty.setColor(TERM_MUTED);
+        statusBar.add(tty).left();
+        statusBar.add().expandX();
+        Label encoding = text("UTF-8    •    ASTRA SHELL", true);
+        encoding.setColor(TERM_MUTED);
+        statusBar.add(encoding).right();
+        surface.add(statusBar).height(28).growX();
+        w.add(surface).grow();
         return w;
       }
       case FILES -> {
