@@ -979,6 +979,7 @@ public final class PinuxDesktopStage {
   }
 
   public void dispose() {
+    if (windows != null) windows.dispose();
     stage.dispose();
     skin.dispose();
   }
