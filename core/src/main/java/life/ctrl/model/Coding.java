@@ -33,6 +33,11 @@ public final class Coding {
   }
 
   public static String accept(GameState s, LifeContent.Job j, int algorithm, boolean rush) {
+    return accept(s, j, algorithm, rush, false);
+  }
+
+  /** Use tactile typing in the interactive IDE; direct model callers retain older semantics. */
+  public static String accept(GameState s, LifeContent.Job j, int algorithm, boolean rush, boolean tactile) {
     if (!s.activeJob.isEmpty() && s.jobStage > 0 && s.jobStage < 5)
       return "Текущий проект сохранён. Продолжи его или отложи через историю версий.";
     String blocked = Career.blocked(s, j);
@@ -42,8 +47,7 @@ public final class Coding {
     s.activeLedger = ledgerId(s, j.id);
     s.algorithm = algorithm;
     s.codeSource = j.initialSources[algorithm];
-    // Every contract begins with the tactile typing phase, including bugfixes and profiles.
-    s.typedCount = 0;
+    s.typedCount = tactile ? 0 : j.kind.equals("feature") ? 0 : s.codeSource.length();
     s.jobStage = 2;
     s.programPreviewed = false;
     s.rushJob = rush && !j.once;
@@ -132,11 +136,15 @@ public final class Coding {
   }
 
   public static void repair(GameState s, LifeContent.Job j, int choice) {
+    repair(s, j, choice, false);
+  }
+
+  public static void repair(GameState s, LifeContent.Job j, int choice, boolean tactile) {
     if (!s.activeJob.equals(j.id) || s.jobStage == 5 || choice < 0 || choice >= j.solutions.length)
       return;
     s.codeSource = j.solutions[choice];
-    // Debugging is a second typing phase; do not silently apply the whole patch.
-    s.typedCount = 0;
+    // The IDE requires a second typing phase after a patch is chosen.
+    s.typedCount = tactile ? 0 : s.codeSource.length();
     s.jobStage = 2;
     s.programPreviewed = false;
   }
