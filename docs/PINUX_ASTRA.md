@@ -2,6 +2,16 @@
 
 Это вымышленная ОС **внутри CTRL+LIFE**, а не веб-страница, виртуальная машина и не доступ к компьютеру игрока. Реализована на Java/libGDX через существующий \`PixelCanvas\`; весь терминал изолирован от host OS.
 
+## Native Linux-style UI foundation (VisUI)
+
+The desktop and newly ported applications now render at the **actual game-window resolution**, not the 480×270 pixel-art framebuffer.
+The window layer uses [VisUI](https://github.com/kotcrab/vis-ui) 1.5.6 (Apache-2.0; matches libGDX 1.13.1), including `VisWindow` for drag, resize and stacking and `VisTextField` for the in-game terminal.
+The architecture follows the separation found in [gezhov/Fake-OS-Desktop](https://github.com/gezhov/Fake-OS-Desktop) (MIT): shell, independent app windows, workspace, taskbar and focus. Swing classes were not copied because they are incompatible with libGDX's render loop.
+
+Native screens: Terminal, Files, TaskMail and Settings. Astra Code still delegates to the original ByteScript workbench; porting its editor is a separate visual milestone. Terminal commands are **game simulations only** and never execute real commands.
+
+**Visual quality gate:** `pinux-desktop-preview.yml` runs an actual GLFW/libGDX smoke under Xvfb, captures PNGs, and uploads them as a workflow artifact. We review new captures before moving to the next screen.
+
 ## Window manager
 
 Отдельный `PinuxWindowManager` отвечает за z-order, фокус, двойное нажатие на заголовок, анимации открытия/сворачивания/закрытия, минимизацию, восстановление, перетаскивание, изменение размеров окна за правый нижний угол, прижатие к левому/правому краю, максимизацию при перетаскивании к верхнему краю, расположение окон на рабочем столе. Клики по заголовкам перехватываются до глобальных кнопок, чтобы предотвратить click-through. Клавиша Tab циклически меняет активное окно.
