@@ -32,3 +32,8 @@
 ## Vita Turbo 2.4
 
 Вкладка «Турбо» управляет официальными режимами `vita-cpu ondemand`, `vita-cpu max` (444 МГц) и `vita-cpu balanced` (333 МГц). Перед настройкой есть подтверждение, затем 5 этапов диагностики: исходное состояние, изменение профиля, проверка результата, RAM/ZRAM/swap, накопители и нагрузка. Команды выполняются по SSH на базовом LinuxOnVita, а вывод копируется в `/root/vitacontrol/progress.log` Alpine, видимый в Sakura. Нет управления напряжением, прошивкой, ядром, неотключаемых изменений или рискованной очистки памяти. Все параметры ограничены штатными поддерживаемыми диапазонами. Фактическое ускорение зависит от нагрузки и ограничений CPU/GPU.
+
+
+## VitaControl 2.6.1
+
+The MainActivity homepage now reads the Android package's actual versionName rather than showing a stale hard-coded 2.2 label. This avoids confusing the old landing screen with the new Vita Control management tab.

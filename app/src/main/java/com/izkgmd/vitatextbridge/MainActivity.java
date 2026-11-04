@@ -33,6 +33,15 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class MainActivity extends Activity {
+    private String appVersion() {
+        try {
+            String value = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            return value != null ? value : "?";
+        } catch (Exception ignored) {
+            return "?";
+        }
+    }
+
     private static final int BG = Color.rgb(8, 13, 25);
     private static final int SURFACE = Color.rgb(17, 26, 44);
     private static final int LINE = Color.rgb(47, 66, 92);
@@ -168,7 +177,7 @@ public final class MainActivity extends Activity {
         testButton = action("Проверить SSH", true);
         add(connection, testButton, 15);
         testButton.setOnClickListener(v -> submit("Проверка подключения", "uname -a && whoami"));
-        Button manager = action("✦  Vita Control 2.2 — игры, экран, YouTube", true);
+        Button manager = action("✦  Vita Control " + appVersion() + " — игры, Turbo, Мост", true);
         add(connection, manager, 10);
         manager.setOnClickListener(v -> {
             if (running) return;
@@ -239,7 +248,7 @@ public final class MainActivity extends Activity {
         Button clear = action("Очистить вывод", false);
         add(log, clear, 10);
         clear.setOnClickListener(v -> terminal.setText(""));
-        add(root, label("VitaTextBridge 2.2  •  Локальная сеть  •  Ключи SSH проверяются", 11, MUTED, false), 16);
+        add(root, label("VitaTextBridge " + appVersion() + "  •  Локальная сеть  •  Ключи SSH проверяются", 11, MUTED, false), 16);
         setContentView(scroller);
     }
 
