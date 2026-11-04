@@ -3,7 +3,13 @@ name: Release CTRL+LIFE 0.5.0 Pinux Astra Windows x64
 on:
   push:
     branches: [ctrl-life]
-    paths: ['.github/workflows/pinux-astra-release.yml']
+    paths:
+      - '.github/workflows/pinux-astra-release.yml'
+      - 'core/src/main/java/life/ctrl/ui/**'
+      - 'core/src/main/java/life/ctrl/model/**'
+      - 'core/src/main/java/life/ctrl/bytescript/**'
+      - 'lwjgl3/src/smoke/java/life/ctrl/desktop/PinuxSmoke.java'
+      - 'docs/PINUX_ASTRA.md'
   workflow_dispatch:
 
 permissions:
