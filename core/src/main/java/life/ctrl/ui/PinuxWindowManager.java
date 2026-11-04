@@ -181,6 +181,7 @@ public final class PinuxWindowManager {
     Window w = dragging;
     dragging = null;
     if (moved && y <= TOP + 4 && !w.maximized) toggleMaximize(w.app);
+    if (moved) lastClickAt = 0; // Dragging must not count as a double-click.
     moved = false;
     return true;
   }
