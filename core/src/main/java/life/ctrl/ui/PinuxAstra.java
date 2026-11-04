@@ -66,11 +66,39 @@ public final class PinuxAstra {
 
   public void openApp(App app) { launch(app); }
 
+  public void openLegacyEditor() {
+    wm.open(App.CODE);
+    if (!wm.get(App.CODE).maximized) wm.toggleMaximize(App.CODE);
+    nativeDesktop.raiseChrome();
+    game.resetSelection();
+  }
+
+  public String terminalHistory() { return String.join("\n", output); }
+
+  public String terminalSubmit(String line) {
+    command = line;
+    execute();
+    return terminalHistory();
+  }
+
+  public String[] offerSummaries() {
+    return Career.offers(s(), life.data).stream()
+        .map(j -> j.title + "  /  " + j.pay + " ₽")
+        .toArray(String[]::new);
+  }
+
+  public void openJobBoard() {
+    life.codePage = 0;
+    openLegacyEditor();
+  }
+
+  public void toggleTheme() { warmTheme = !warmTheme; }
+  public void toggleMotion() { quietMotion = !quietMotion; }
+
   public void resizeNative(int w, int h) { nativeDesktop.resize(w, h); }
 
   public void renderNativeDesktop(float delta) {
-    boolean active = wm.front() == null;
-    nativeDesktop.setVisible(active);
+    nativeDesktop.setDesktopVisible(wm.front() == null);
     nativeDesktop.draw(delta);
   }
 
@@ -80,17 +108,14 @@ public final class PinuxAstra {
     boot += delta;
     wm.tick(quietMotion ? Math.max(delta, .2f) : delta);
     noticeTime = Math.max(0, noticeTime - delta);
-    if (wm.front() == null) return; // Scene2D paints native-resolution desktop after framebuffer.
+    if (wm.front() == null) return; // Desktop and native windows are Scene2D actors.
     if (boot < .55f && !quietMotion) {
       bootSplash();
       return;
     }
-    desktopWallpaper();
-    wm.draw(c, this::paintWindow);
-    drawTopBar();
-    drawDock();
-    if (menuOpen) drawApplicationMenu();
-    if (noticeTime > 0) drawNotification();
+    // Legacy ByteScript IDE is retained underneath the new high-resolution window layer.
+    // All desktop chrome and new windows are drawn by Scene2D after this framebuffer.
+    if (wm.isFront(App.CODE)) workbench.draw();
   }
 
   private void bootSplash() {
@@ -332,10 +357,9 @@ public final class PinuxAstra {
   }
 
   private void launch(App app) {
-    nativeDesktop.setVisible(false);
     menuOpen = false;
-    wm.open(app);
-    if (app == App.CODE && !wm.get(app).maximized) wm.toggleMaximize(App.CODE);
+    if (app == App.CODE) openLegacyEditor();
+    else nativeDesktop.openNativeWindow(app);
     game.resetSelection();
   }
 
@@ -413,11 +437,13 @@ public final class PinuxAstra {
     if (key == Keys.F6) { launch(App.SETTINGS); return true; }
     if (key == Keys.TAB) { wm.cycleFocus(); return true; }
     if (key == Keys.ESCAPE) {
-      if (menuOpen) menuOpen = false;
+      if (nativeDesktop.hasNativeWindows()) nativeDesktop.closeFrontNativeWindow();
+      else if (menuOpen) menuOpen = false;
       else if (wm.front() != null) wm.closeFront();
       else { game.switchMode(Mode.WORLD); game.refreshState(); }
       return true;
     }
+    if (nativeDesktop.hasNativeWindows()) return true;
     if (wm.isFront(App.TERMINAL)) {
       if (key == Keys.ENTER) execute();
       else if (key == Keys.BACKSPACE && !command.isEmpty())
