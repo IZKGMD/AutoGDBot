@@ -1,0 +1,5509 @@
+PINUX ASTRA / CTRL+LIFE — ByteScript / Coding / GameState
+Branch: ctrl-life; Repo: IZKGMD/AutoGDBot
+Files: 16
+
+
+======================================
+FILE: core/src/main/java/life/ctrl/CtrlLife.java
+======================================
+package life.ctrl;
+
+import com.badlogic.gdx.*;
+import com.badlogic.gdx.Input.Keys;
+import java.io.IOException;
+import java.util.*;
+import life.ctrl.content.Content;
+import life.ctrl.model.*;
+import life.ctrl.render.*;
+import life.ctrl.save.SaveStore;
+import life.ctrl.ui.LifeScreens;
+
+/** Desktop exploration slice. Menus freeze simulation, input belongs to exactly one mode. */
+public class CtrlLife extends ApplicationAdapter {
+  public enum Mode {
+    MENU,
+    CREATE,
+    CONFIRM_NEW,
+    WORLD,
+    DIALOGUE,
+    PAUSE,
+    SETTINGS,
+    CONTROLS,
+    JOURNAL,
+    MAP,
+    BAG,
+    INTRO,
+    SHOP,
+    IDE,
+    SOCIAL,
+    CONTACTS,
+    REST,
+    SCENE,
+    NIGHT,
+    BUDGET
+  }
+
+  private PixelCanvas c;
+  private LifeScreens life;
+  private List<float[]> guidePath = List.of();
+  private float guideTimer;
+  private AudioScene audio;
+  private final com.badlogic.gdx.graphics.Color dusk =
+      new com.badlogic.gdx.graphics.Color(.10f, .17f, .27f, 0);
+  private Content content;
+  private SaveStore saves;
+  private Settings settings;
+  private World world;
+  private Mode mode = Mode.MENU, settingsReturn = Mode.MENU;
+  private Content.Dialogue dialogue;
+  private final Set<Integer> held = new HashSet<>();
+  private final ArrayList<Button> buttons = new ArrayList<>();
+  private final ArrayList<DrawItem> drawItems = new ArrayList<>();
+  private final World.Actor actor = new World.Actor();
+  private final Comparator<DrawItem> depth = Comparator.comparingDouble(d -> d.y);
+  private float accumulator,
+      visualTime,
+      footTimer,
+      cameraX,
+      cameraY,
+      toastTimer,
+      arrivalTimer,
+      doorFade;
+  private final com.badlogic.gdx.graphics.Color transitionColor =
+      new com.badlogic.gdx.graphics.Color(.07f, .11f, .15f, 0);
+  private String toast = "", name = "Саша";
+  private int selection, bindIndex = -1, newOutfit = 0, windowScale = 3;
+  private boolean confirm, clicked, mouseMoved, focused = true, showDetails, hasSession;
+  private float clickX, clickY;
+  private static final String CREAM = "ecdbb6", MUTED = "a1b2b0", GOLD = "ecc48a", MINT = "a8c3a4";
+
+  private record Button(
+      String label, int x, int y, int width, int height, boolean enabled, Runnable action) {}
+
+  private static final class DrawItem {
+    String art;
+    float x, y, artX, artY;
+    int dir, frame, outfit;
+    boolean person;
+
+    DrawItem(String art, float x, float y, float ax, float ay) {
+      this.art = art;
+      this.x = x;
+      this.y = y;
+      artX = ax;
+      artY = ay;
+    }
+  }
+
+  @Override
+  public void create() {
+    content = Content.load();
+    saves = new SaveStore(SaveStore.defaultDirectory(), content);
+    settings = Settings.load(saves.directory());
+    c = new PixelCanvas();
+    c.preload();
+    life = new LifeScreens(this, c);
+    audio = new AudioScene();
+    world = new World(content, new GameState());
+    rebuildDrawItems();
+    snapCamera();
+    windowScale = settings.scale;
+    selection = saves.exists() ? 0 : 1;
+    if (!Boolean.getBoolean("ctrl.test")) applyDisplay();
+    Gdx.input.setInputProcessor(
+        new InputMultiplexer(life.pcNativeStage(), new InputAdapter() {
+          @Override
+          public boolean keyDown(int key) {
+            return press(key);
+          }
+
+          @Override
+          public boolean keyUp(int key) {
+            held.remove(key);
+            if (key == Keys.TAB) showDetails = false;
+            return true;
+          }
+
+          @Override
+          public boolean keyTyped(char ch) {
+            if (mode == Mode.CREATE) {
+              if (ch == '\b' && !name.isEmpty()) name = name.substring(0, name.length() - 1);
+              else if (!Character.isISOControl(ch)
+                  && (Character.isLetterOrDigit(ch) || ch == ' ' || ch == '-')
+                  && name.length() < 18) name += ch;
+            } else if (mode == Mode.IDE) {
+              life.pcKeyTyped(ch);
+            }
+            return true;
+          }
+
+          @Override
+          public boolean touchDown(int x, int y, int pointer, int button) {
+            if (button == Input.Buttons.LEFT) {
+              int px = Math.round(c.logicalX(x)), py = Math.round(c.logicalY(y));
+              if (mode == Mode.IDE && life.pcPointerDown(px, py)) {
+                clicked = false;
+                return true;
+              }
+              clicked = true;
+              clickX = c.logicalX(x);
+              clickY = c.logicalY(y);
+            }
+            return true;
+          }
+
+          @Override
+          public boolean touchDragged(int x, int y, int pointer) {
+            if (mode == Mode.IDE)
+              return life.pcPointerDragged(Math.round(c.logicalX(x)), Math.round(c.logicalY(y)));
+            return false;
+          }
+
+          @Override
+          public boolean touchUp(int x, int y, int pointer, int button) {
+            if (mode == Mode.IDE && button == Input.Buttons.LEFT)
+              return life.pcPointerUp(Math.round(c.logicalX(x)), Math.round(c.logicalY(y)));
+            return false;
+          }
+
+          @Override
+          public boolean mouseMoved(int x, int y) {
+            mouseMoved = true;
+            if (mode == Mode.IDE) life.pcPointerMove(Math.round(c.logicalX(x)), Math.round(c.logicalY(y)));
+            return true;
+          }
+        }));
+  }
+
+  public void switchMode(Mode next) {
+    change(next);
+  }
+
+  public void resetSelection() {
+    selection = 0;
+    confirm = false;
+    clicked = false;
+  }
+
+  public void uiButton(String text, int x, int y, int w, int h, boolean enabled, Runnable run) {
+    button(text, x, y, w, h, enabled, run);
+  }
+
+  /** Register a native game UI hit-target without painting a legacy rectangular button. */
+  public void uiHotspot(String label, int x, int y, int w, int h, Runnable action) {
+    int index = buttons.size();
+    Button b = new Button(label, x, y, w, h, true, action);
+    buttons.add(b);
+    if (mouseMoved && contains(b, c.mouseX(), c.mouseY())) selection = index;
+  }
+
+
+  public void refreshState() {
+    Social.expire(world.state);
+    rebuildDrawItems();
+    saveQuiet();
+    guideTimer = 0;
+  }
+
+  public void successCue() {
+    audio.success(settings);
+  }
+
+  public LifeScreens lifeScreens() {
+    return life;
+  }
+
+  public World world() {
+    return world;
+  }
+
+  public boolean audioReady() {
+    return audio != null && audio.ready();
+  }
+
+  public Mode mode() {
+    return mode;
+  }
+
+  public PixelCanvas canvas() {
+    return c;
+  }
+
+  private void change(Mode next) {
+    if (mode == Mode.IDE && next != Mode.IDE && life != null) life.pcCancelPointer();
+    mode = next;
+    held.clear();
+    accumulator = 0;
+    selection = next == Mode.MENU && !saves.exists() ? 1 : 0;
+    confirm = false;
+    clicked = false;
+    showDetails = false;
+    buttons.clear();
+    world.moving = false;
+  }
+
+  private boolean press(int key) {
+    if (bindIndex >= 0) {
+      if (key == Keys.ESCAPE) {
+        bindIndex = -1;
+        return true;
+      }
+      if (settings.bind(bindIndex, key)) {
+        bindIndex = -1;
+        persistSettings();
+      } else notify("Эта клавиша занята. Выбери другую.");
+      return true;
+    }
+    if (key == Keys.F11) {
+      settings.fullscreen = !settings.fullscreen;
+      applyDisplay();
+      persistSettings();
+      held.clear();
+      return true;
+    }
+    if (mode == Mode.IDE && life.pcKeyDown(key)) return true;
+    if (mode == Mode.WORLD) {
+      held.add(key);
+      if (key == settings.interact || key == Keys.ENTER) {
+        interact();
+      } else if (key == Keys.ESCAPE) {
+        change(Mode.PAUSE);
+        saveQuiet();
+      } else if (key == settings.journal) {
+        change(Mode.JOURNAL);
+      } else if (key == Keys.R) {
+        change(Mode.CONTACTS);
+      } else if (key == Keys.B) {
+        change(Mode.BUDGET);
+      } else if (key == Keys.M) {
+        change(Mode.MAP);
+      } else if (key == Keys.I) {
+        change(Mode.BAG);
+      } else if (key == Keys.F5) {
+        save();
+      } else if (key == Keys.TAB) {
+        showDetails = true;
+      }
+      return true;
+    }
+    if (key == Keys.ESCAPE) {
+      back();
+      return true;
+    }
+    if (key == Keys.UP || key == Keys.DOWN) {
+      int direction = key == Keys.UP ? -1 : 1;
+      int next = selection + direction;
+      while (next >= 0 && next < buttons.size() && !buttons.get(next).enabled) next += direction;
+      if (next >= 0 && next < buttons.size()) selection = next;
+      return true;
+    }
+    if (key == Keys.ENTER) {
+      confirm = true;
+      return true;
+    }
+    if (mode == Mode.DIALOGUE && key >= Keys.NUM_1 && key <= Keys.NUM_3) {
+      selection = key - Keys.NUM_1;
+      confirm = true;
+    }
+    return true;
+  }
+
+  private void back() {
+    switch (mode) {
+      case MENU -> {
+        /* Exit is an explicit menu action. */
+      }
+      case CREATE, CONFIRM_NEW -> change(Mode.MENU);
+      case SETTINGS -> {
+        persistSettings();
+        change(settingsReturn);
+      }
+      case CONTROLS -> change(Mode.SETTINGS);
+      case INTRO -> {
+        world.state.introSeen = true;
+        change(Mode.WORLD);
+        saveQuiet();
+      }
+      case IDE, SHOP, SOCIAL, CONTACTS, REST, SCENE, NIGHT, BUDGET, PAUSE, JOURNAL, MAP, BAG -> {
+        change(Mode.WORLD);
+        saveQuiet();
+      }
+      case DIALOGUE -> {
+        change(Mode.WORLD);
+        saveQuiet();
+      }
+      default -> change(Mode.PAUSE);
+    }
+  }
+
+  private void openSettings(Mode from) {
+    settingsReturn = from;
+    change(Mode.SETTINGS);
+  }
+
+  private void newGame() {
+    GameState state = new GameState();
+    state.name = name.strip().isEmpty() ? "Саша" : name.strip();
+    state.outfit = newOutfit;
+    world = new World(content, state);
+    hasSession = true;
+    rebuildDrawItems();
+    snapCamera();
+    life.introPage = 0;
+    change(Mode.INTRO);
+    arrivalTimer = 4;
+    saveQuiet();
+    notify("WASD — идти · E — действие · J — журнал");
+  }
+
+  private void continueGame() {
+    try {
+      var loaded = saves.load();
+      world = new World(content, loaded.state());
+      hasSession = true;
+      rebuildDrawItems();
+      snapCamera();
+      life.introPage = 0;
+      change(world.state.introSeen ? Mode.WORLD : Mode.INTRO);
+      arrivalTimer = 3;
+      if (loaded.fromBackup()) notify("Восстановлена предыдущая резервная копия.");
+    } catch (IOException e) {
+      notify("Сохранение не прочитано. Можно начать новую игру.");
+    }
+  }
+
+  private void save() {
+    try {
+      saves.save(world.state);
+      notify("Игра сохранена.");
+    } catch (IOException | RuntimeException e) {
+      notify("Не удалось сохранить. Проверь доступ к папке данных.");
+      Gdx.app.error("Save", "Не удалось сохранить игру", e);
+    }
+  }
+
+  private void saveQuiet() {
+    if (!hasSession) return;
+    try {
+      saves.save(world.state);
+    } catch (IOException | RuntimeException e) {
+      notify("Автосохранение не удалось. Нажми F5 для повтора.");
+      Gdx.app.error("Save", "Автосохранение", e);
+    }
+  }
+
+  private void persistSettings() {
+    try {
+      settings.save(saves.directory());
+    } catch (IOException e) {
+      notify("Не удалось сохранить настройки.");
+    }
+  }
+
+  private void applyDisplay() {
+    if (settings.fullscreen) Gdx.graphics.setFullscreenMode(Gdx.graphics.getDisplayMode());
+    else {
+      var display = Gdx.graphics.getDisplayMode();
+      int max = Math.max(2, Math.min(display.width / 480, display.height / 270));
+      windowScale = Math.min(settings.scale, max);
+      Gdx.graphics.setWindowedMode(480 * windowScale, 270 * windowScale);
+    }
+  }
+
+  public void focusChanged(boolean focused) {
+    this.focused = focused;
+    held.clear();
+    accumulator = 0;
+    showDetails = false;
+    if (!focused && mode == Mode.WORLD) {
+      change(Mode.PAUSE);
+      saveQuiet();
+    }
+  }
+
+  @Override
+  public void pause() {
+    focusChanged(false);
+  }
+
+  @Override
+  public void resume() {
+    focused = true;
+    held.clear();
+    accumulator = 0;
+  }
+
+  private void notify(String text) {
+    toast = text;
+    toastTimer = 4.5f;
+  }
+
+  private void interact() {
+    var npc = world.interactionNpc();
+    var prop = world.nearestProp();
+    if (npc != null) {
+      if (npc.id.equals("mira") || npc.id.equals("asya") || npc.id.equals("nika")) {
+        if (npc.id.equals(world.state.plannedGirl)
+            && world.state.map.equals(world.state.plannedVenue)) life.openDate();
+        else life.openSocial(npc.id, false);
+        return;
+      }
+      String reaction = Career.community(world.state, world.state.map);
+      if (npc.id.equals("tamara") && !reaction.isEmpty()) {
+        life.scene(
+            "Тамара", reaction + "\n\nЕда — у стойки. Рада, что ты заглянул(а).", Mode.WORLD);
+        return;
+      }
+      openDialogue(world.npcDialogue(npc));
+      return;
+    }
+    if (prop == null) return;
+    audio.click(settings);
+    switch (prop.action) {
+      case "mentor" -> {
+        life.openCode();
+        life.codePage = 8;
+        return;
+      }
+      case "computer" -> {
+        life.openCode();
+        return;
+      }
+      case "shop" -> {
+        life.shopPage = 0;
+        change(Mode.SHOP);
+        return;
+      }
+      case "rest" -> {
+        change(Mode.REST);
+        return;
+      }
+      case "date" -> {
+        life.openDate();
+        return;
+      }
+      case "courier" -> {
+        life.scene("Подработка без ПК", Life.courier(world.state), Mode.WORLD);
+        return;
+      }
+      case "wait" -> {
+        Life.advance(world.state, 30);
+        world.state.energy = Math.min(100, world.state.energy + 8);
+        life.scene("Пауза в сквере", "Прошло 30 минут. Ты немного отдохнул(а).", Mode.WORLD);
+        return;
+      }
+    }
+    if (prop.action.equals("door")) {
+      audio.door(settings);
+      doorFade = settings.reducedEffects ? 0 : .18f;
+      world.enter(prop);
+      rebuildDrawItems();
+      snapCamera();
+      held.clear();
+      accumulator = 0;
+      arrivalTimer = 3;
+      saveQuiet();
+    } else if (prop.action.equals("wardrobe")) {
+      world.state.outfit = (world.state.outfit + 1) % 3;
+      notify("Куртка: " + new String[] {"медовая", "дождливая", "кирпичная"}[world.state.outfit]);
+      saveQuiet();
+    } else openDialogue(world.propDialogue(prop));
+  }
+
+  private void openDialogue(String id) {
+    dialogue = content.dialogue(id);
+    change(Mode.DIALOGUE);
+    audio.click(settings);
+  }
+
+  private void choose(Content.Choice choice) {
+    boolean delivered = world.state.deliveredLetter;
+    world.effect(choice.effect);
+    rebuildDrawItems();
+    saveQuiet();
+    if (!delivered && world.state.deliveredLetter) {
+      audio.success(settings);
+      notify("Письмо у Миры. В журнале новая запись.");
+    }
+    if (choice.next.isEmpty()) change(Mode.WORLD);
+    else {
+      dialogue = content.dialogue(choice.next);
+      selection = 0;
+    }
+  }
+
+  private float targetCameraX() {
+    return Math.max(0, Math.min(world.map().width - 480, world.state.x - 240));
+  }
+
+  private float targetCameraY() {
+    return Math.max(0, Math.min(world.map().height - 270, world.state.y - 172));
+  }
+
+  private void snapCamera() {
+    cameraX = targetCameraX();
+    cameraY = targetCameraY();
+  }
+
+  private void rebuildDrawItems() {
+    drawItems.clear();
+    for (var p : world.map().objects)
+      if (p.art != null && world.visible(p)) {
+        String art = p.art;
+        if (p.id.equals("boxes") && world.state.unpacked) art = "boxes_open";
+        if (p.id.equals("plant") && world.state.wateredPlant) art = "plant_watered";
+        if (p.id.equals("post") && world.state.signedMailbox) art = "mailbox_signed";
+        drawItems.add(
+            new DrawItem(
+                art,
+                p.x,
+                p.solid != null ? p.solid[1] + p.solid[3] : p.artY + c.artHeight(art),
+                p.artX,
+                p.artY));
+      }
+    for (var n : world.npcs()) {
+      DrawItem d = new DrawItem(n.art, 0, 0, 0, 0);
+      d.person = true;
+      drawItems.add(d);
+    }
+    DrawItem hero = new DrawItem("hero", world.state.x, world.state.y, 0, 0);
+    hero.person = true;
+    drawItems.add(hero);
+  }
+
+  @Override
+  public void render() {
+    float delta = Math.min(Gdx.graphics.getDeltaTime(), .1f);
+    visualTime += delta;
+    toastTimer = Math.max(0, toastTimer - delta);
+    arrivalTimer = Math.max(0, arrivalTimer - delta);
+    doorFade = Math.max(0, doorFade - delta);
+    if (mode == Mode.WORLD && focused) {
+      accumulator += delta;
+      float dx =
+          (held.contains(settings.right) || held.contains(Keys.RIGHT) ? 1 : 0)
+              - (held.contains(settings.left) || held.contains(Keys.LEFT) ? 1 : 0);
+      float dy =
+          (held.contains(settings.down) || held.contains(Keys.DOWN) ? 1 : 0)
+              - (held.contains(settings.up) || held.contains(Keys.UP) ? 1 : 0);
+      while (accumulator >= World.STEP) {
+        world.tick(dx, dy);
+        accumulator -= World.STEP;
+      }
+      if (world.moving) {
+        footTimer += delta;
+        if (footTimer > .30f) {
+          audio.step(settings);
+          footTimer = 0;
+        }
+      }
+      float blend = 1 - (float) Math.exp(-delta * 9);
+      cameraX += (targetCameraX() - cameraX) * blend;
+      cameraY += (targetCameraY() - cameraY) * blend;
+    } else accumulator = 0;
+    audio.update(
+        settings,
+        (world.state.map.equals("street") || world.state.map.equals("park"))
+            && Atmosphere.rain(world.state),
+        focused);
+    buttons.clear();
+    c.begin();
+    drawWorld();
+    if (mode == Mode.WORLD) drawGuide();
+    if (doorFade > 0) {
+      transitionColor.a = doorFade / .18f;
+      c.rect(0, 0, 480, 270, transitionColor);
+    }
+    switch (mode) {
+      case MENU -> drawMenu();
+      case CREATE -> drawCreate();
+      case CONFIRM_NEW -> drawConfirm();
+      case WORLD -> drawHud();
+      case DIALOGUE -> {
+        drawHud();
+        drawDialogue();
+      }
+      case PAUSE -> drawPause();
+      case SETTINGS -> drawSettings();
+      case CONTROLS -> drawControls();
+      case JOURNAL, MAP, BAG, INTRO, SHOP, IDE, SOCIAL, CONTACTS, REST, SCENE, NIGHT, BUDGET ->
+          life.draw(mode);
+    }
+    if (toastTimer > 0 && mode == Mode.WORLD) {
+      int w = Math.min(460, (int) Math.ceil(c.width(toast)) + 18);
+      int y = 57;
+      c.rect((480 - w) / 2, y, w, 20, "182a35f5");
+      c.fitted(toast, (480 - w) / 2f + 9, y + 4, w - 18, MINT, false);
+    }
+    c.end();
+    if (mode == Mode.IDE) life.renderPcOverlay(delta);
+    activateButtons();
+    mouseMoved = false;
+  }
+
+  private void drawWorld() {
+    float ox = Math.round(cameraX), oy = Math.round(cameraY);
+    c.art(world.state.map, -ox, -oy);
+    var boundary = SceneLayout.bounds(world.state.map);
+    c.clip(boundary.x() - ox, boundary.y() - oy, boundary.width(), boundary.height());
+    if (world.state.map.equals("street")) {
+      String[] names = {"ОБЩЕЖИТИЕ № 7", "ПЛЁНКА", "МАСТЕРСКАЯ", "ЛОЖКА"};
+      int[] left = {76, 300, 411, 628}, widths = {200, 86, 185, 217};
+      for (int i = 0; i < names.length; i++) {
+        c.rect(left[i] - ox, 145 - oy, widths[i], 12, "203c46");
+        c.rect(left[i] - ox, 145 - oy, widths[i], .5f, "b7b397");
+        c.fitted(
+            names[i],
+            left[i] + (widths[i] - c.smallWidth(names[i])) / 2 - ox,
+            146 - oy,
+            widths[i] - 4,
+            "ead7ae",
+            true);
+      }
+      c.rect(850 - ox, 415 - oy, 85, 14, "203c46");
+      c.fitted("СКВЕР →", 862 - ox, 417 - oy, 69, "d6d9b5", true);
+    }
+    for (var item : drawItems)
+      if (item.person) {
+        if (item.art.equals("hero")) {
+          item.x = world.state.x;
+          item.y = world.state.y;
+          item.dir = world.state.direction;
+          item.frame = world.moving ? (int) (world.state.elapsed * 8) % 4 : 0;
+          item.outfit = world.state.outfit;
+        } else
+          for (var npc : world.npcs())
+            if (npc.art.equals(item.art)) {
+              world.position(npc, actor);
+              item.x = actor.x;
+              item.y = actor.y;
+              item.dir = actor.direction;
+              item.frame = actor.moving ? (int) (world.state.elapsed * 5) % 4 : 0;
+            }
+      }
+    drawItems.sort(depth);
+    for (var item : drawItems) {
+      if (item.person) {
+        c.scaledArt("shadow", item.x - 9 - ox, item.y - 4 - oy, 18, 7);
+        c.actor(item.art, item.dir, item.frame, item.x - ox, item.y - oy, item.outfit);
+      } else {
+        String drawnArt =
+            item.art.equals("desk")
+                    && world.state.map.equals("room")
+                    && world.state.upgrades.contains("ssd")
+                ? "desk_ssd"
+                : item.art;
+        if (item.art.equals("desk")
+            && world.state.map.equals("room")
+            && world.state.upgrades.contains("chair")) c.art("chair_upgrade", 204 - ox, 121 - oy);
+        c.scaledArt("shadow", item.artX - 2 - ox, item.y - 7 - oy, c.artWidth(drawnArt) + 4, 13);
+        if (item.artX + c.artWidth(drawnArt) > ox
+            && item.artX < ox + 480
+            && item.artY + c.artHeight(drawnArt) > oy
+            && item.artY < oy + 270) c.art(drawnArt, item.artX - ox, item.artY - oy);
+      }
+    }
+    float night = Atmosphere.night(world.state);
+    boolean outside = world.state.map.equals("street") || world.state.map.equals("park");
+    dusk.a = night * (outside ? .32f : .18f);
+    c.rect(0, 0, 480, 270, dusk);
+    if (world.state.map.equals("room")) {
+      c.art("light_monitor", 107 - ox, 64 - oy);
+      c.glow("light_window", 170 - ox, 55 - oy, .3f + night * .7f);
+      c.rect(211 - ox, 121 - oy, 2, 2, ((int) (visualTime * 2) % 2 == 0) ? "c4c992" : "68756e");
+      if (!settings.reducedEffects) {
+        int lift = (int) (visualTime * 4) % 4;
+        c.rect(163 - ox, 110 - oy - lift, 1, 2, "d8d3b14a");
+      }
+    }
+    if (world.state.map.equals("stair"))
+      c.glow("light_amber", 152 - ox, 40 - oy, .4f + night * .6f);
+    if (world.state.map.equals("cafe") || world.state.map.equals("diner"))
+      c.art("light_amber", 90 - ox, 68 - oy);
+    if (world.state.map.equals("street")) {
+      for (float[] light : new float[][] {{391, 282}, {862, 405}, {649, 192}, {713, 192}})
+        c.glow("light_amber", light[0] - 80 - ox, light[1] - 56 - oy, night);
+      for (int x : new int[] {130, 241, 445, 556, 685, 796})
+        c.glow("light_window", x - 80 - ox, 118 - oy, night);
+    }
+    if (outside && Atmosphere.rain(world.state) && !settings.reducedEffects) {
+      for (int i = 0; i < 42; i++) {
+        float x = (i * 83 + visualTime * 19) % 500 - 10, y = (i * 47 + visualTime * 125) % 290 - 10;
+        c.rect(x, y, 1, 4, "b8c9cc42");
+        if (i < 10) {
+          c.clip(
+              -ox,
+              (world.state.map.equals("street") ? 221 : 56) - oy,
+              world.map().width,
+              world.state.map.equals("street") ? 244 : 208);
+          float t = (visualTime * 1.7f + i * .31f) % 1;
+          if (t < .45f) {
+            float px = (i * 67 + 43 - cameraX * .2f) % 480, py = 155 + i % 4 * 12;
+            c.rect(px - 2 - t * 3, py, 4 + t * 6, 1, "bcc8bb45");
+          }
+          c.unclip();
+        }
+      }
+    }
+    c.unclip();
+  }
+
+  private void meter(String label, double value, int x, String color) {
+    c.small(label + " " + (int) value, x, 8, CREAM);
+    c.rect(x, 21, 70, 3, "344652");
+    c.rect(x, 21, Math.max(1, (float) value * .7f), 3, value < 25 ? "df8d72" : color);
+  }
+
+  private void drawHud() {
+    c.rect(0, 0, 480, 41, "15232ef8");
+    c.rect(12, 40, 456, .5f, "607a7560");
+    meter("ЗДОРОВЬЕ", world.state.health, 12, "b99d89");
+    meter("СЫТОСТЬ", world.state.hunger, 100, "b8bd82");
+    meter("ЭНЕРГИЯ", world.state.energy, 188, "8caaa5");
+    c.small(world.state.money + " ₽", 285, 8, GOLD);
+    c.small("День " + world.state.day() + " · " + world.state.clock(), 365, 8, CREAM);
+    c.fitted(world.map().name + " · " + Atmosphere.period(world.state), 12, 28, 223, MUTED, true);
+    c.small("J план · M карта · R люди · B деньги", 242, 28, MUTED);
+    if (mode != Mode.WORLD) return;
+    var target = Navigation.goal(world, life.data);
+    c.rect(0, 231, 480, 39, "15232efb");
+    c.rect(12, 231, 456, .5f, "607a7560");
+    c.small("ТЕКУЩАЯ ЦЕЛЬ", 12, 233, GOLD);
+    c.fitted(target.title(), 12, 244, 456, CREAM, false);
+    c.fitted(target.hint(), 12, 259, 456, MUTED, true);
+    var n = world.interactionNpc();
+    var p = world.nearestProp();
+    String prompt = n != null ? "Поговорить: " + n.name.split(" · ")[0] : p != null ? p.label : "";
+    if (!prompt.isEmpty()) {
+      String text = Keys.toString(settings.interact) + " — " + prompt;
+      int w = Math.min(464, (int) Math.ceil(c.width(text)) + 20);
+      c.panel((480 - w) / 2, 201, w, 23);
+      c.fitted(text, (480 - w) / 2f + 10, 206, w - 20, CREAM, false);
+    }
+  }
+
+  private void drawGuide() {
+    var goal = Navigation.localGoal(world, Navigation.goal(world, life.data));
+    guideTimer -= Gdx.graphics.getDeltaTime();
+    if (guideTimer <= 0) {
+      guidePath = Navigation.route(world, goal.x(), goal.y());
+      guideTimer = .45f;
+    }
+    int phase = (int) (visualTime * 3) % 3;
+    for (int i = phase; i < guidePath.size(); i += 5) {
+      var p = guidePath.get(i);
+      float x = p[0] - cameraX, y = p[1] - cameraY;
+      if (x > 5 && x < 475 && y > 45 && y < 200) c.rect(x - 1, y - 1, 3, 2, "d8b875a0");
+    }
+    float x = goal.x() - cameraX, y = goal.y() - cameraY - 29;
+    if (x > 12 && x < 468 && y > 48 && y < 198) {
+      c.rect(x - 7, y - 3, 15, 17, "192f3dde");
+      c.text("!", x - 2, y - 2, GOLD);
+    } else {
+      float px = Math.max(18, Math.min(462, x)), py = Math.max(55, Math.min(198, y));
+      c.rect(px - 8, py - 6, 17, 17, "192f3dde");
+      c.text(x < 18 ? "←" : x > 462 ? "→" : y < 55 ? "↑" : "↓", px - 5, py - 5, GOLD);
+    }
+  }
+
+  private void shade() {
+    c.rect(0, 0, 480, 270, "142332cb");
+  }
+
+  private void drawMenu() {
+    shade();
+    c.small("ТИХИЙ ГОРОД. БОЛЬШОЕ НАЧАЛО.", 32, 31, MINT);
+    c.title("CTRL+LIFE", 30, 57, CREAM);
+    c.text("РАЙОН, В КОТОРОМ ГОРИТ СВЕТ", 33, 93, GOLD);
+    c.wrap(
+        "Последняя маршрутка.\nКомната в общежитии.\nПервый заказ — и новые люди.",
+        33,
+        122,
+        236,
+        MUTED);
+    button("Продолжить", 32, 182, 176, 23, saves.exists(), this::continueGame);
+    button(
+        "Новая игра",
+        32,
+        209,
+        176,
+        23,
+        true,
+        () -> {
+          name = "Саша";
+          newOutfit = 0;
+          change(saves.exists() ? Mode.CONFIRM_NEW : Mode.CREATE);
+        });
+    button("Настройки", 245, 182, 135, 23, true, () -> openSettings(Mode.MENU));
+    button("Выйти", 245, 209, 135, 23, true, () -> Gdx.app.exit());
+    c.small("ПЕРВЫЕ ДЕНЬГИ. ПЕРВЫЕ ЧУВСТВА.", 32, 248, MUTED);
+    c.small("0.4.0", 419, 248, MUTED);
+    // An illuminated architectural vignette cut out of the room.
+    c.panel(314, 44, 120, 112);
+    c.art("desk", 342, 66);
+    c.actor("hero", 0, (int) (visualTime * .7f) % 4, 372, 139, 0);
+    c.small("КОМНАТА 04", 339, 145, GOLD);
+  }
+
+  private void drawCreate() {
+    shade();
+    c.panel(65, 24, 350, 222);
+    c.small("НОВЫЙ АДРЕС", 84, 38, MINT);
+    c.text("Кто зажигает свет в комнате 04?", 84, 59, CREAM);
+    c.small("Имя · 21 год или старше", 84, 89, MUTED);
+    c.rect(84, 105, 220, 25, "192b39");
+    c.text(name + ((int) (visualTime * 2) % 2 == 0 ? "_" : ""), 91, 109, GOLD);
+    c.small("Печатай имя. Backspace — стереть.", 84, 133, MUTED);
+    c.actor("hero", 0, 0, 359, 125, newOutfit);
+    button(
+        "Куртка: " + new String[] {"медовая", "дождливая", "кирпичная"}[newOutfit],
+        84,
+        159,
+        210,
+        23,
+        true,
+        () -> newOutfit = (newOutfit + 1) % 3);
+    button("Начать вечер", 84, 199, 180, 25, true, this::newGame);
+    button("Назад", 292, 199, 103, 25, true, () -> change(Mode.MENU));
+  }
+
+  private void drawConfirm() {
+    shade();
+    c.panel(70, 65, 340, 141);
+    c.text("Начать новую историю?", 89, 81, CREAM);
+    c.wrap(
+        "Текущее сохранение будет заменено. Предыдущая копия останется в папке данных.",
+        89,
+        108,
+        300,
+        MUTED);
+    button("Новая история", 89, 163, 149, 25, true, () -> change(Mode.CREATE));
+    button("Отмена", 253, 163, 137, 25, true, () -> change(Mode.MENU));
+  }
+
+  private void drawPause() {
+    shade();
+    c.panel(133, 37, 214, 200);
+    c.center("МОЖНО НЕ ТОРОПИТЬСЯ", 52, CREAM);
+    c.center("Время остановлено", 73, MUTED);
+    button("Вернуться в игру", 151, 101, 178, 24, true, () -> change(Mode.WORLD));
+    button("Сохранить", 151, 130, 178, 24, true, this::save);
+    button("Настройки", 151, 159, 178, 24, true, () -> openSettings(Mode.PAUSE));
+    button(
+        "В главное меню",
+        151,
+        188,
+        178,
+        24,
+        true,
+        () -> {
+          saveQuiet();
+          change(Mode.MENU);
+        });
+  }
+
+  private void drawDialogue() {
+    c.panel(14, 142, 452, 121);
+    c.small(dialogue.speaker.toUpperCase(Locale.ROOT), 27, 150, GOLD);
+    String portrait =
+        switch (dialogue.speaker) {
+          case "Мира" -> "mira";
+          case "Аркадий" -> "arkady";
+          case "Лев" -> "lev";
+          default -> "note";
+        };
+    c.rect(26, 165, 34, 35, "1c303e");
+    c.art("portrait_" + portrait, 27, 166);
+    c.wrap(dialogue.text, 72, 166, 378, CREAM);
+    int count = dialogue.choices.length;
+    for (int i = 0; i < count; i++) {
+      var choice = dialogue.choices[i];
+      button(
+          (i + 1) + ". " + choice.label.replace("Саша", world.state.name),
+          27,
+          207 + i * 16,
+          426,
+          15,
+          true,
+          () -> choose(choice));
+    }
+    c.small("↑↓ / Enter · Esc — закончить разговор", 232, 133, MUTED);
+  }
+
+  private void drawSettings() {
+    shade();
+    c.panel(70, 16, 340, 239);
+    c.text("Настройки вечера", 89, 30, CREAM);
+    button(
+        "Музыка    " + Math.round(settings.music * 100) + "%",
+        89,
+        57,
+        302,
+        23,
+        true,
+        () -> {
+          settings.music = settings.music >= .99f ? 0 : Math.min(1, settings.music + .25f);
+          persistSettings();
+        });
+    button(
+        "Эффекты   " + Math.round(settings.sfx * 100) + "%",
+        89,
+        84,
+        302,
+        23,
+        true,
+        () -> {
+          settings.sfx = settings.sfx >= .99f ? 0 : Math.min(1, settings.sfx + .25f);
+          persistSettings();
+        });
+    button(
+        "Окно "
+            + settings.scale
+            + "×  /  "
+            + (settings.fullscreen ? "полный экран" : "оконный режим"),
+        89,
+        111,
+        302,
+        23,
+        true,
+        () -> {
+          if (settings.fullscreen) {
+            settings.fullscreen = false;
+            settings.scale = 2;
+          } else if (settings.scale == 4) settings.fullscreen = true;
+          else settings.scale++;
+          applyDisplay();
+          persistSettings();
+        });
+    button(
+        "Дождь и эффекты: " + (settings.reducedEffects ? "уменьшены" : "полные"),
+        89,
+        138,
+        302,
+        23,
+        true,
+        () -> {
+          settings.reducedEffects = !settings.reducedEffects;
+          persistSettings();
+        });
+    button("Переназначить клавиши", 89, 165, 302, 23, true, () -> change(Mode.CONTROLS));
+    button("Готово", 89, 208, 302, 25, true, this::back);
+    c.small("F11 — полный экран. Звук: нажми для смены уровня.", 89, 193, MUTED);
+  }
+
+  private void drawControls() {
+    shade();
+    c.panel(70, 12, 340, 247);
+    c.text("Управление", 89, 25, CREAM);
+    String[] labels = {"Вверх", "Вниз", "Влево", "Вправо", "Взаимодействие", "Журнал"};
+    for (int i = 0; i < 6; i++) {
+      int index = i;
+      button(
+          labels[i] + "    [ " + Keys.toString(settings.key(i)) + " ]",
+          89,
+          50 + i * 24,
+          302,
+          21,
+          true,
+          () -> {
+            bindIndex = index;
+            held.clear();
+          });
+    }
+    c.small(
+        bindIndex >= 0
+            ? "Нажми новую клавишу. Esc — отмена."
+            : "Стрелки, Enter, Esc, I, M, Tab, F5, F11 закреплены.",
+        89,
+        198,
+        bindIndex >= 0 ? GOLD : MUTED);
+    button("Готово", 89, 222, 302, 23, bindIndex < 0, () -> change(Mode.SETTINGS));
+  }
+
+  private void button(
+      String label, int x, int y, int width, int height, boolean enabled, Runnable action) {
+    int index = buttons.size();
+    Button b = new Button(label, x, y, width, height, enabled, action);
+    buttons.add(b);
+    if (mouseMoved && contains(b, c.mouseX(), c.mouseY()) && enabled) selection = index;
+    boolean selected = selection == index && enabled;
+    boolean pressed =
+        enabled && ((clicked && contains(b, clickX, clickY)) || (confirm && selected));
+    c.rect(x, y, width, height, selected ? "c8b184" : "48616b");
+    c.rect(
+        x + .5f,
+        y + .5f,
+        width - 1,
+        height - 1,
+        pressed ? "112c38" : selected ? "354f58" : "203946");
+    if (selected) c.rect(x + 3, y + 3, 2, height - 6, GOLD);
+    c.fitted(
+        label,
+        x + 10,
+        y + (height < 20 ? 2 : (height - 15) / 2),
+        width - 19,
+        enabled ? (selected ? GOLD : CREAM) : "809597",
+        height < 20);
+  }
+
+  private boolean contains(Button b, float x, float y) {
+    return x >= b.x && x < b.x + b.width && y >= b.y && y < b.y + b.height;
+  }
+
+  private void activateButtons() {
+    Button target = null;
+    if (clicked) {
+      // Late-drawn window/dock buttons appear on top; give them click priority.
+      for (int i = buttons.size() - 1; i >= 0; i--) {
+        var b = buttons.get(i);
+        if (b.enabled && contains(b, clickX, clickY)) {
+          target = b;
+          break;
+        }
+      }
+    } else if (confirm
+        && selection >= 0
+        && selection < buttons.size()
+        && buttons.get(selection).enabled) target = buttons.get(selection);
+    clicked = false;
+    confirm = false;
+    if (target != null) {
+      audio.click(settings);
+      target.action.run();
+    }
+  }
+
+  @Override
+  public void resize(int width, int height) {
+    held.clear();
+    if (life != null) life.resizePc(width, height);
+  }
+
+  @Override
+  public void dispose() {
+    if (mode != Mode.MENU && mode != Mode.CREATE && mode != Mode.CONFIRM_NEW && world != null)
+      saveQuiet();
+    if (settings != null) persistSettings();
+    if (audio != null) audio.dispose();
+    if (life != null) life.dispose();
+    if (c != null) c.dispose();
+  }
+}
+END FILE: core/src/main/java/life/ctrl/CtrlLife.java
+
+======================================
+FILE: core/src/main/java/life/ctrl/bytescript/ByteScript.java
+======================================
+package life.ctrl.bytescript;
+
+import java.util.*;
+
+/** A bounded expression language, never evaluated by Java, a shell or an external service. */
+public final class ByteScript {
+  public enum Kind {
+    SYNTAX,
+    SEMANTIC
+  }
+
+  public static final class Error extends RuntimeException {
+    public final Kind kind;
+    public final int line, column;
+
+    public Error(Kind kind, String message, int line, int column) {
+      super(message);
+      this.kind = kind;
+      this.line = line;
+      this.column = column;
+    }
+  }
+
+  public record Program(String name, List<String> parameters, Expr expression) {
+    public int operations(double... args) {
+      run(args);
+      Map<String, Double> values = new HashMap<>();
+      for (int i = 0; i < args.length; i++) values.put(parameters.get(i), args[i]);
+      return count(expression, values);
+    }
+
+    private static int count(Expr e, Map<String, Double> v) {
+      if (e instanceof Binary b) return 1 + count(b.left, v) + count(b.right, v);
+      if (e instanceof Select t)
+        return 1 + count(t.condition, v) + count(t.condition.eval(v) != 0 ? t.yes : t.no, v);
+      return 0;
+    }
+
+    public double run(double... args) {
+      if (args.length != parameters.size()) throw new IllegalArgumentException("Число аргументов");
+      Map<String, Double> values = new HashMap<>();
+      for (int i = 0; i < args.length; i++) values.put(parameters.get(i), args[i]);
+      double result = expression.eval(values);
+      if (!Double.isFinite(result))
+        throw new ArithmeticException("Деление на ноль или слишком большое число");
+      return result;
+    }
+  }
+
+  public sealed interface Expr permits Number, Variable, Binary, Select {
+    double eval(Map<String, Double> values);
+  }
+
+  public record Number(double value) implements Expr {
+    public double eval(Map<String, Double> v) {
+      return value;
+    }
+  }
+
+  public record Variable(String name) implements Expr {
+    public double eval(Map<String, Double> v) {
+      return v.get(name);
+    }
+  }
+
+  public record Binary(String op, Expr left, Expr right) implements Expr {
+    public double eval(Map<String, Double> v) {
+      double a = left.eval(v), b = right.eval(v);
+      return switch (op) {
+        case "+" -> a + b;
+        case "-" -> a - b;
+        case "*" -> a * b;
+        case "/" -> a / b;
+        case ">=" -> a >= b ? 1 : 0;
+        case "<=" -> a <= b ? 1 : 0;
+        case ">" -> a > b ? 1 : 0;
+        case "<" -> a < b ? 1 : 0;
+        case "==" -> a == b ? 1 : 0;
+        default -> throw new IllegalStateException(op);
+      };
+    }
+  }
+
+  public record Select(Expr condition, Expr yes, Expr no) implements Expr {
+    public double eval(Map<String, Double> v) {
+      return condition.eval(v) != 0 ? yes.eval(v) : no.eval(v);
+    }
+  }
+
+  private record Token(String text, int line, int column) {}
+
+  private final List<Token> tokens = new ArrayList<>();
+  private final Set<String> names = new HashSet<>();
+  private int at;
+
+  private ByteScript(String source) {
+    if (source.length() > 4096) throw new Error(Kind.SYNTAX, "Программа слишком длинная", 1, 1);
+    int line = 1, col = 1;
+    for (int i = 0; i < source.length(); ) {
+      char c = source.charAt(i);
+      if (Character.isWhitespace(c)) {
+        if (c == '\n') {
+          line++;
+          col = 1;
+        } else col++;
+        i++;
+        continue;
+      }
+      int begin = i, startCol = col;
+      if (Character.isLetter(c) || c == '_') {
+        while (i < source.length()
+            && (Character.isLetterOrDigit(source.charAt(i)) || source.charAt(i) == '_')) i++;
+      } else if (Character.isDigit(c)) {
+        while (i < source.length()
+            && (Character.isDigit(source.charAt(i)) || source.charAt(i) == '.')) i++;
+      } else if ("(){};,?:+-*/<>=".indexOf(c) >= 0) {
+        i++;
+        if (i < source.length() && source.charAt(i) == '=' && "<>= ".indexOf(c) >= 0) i++;
+      } else throw new Error(Kind.SYNTAX, "Неожиданный символ «" + c + "»", line, col);
+      String text = source.substring(begin, i);
+      tokens.add(new Token(text, line, startCol));
+      col += text.length();
+    }
+    if (tokens.size() > 512) throw new Error(Kind.SYNTAX, "Слишком много операций", line, col);
+    tokens.add(new Token("<end>", line, col));
+  }
+
+  public static Program compile(String source) {
+    return new ByteScript(source).parse();
+  }
+
+  private Program parse() {
+    expect("fn");
+    String name = identifier();
+    expect("(");
+    List<String> params = new ArrayList<>();
+    if (!peek(")")) {
+      do {
+        String p = identifier();
+        if (!names.add(p)) fail(Kind.SEMANTIC, "Повтор аргумента: " + p);
+        params.add(p);
+      } while (take(","));
+    }
+    expect(")");
+    expect("{");
+    expect("return");
+    Expr expr = select(0);
+    expect(";");
+    expect("}");
+    expect("<end>");
+    return new Program(name, List.copyOf(params), expr);
+  }
+
+  private Expr select(int depth) {
+    if (depth > 48) fail(Kind.SYNTAX, "Слишком глубокое выражение");
+    Expr c = compare(depth + 1);
+    if (take("?")) {
+      Expr y = select(depth + 1);
+      expect(":");
+      return new Select(c, y, select(depth + 1));
+    }
+    return c;
+  }
+
+  private Expr compare(int d) {
+    Expr a = add(d);
+    while (Set.of(">=", "<=", ">", "<", "==").contains(current().text)) {
+      String op = next().text;
+      a = new Binary(op, a, add(d));
+    }
+    return a;
+  }
+
+  private Expr add(int d) {
+    Expr a = multiply(d);
+    while (peek("+") || peek("-")) {
+      String op = next().text;
+      a = new Binary(op, a, multiply(d));
+    }
+    return a;
+  }
+
+  private Expr multiply(int d) {
+    Expr a = atom(d);
+    while (peek("*") || peek("/")) {
+      String op = next().text;
+      a = new Binary(op, a, atom(d));
+    }
+    return a;
+  }
+
+  private Expr atom(int d) {
+    if (d > 48) fail(Kind.SYNTAX, "Слишком глубокое выражение");
+    if (take("(")) {
+      Expr e = select(d + 1);
+      expect(")");
+      return e;
+    }
+    if (take("-")) return new Binary("-", new Number(0), atom(d + 1));
+    Token token = next();
+    try {
+      if (Character.isDigit(token.text.charAt(0)))
+        return new Number(Double.parseDouble(token.text));
+    } catch (NumberFormatException e) {
+      fail(Kind.SYNTAX, "Неверное число");
+    }
+    if (!token.text.matches("[A-Za-z_][A-Za-z0-9_]*"))
+      throw new Error(Kind.SYNTAX, "Ожидалось число или аргумент", token.line, token.column);
+    if (!names.contains(token.text))
+      throw new Error(
+          Kind.SEMANTIC,
+          "Неизвестное имя «" + token.text + "». Сверь его с аргументами функции.",
+          token.line,
+          token.column);
+    return new Variable(token.text);
+  }
+
+  private String identifier() {
+    Token t = next();
+    if (!t.text.matches("[A-Za-z_][A-Za-z0-9_]*"))
+      throw new Error(Kind.SYNTAX, "Ожидалось имя", t.line, t.column);
+    return t.text;
+  }
+
+  private Token current() {
+    return tokens.get(Math.min(at, tokens.size() - 1));
+  }
+
+  private Token next() {
+    Token t = current();
+    at++;
+    return t;
+  }
+
+  private boolean peek(String s) {
+    return current().text.equals(s);
+  }
+
+  private boolean take(String s) {
+    if (peek(s)) {
+      at++;
+      return true;
+    }
+    return false;
+  }
+
+  private void expect(String s) {
+    if (!take(s)) fail(Kind.SYNTAX, "Ожидалось «" + s + "», получено «" + current().text + "»");
+  }
+
+  private void fail(Kind k, String message) {
+    Token t = current();
+    throw new Error(k, message, t.line, t.column);
+  }
+}
+END FILE: core/src/main/java/life/ctrl/bytescript/ByteScript.java
+
+======================================
+FILE: core/src/main/java/life/ctrl/model/Atmosphere.java
+======================================
+package life.ctrl.model;
+
+/** Continuous dusk, dawn and deterministic weather; rendering never changes saved simulation. */
+public final class Atmosphere {
+  private Atmosphere() {}
+
+  public static float night(GameState s) {
+    double hour = (s.gameMinutes % 1440) / 60;
+    if (hour < 5 || hour >= 22) return 1;
+    if (hour < 8) return (float) ((8 - hour) / 3);
+    if (hour < 17) return 0;
+    return (float) ((hour - 17) / 5);
+  }
+
+  public static boolean rain(GameState s) {
+    return Math.floorMod(s.day(), 3) != 2;
+  }
+
+  public static String period(GameState s) {
+    double h = (s.gameMinutes % 1440) / 60;
+    return h < 5 ? "ночь" : h < 11 ? "утро" : h < 17 ? "день" : h < 22 ? "вечер" : "ночь";
+  }
+}
+END FILE: core/src/main/java/life/ctrl/model/Atmosphere.java
+
+======================================
+FILE: core/src/main/java/life/ctrl/model/Career.java
+======================================
+package life.ctrl.model;
+
+import java.util.*;
+import life.ctrl.content.LifeContent;
+
+/** Career rules are deterministic, inspectable, and saved independently of UI. */
+public final class Career {
+  private Career() {}
+
+  public record Upgrade(String id, String title, int price, String description) {}
+
+  public static final List<Upgrade> GEAR =
+      List.of(
+          new Upgrade(
+              "ssd",
+              "SSD из мастерской",
+              4200,
+              "Работа занимает на 15% меньше времени. Установка включена."),
+          new Upgrade(
+              "chair",
+              "Кресло с поддержкой спины",
+              2800,
+              "Дополнительная усталость за заказ: 2 вместо 6. В комнате появится кресло."));
+
+  public static int tier(GameState s) {
+    return s.codingXp >= 8 ? 2 : s.codingXp >= 3 ? 1 : 0;
+  }
+
+  public static String rank(GameState s) {
+    return switch (tier(s)) {
+      case 2 -> "Разработчик";
+      case 1 -> "Фрилансер";
+      default -> "Первый коммит";
+    };
+  }
+
+  public static int paidCountToday(GameState s) {
+    return (int) s.paidJobs.stream().filter(x -> x.startsWith(s.day() + ":")).count();
+  }
+
+  public static int projectStage(GameState s) {
+    int n = 0;
+    for (String id : List.of("board", "remind", "support")) {
+      if (!s.shipped.contains(id)) break;
+      n++;
+    }
+    return n;
+  }
+
+  public static String blocked(GameState s, LifeContent.Job j) {
+    if (j.once) {
+      int stage = projectStage(s);
+      int required = List.of("board", "remind", "support").indexOf(j.id);
+      if (s.shipped.contains(j.id)) return "Этот этап уже запущен.";
+      if (required != stage) return "Сначала заверши предыдущий этап своего бота.";
+      if (s.completedOrders < 1) return "Сначала выполни первый заказ для клиента.";
+    } else {
+      if (paidCountToday(s) >= 3)
+        return "Три клиентских заказа на сегодня выполнены. Время для своего проекта или прогулки.";
+      if (Coding.paidToday(s, j.id)) return "Этот заказ уже оплачен сегодня.";
+    }
+    if (tier(s) < j.tier)
+      return "Нужно опыта: " + (j.tier == 1 ? 3 : 8) + ". Сейчас " + s.codingXp + ".";
+    return "";
+  }
+
+  public static List<LifeContent.Job> offers(GameState s, LifeContent data) {
+    List<LifeContent.Job> result = new ArrayList<>();
+    for (var j : data.jobs) if (!j.once && j.tier == 0) result.add(j);
+    List<LifeContent.Job> advanced =
+        Arrays.stream(data.jobs).filter(j -> !j.once && j.tier > 0 && j.tier <= tier(s)).toList();
+    if (!advanced.isEmpty())
+      for (int i = 0; i < Math.min(3, advanced.size()); i++)
+        result.add(advanced.get(Math.floorMod(s.day() + i - 1, advanced.size())));
+    return result;
+  }
+
+  public static int duration(GameState s, LifeContent.Job j) {
+    return (int) Math.ceil(j.minutes * (s.upgrades.contains("ssd") ? .85 : 1));
+  }
+
+  public static int bonus(GameState s, LifeContent.Job j) {
+    if (j.once) return 0;
+    return (s.customCases.size() >= 2 ? 100 : 0)
+        + (s.rushJob && s.minutes() + duration(s, j) <= s.rushDeadline ? j.pay / 4 : 0);
+  }
+
+  public static String buy(GameState s, String id) {
+    var gear = GEAR.stream().filter(g -> g.id.equals(id)).findFirst().orElseThrow();
+    if (s.upgrades.contains(id)) return "Уже установлено.";
+    if (!Economy.spend(s, gear.price, gear.title))
+      return "Не хватает денег. Улучшение подождёт; на работу можно брать заказы и со старым ПК.";
+    s.upgrades.add(id);
+    return gear.title + " установлено. " + gear.description;
+  }
+
+  public static void settleProject(GameState s) {
+    if (projectStage(s) < 3) return;
+    if (s.projectIncomeDay < 0) {
+      s.projectIncomeDay = s.day();
+      return;
+    }
+    int days = s.day() - s.projectIncomeDay;
+    if (days <= 0) return;
+    Economy.earn(s, Math.min(days, 365) * 160, "Поддержка районного бота: " + days + " дн.");
+    s.projectIncomeDay = s.day();
+  }
+
+  public static String community(GameState s, String map) {
+    if (map.equals("cafe") && s.shipped.contains("queue"))
+      return "Ася: «С твоей очередью я теперь успеваю выйти поснимать».";
+    if (map.equals("diner") && s.shipped.contains("refund"))
+      return "Тамара: «Возвраты больше не съедают выручку. Спасибо за патч».";
+    if (map.equals("diner") && s.shipped.contains("total"))
+      return "Тамара узнаёт тебя: «Наш программист! Касса работает».";
+    if (map.equals("park") && s.shipped.contains("booking"))
+      return "Ника: «В репетиционной теперь порядок с бронированиями».";
+    if (projectStage(s) == 3)
+      return "В районном чате благодарят за бота. Кто-то уже нашёл потерянные ключи.";
+    return "";
+  }
+}
+END FILE: core/src/main/java/life/ctrl/model/Career.java
+
+======================================
+FILE: core/src/main/java/life/ctrl/model/Coding.java
+======================================
+package life.ctrl.model;
+
+import java.util.*;
+import life.ctrl.bytescript.ByteScript;
+import life.ctrl.content.LifeContent;
+
+public final class Coding {
+  private Coding() {}
+
+  public record Report(boolean compiled, boolean passed, String message, List<String> cases) {}
+
+  public static final class Revision {
+    public String source, label;
+
+    public Revision() {}
+
+    public Revision(String source, String label) {
+      this.source = source;
+      this.label = label;
+    }
+  }
+
+  public static String ledgerId(GameState s, String job) {
+    return s.day() + ":" + job;
+  }
+
+  public static boolean paidToday(GameState s, String job) {
+    return s.paidJobs.contains(ledgerId(s, job));
+  }
+
+  public static String accept(GameState s, LifeContent.Job j, int algorithm) {
+    return accept(s, j, algorithm, false);
+  }
+
+  public static String accept(GameState s, LifeContent.Job j, int algorithm, boolean rush) {
+    return accept(s, j, algorithm, rush, false);
+  }
+
+  /** Use tactile typing in the interactive IDE; direct model callers retain older semantics. */
+  public static String accept(GameState s, LifeContent.Job j, int algorithm, boolean rush, boolean tactile) {
+    if (!s.activeJob.isEmpty() && s.jobStage > 0 && s.jobStage < 5)
+      return "Текущий проект сохранён. Продолжи его или отложи через историю версий.";
+    String blocked = Career.blocked(s, j);
+    if (!blocked.isEmpty()) return blocked;
+    if (algorithm < 0 || algorithm >= j.initialSources.length) return "Выбери вариант из задания.";
+    s.activeJob = j.id;
+    s.activeLedger = ledgerId(s, j.id);
+    s.algorithm = algorithm;
+    s.codeSource = j.initialSources[algorithm];
+    s.typedCount = tactile ? 0 : j.kind.equals("feature") ? 0 : s.codeSource.length();
+    s.jobStage = 2;
+    s.programPreviewed = false;
+    s.rushJob = rush && !j.once;
+    s.rushDeadline =
+        s.rushJob
+            ? s.rushPromises.computeIfAbsent(
+                ledgerId(s, j.id), key -> s.minutes() + Career.duration(s, j) + 90)
+            : -1;
+    s.revisions.clear();
+    s.customCases.clear();
+    s.revisions.add(new Revision(s.codeSource, "Исходная версия · " + s.clock()));
+    return "Проект открыт. Прочитай требование и проверь граничные случаи.";
+  }
+
+  public static void type(GameState s) {
+    if (s.jobStage == 2) s.typedCount = Math.min(s.codeSource.length(), s.typedCount + 5);
+  }
+
+  public static void completeTyping(GameState s) {
+    s.typedCount = s.codeSource.length();
+  }
+
+  public static Report test(GameState s, LifeContent.Job j) {
+    if (!s.activeJob.equals(j.id))
+      return new Report(false, false, "Этот заказ не открыт в редакторе.", List.of());
+    if (s.typedCount < s.codeSource.length())
+      return new Report(
+          false, false, "Сначала допечатай исходник. Быстрые реакции не нужны.", List.of());
+    try {
+      var p = ByteScript.compile(s.codeSource);
+      if (!p.name().equals(j.function))
+        return new Report(true, false, "Клиент ожидает функцию " + j.function, List.of());
+      List<String> results = new ArrayList<>();
+      boolean passed = true;
+      int maxOps = 0;
+      for (var t : j.tests) {
+        double actual = p.run(t.args);
+        boolean ok = Math.abs(actual - t.expected) < .001;
+        passed &= ok;
+        maxOps = Math.max(maxOps, p.operations(t.args));
+        results.add(
+            Arrays.toString(t.args)
+                + " → "
+                + format(actual)
+                + " / нужно "
+                + format(t.expected)
+                + (ok ? "  OK" : "  ОШИБКА"));
+      }
+      boolean fast = j.operationBudget == 0 || maxOps <= j.operationBudget;
+      passed &= fast;
+      s.jobStage = passed ? 3 : 2;
+      return new Report(
+          true,
+          passed,
+          !fast
+              ? "Ответ верный, но операций "
+                  + maxOps
+                  + ". Бюджет: "
+                  + j.operationBudget
+                  + ". Открой профилировщик."
+              : passed
+                  ? "Все тесты пройдены. Проверь предпросмотр и отправляй."
+                  : "Результат не совпал. Сравни вход, ответ и требование.",
+          List.copyOf(results));
+    } catch (ByteScript.Error e) {
+      s.jobStage = 2;
+      return new Report(
+          false,
+          false,
+          (e.kind == ByteScript.Kind.SYNTAX ? "Синтаксис" : "Неизвестное имя")
+              + ", строка "
+              + e.line
+              + ": "
+              + e.getMessage(),
+          List.of());
+    } catch (ArithmeticException | IllegalArgumentException e) {
+      s.jobStage = 2;
+      return new Report(true, false, e.getMessage(), List.of());
+    }
+  }
+
+  public static String format(double x) {
+    return x == Math.rint(x)
+        ? String.valueOf((long) x)
+        : String.valueOf(Math.round(x * 100.0) / 100.0);
+  }
+
+  public static void repair(GameState s, LifeContent.Job j, int choice) {
+    repair(s, j, choice, false);
+  }
+
+  public static void repair(GameState s, LifeContent.Job j, int choice, boolean tactile) {
+    if (!s.activeJob.equals(j.id) || s.jobStage == 5 || choice < 0 || choice >= j.solutions.length)
+      return;
+    s.codeSource = j.solutions[choice];
+    // The IDE requires a second typing phase after a patch is chosen.
+    s.typedCount = tactile ? 0 : s.codeSource.length();
+    s.jobStage = 2;
+    s.programPreviewed = false;
+  }
+
+  public static String commit(GameState s) {
+    if (s.jobStage < 2 || s.jobStage == 5) return "Сначала открой проект.";
+    if (s.revisions.stream().anyMatch(r -> r.source.equals(s.codeSource)))
+      return "Эта версия уже сохранена. Коммит фиксирует изменение, а не повторный клик.";
+    s.revisions.add(new Revision(s.codeSource, "Коммит " + s.revisions.size() + " · " + s.clock()));
+    if (s.revisions.size() > 8) s.revisions.remove(1);
+    return "Коммит сохранён. Теперь можно экспериментировать и вернуться к нему.";
+  }
+
+  public static String restore(GameState s, int index) {
+    if (index < 0 || index >= s.revisions.size() || s.jobStage == 5) return "Версия недоступна.";
+    s.codeSource = s.revisions.get(index).source;
+    s.typedCount = s.codeSource.length();
+    s.jobStage = 2;
+    s.programPreviewed = false;
+    return "Версия восстановлена. Прогони тесты заново.";
+  }
+
+  public static String abandon(GameState s) {
+    s.activeJob = "";
+    s.activeLedger = "";
+    s.codeSource = "";
+    s.typedCount = 0;
+    s.jobStage = 0;
+    s.programPreviewed = false;
+    s.revisions.clear();
+    s.customCases.clear();
+    s.rushJob = false;
+    return "Заказ отложен без штрафа. Можно выбрать другой.";
+  }
+
+  public static String probe(GameState s, LifeContent.Job j, double[] inputs) {
+    if (!s.activeJob.equals(j.id) || s.typedCount < s.codeSource.length())
+      return "Сначала допечатай исходник.";
+    if (inputs.length != j.seed.length
+        || Arrays.stream(inputs).anyMatch(v -> !Double.isFinite(v) || Math.abs(v) > 10000))
+      return "Ввод: конечные числа от −10000 до 10000.";
+    try {
+      var p = ByteScript.compile(s.codeSource);
+      double actual = p.run(inputs), expected = ByteScript.compile(j.source).run(inputs);
+      String key = Arrays.toString(inputs);
+      boolean novel = Arrays.stream(j.tests).noneMatch(t -> Arrays.equals(t.args, inputs));
+      if (novel && !s.customCases.contains(key) && s.customCases.size() < 20)
+        s.customCases.add(key);
+      return "Ответ "
+          + format(actual)
+          + " · нужно "
+          + format(expected)
+          + " · операций "
+          + p.operations(inputs)
+          + (Math.abs(actual - expected) < .001 ? " · OK" : " · ОШИБКА");
+    } catch (RuntimeException e) {
+      return "Запуск не удался: " + e.getMessage();
+    }
+  }
+
+  public static double preview(GameState s, LifeContent.Job j, double input) {
+    if (!test(s, j).passed) throw new IllegalStateException("Сначала исправь программу");
+    double[] args = j.id.equals("total") ? new double[] {30, input} : j.seed.clone();
+    args[args.length - 1] = input;
+    s.programPreviewed = true;
+    return ByteScript.compile(s.codeSource).run(args);
+  }
+
+  public static String deliver(GameState s, LifeContent.Job j) {
+    if (!s.activeJob.equals(j.id) || !s.activeLedger.endsWith(":" + j.id))
+      return "Сначала открой нужный заказ.";
+    if (s.jobStage == 5
+        || s.paidJobs.contains(s.activeLedger)
+        || (j.once && s.shipped.contains(j.id))) return "Эта работа уже сдана.";
+    if (!s.programPreviewed || !test(s, j).passed) return "Нужны пройденные тесты и предпросмотр.";
+    if (!j.once && Career.paidCountToday(s) >= 3)
+      return "Сегодня уже оплачены три заказа. Продолжи завтра; исходник сохранён.";
+    if (s.money < j.cost)
+      return "Для запуска нужно " + j.cost + " ₽. Код сохранён, можно вернуться после подработки.";
+    int time = Career.duration(s, j), bonus = Career.bonus(s, j);
+    boolean late = s.rushJob && s.minutes() + time > s.rushDeadline;
+    Economy.spend(s, j.cost, "Свой бот: " + j.title);
+    if (!j.once) {
+      s.paidJobs.add(ledgerId(s, j.id));
+      if (!s.activeLedger.equals(ledgerId(s, j.id))) s.paidJobs.add(s.activeLedger);
+      Economy.earn(s, j.pay + bonus, "Заказ: " + j.title);
+      s.completedOrders++;
+    }
+    if (!s.shipped.contains(j.id)) s.shipped.add(j.id);
+    s.codingXp += j.xp;
+    s.jobStage = 5;
+    Life.advance(s, time);
+    s.energy = Math.max(0, s.energy - (s.upgrades.contains("chair") ? 2 : 6));
+    s.mood = Math.min(100, s.mood + 8);
+    s.lastClientMessage = j.feedback;
+    return (j.once
+            ? "Этап запущен. Расход: " + j.cost + " ₽."
+            : "Клиент принял работу: +"
+                + (j.pay + bonus)
+                + " ₽"
+                + (bonus > 0 ? " (бонус " + bonus + " ₽)" : "")
+                + ".")
+        + " Прошло "
+        + time
+        + " мин. Опыт +"
+        + j.xp
+        + ".\n\n"
+        + j.feedback
+        + (late ? "\n\nСрочный бонус истёк; базовая оплата сохранена." : "");
+  }
+}
+END FILE: core/src/main/java/life/ctrl/model/Coding.java
+
+======================================
+FILE: core/src/main/java/life/ctrl/model/Economy.java
+======================================
+package life.ctrl.model;
+
+public final class Economy {
+  private Economy() {}
+
+  public static final int WEEKLY_RENT = 3000;
+
+  public static final class Entry {
+    public int day, amount, balance;
+    public String reason;
+
+    public Entry() {}
+
+    public Entry(GameState s, int amount, String reason) {
+      day = s.day();
+      this.amount = amount;
+      balance = s.money;
+      this.reason = reason;
+    }
+  }
+
+  public static boolean spend(GameState s, int amount, String reason) {
+    if (amount < 0) throw new IllegalArgumentException("Отрицательная цена");
+    if (s.money < amount) return false;
+    if (amount == 0) return true;
+    s.money -= amount;
+    record(s, -amount, reason);
+    return true;
+  }
+
+  public static void earn(GameState s, int amount, String reason) {
+    if (amount < 0 || amount > 1000000 || s.money > Integer.MAX_VALUE - amount)
+      throw new IllegalArgumentException("Сумма");
+    s.money += amount;
+    record(s, amount, reason);
+  }
+
+  private static void record(GameState s, int amount, String reason) {
+    s.transactions.add(new Entry(s, amount, reason));
+    if (s.transactions.size() > 100) s.transactions.remove(0);
+  }
+
+  public static void rent(GameState s) {
+    while (s.day() > s.rentThroughDay) {
+      int paid = Math.min(WEEKLY_RENT, s.money);
+      spend(s, paid, "Комната: неделя аренды");
+      s.rentDebt += WEEKLY_RENT - paid;
+      s.rentThroughDay += 7;
+    }
+  }
+
+  public static String repay(GameState s) {
+    int amount = Math.min(s.rentDebt, s.money);
+    if (amount == 0) return "Сейчас нечего погашать.";
+    spend(s, amount, "Погашение долга за комнату");
+    s.rentDebt -= amount;
+    return "Долг уменьшен на " + amount + " ₽. Осталось: " + s.rentDebt + " ₽.";
+  }
+}
+END FILE: core/src/main/java/life/ctrl/model/Economy.java
+
+======================================
+FILE: core/src/main/java/life/ctrl/model/GameState.java
+======================================
+package life.ctrl.model;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+
+/** Only durable values: no graphics, input state, or transient UI. */
+public final class GameState {
+  public String name = "Саша", map = "room";
+  public float x = 240, y = 190;
+  public int direction = 0, outfit = 0;
+  public int money = 10000, rentDebt = 0, rentThroughDay = 3;
+  public double health = 85, hunger = 42, energy = 62, mood = 45, gameMinutes = 17 * 60 + 30;
+  public boolean introSeen, ateFirstMeal, firstDateFinished;
+  public String trackedGirl = "mira",
+      partnerId = "",
+      plannedGirl = "",
+      plannedVenue = "",
+      activeJob = "",
+      codeSource = "",
+      activeLedger = "";
+  public int plannedDay = -1, typedCount = 0, jobStage = 0, algorithm = 0, goalChoice = 0;
+  public boolean programPreviewed;
+  public int lastCourierMinute = -10000, lastFreeMealDay = -1;
+  public ArrayList<String> paidJobs = new ArrayList<>();
+  public ArrayList<Economy.Entry> transactions = new ArrayList<>();
+  public HashMap<String, Integer> items = new HashMap<>();
+  public HashMap<String, Relationship> relationships = new HashMap<>();
+  public int codingXp, completedOrders, rushDeadline = -1, projectIncomeDay = -1;
+  public boolean rushJob;
+  public ArrayList<String> shipped = new ArrayList<>(),
+      upgrades = new ArrayList<>(),
+      customCases = new ArrayList<>();
+  public ArrayList<Coding.Revision> revisions = new ArrayList<>();
+  public HashMap<String, Integer> rushPromises = new HashMap<>();
+  public String lastClientMessage = "", workNotice = "";
+  public double elapsed = 0;
+  public boolean inspectedPc,
+      metMira,
+      metArkady,
+      metLev,
+      askedLetter,
+      hasLetter,
+      deliveredLetter,
+      wateredPlant,
+      unpacked,
+      signedMailbox,
+      readBoard;
+  public ArrayList<String> visited = new ArrayList<>();
+
+  public GameState() {
+    visited.add("room");
+  }
+
+  public int minutes() {
+    return (int) gameMinutes;
+  }
+
+  public int day() {
+    return 1 + minutes() / 1440;
+  }
+
+  public int count(String id) {
+    return items.getOrDefault(id, 0);
+  }
+
+  public Relationship relation(String id) {
+    return relationships.computeIfAbsent(id, k -> new Relationship());
+  }
+
+  public String clock() {
+    int m = minutes() % 1440;
+    return "%02d:%02d".formatted(m / 60, m % 60);
+  }
+
+  public String objective() {
+    if (paidJobs.isEmpty())
+      return inspectedPc
+          ? "Закончи первый заказ в KeyCode. Оплата: 650 ₽."
+          : "Подойди к столу и включи компьютер [E].";
+    if (!ateFirstMeal) return "Зайди в «Ложку» и поешь у стойки [E].";
+    if (!plannedGirl.isEmpty()) return "Свидание назначено. Доберись до места встречи.";
+    if (!firstDateFinished) return "Познакомься с Мирой: разговор → приглашение на свидание.";
+    if (energy < 30) return "Вернись в комнату и выспись [E у кровати].";
+    return switch (goalChoice) {
+      case 1 -> "Заработай кодингом: новые заказы на домашнем ПК.";
+      case 2 -> "Проведи время с девушкой: контакты [R].";
+      default -> "Твоя жизнь: заказы, знакомства, еда и новые дни.";
+    };
+  }
+}
+END FILE: core/src/main/java/life/ctrl/model/GameState.java
+
+======================================
+FILE: core/src/main/java/life/ctrl/model/Life.java
+======================================
+package life.ctrl.model;
+
+import life.ctrl.content.LifeContent;
+
+/** Economy and needs have a single mutation point, including explicit time costs. */
+public final class Life {
+  private Life() {}
+
+  public static void advance(GameState s, double minutes) {
+    if (!Double.isFinite(minutes) || minutes < 0 || minutes > 1440)
+      throw new IllegalArgumentException("Время");
+    s.gameMinutes += minutes;
+    s.hunger = Math.max(0, s.hunger - minutes * .065);
+    s.energy = Math.max(0, s.energy - minutes * .045);
+    if (s.hunger < 10) s.health = Math.max(15, s.health - minutes * .012);
+    Career.settleProject(s);
+    Economy.rent(s);
+  }
+
+  public static String buy(GameState s, LifeContent.Item item) {
+    if (s.money < item.price)
+      return "Не хватает денег. Подработка у доски во дворе доступна всегда.";
+    Economy.spend(s, item.price, "Покупка: " + item.name);
+    s.items.merge(item.id, 1, Integer::sum);
+    return "Куплено: " + item.name + ". [I] — съесть или посмотреть подарки.";
+  }
+
+  public static String eat(GameState s, LifeContent.Item item) {
+    if (!item.kind.equals("food") || s.count(item.id) < 1) return "Сначала купи еду у стойки.";
+    consume(s, item.id);
+    s.hunger = Math.min(100, s.hunger + item.hunger);
+    s.energy = Math.min(100, s.energy + item.energy);
+    s.health = Math.min(100, s.health + 3);
+    s.ateFirstMeal = true;
+    advance(s, 10);
+    return "Ты поел(а). Сытость +" + item.hunger + ", энергия +" + item.energy + ".";
+  }
+
+  public static void consume(GameState s, String item) {
+    int n = s.count(item);
+    if (n < 1) throw new IllegalStateException("Нет предмета");
+    if (n == 1) s.items.remove(item);
+    else s.items.put(item, n - 1);
+  }
+
+  public static void sleep(GameState s) {
+    int wait = (480 - s.minutes() % 1440 + 1440) % 1440;
+    if (wait == 0) wait = 1440;
+    advance(s, wait);
+    s.energy = 96;
+    s.health = Math.min(100, s.health + 12);
+    s.mood = Math.min(100, s.mood + 8);
+  }
+
+  public static String courier(GameState s) {
+    if (s.minutes() - s.lastCourierMinute < 120)
+      return "Следующая доставка будет через "
+          + (120 - (s.minutes() - s.lastCourierMinute))
+          + " мин. Можно отдохнуть на лавке.";
+    s.lastCourierMinute = s.minutes();
+    advance(s, 35);
+    Economy.earn(s, 240, "Доставка посылки");
+    s.energy = Math.max(0, s.energy - 6);
+    s.hunger = Math.max(0, s.hunger - 3);
+    return "Ты доставил(а) посылку в соседний дом: +240 ₽, прошло 35 минут.";
+  }
+
+  public static String freeMeal(GameState s) {
+    if (s.lastFreeMealDay == s.day())
+      return "Сегодня ты уже получил(а) бесплатный суп. Завтра будет новая порция.";
+    if (s.money >= 250) return "Бесплатный суп оставляют тем, у кого меньше 250 ₽.";
+    s.lastFreeMealDay = s.day();
+    s.hunger = Math.min(100, s.hunger + 45);
+    s.ateFirstMeal = true;
+    return "Горячий суп за счёт заведения. Здесь помогают в трудные дни.";
+  }
+}
+END FILE: core/src/main/java/life/ctrl/model/Life.java
+
+======================================
+FILE: core/src/main/java/life/ctrl/model/Navigation.java
+======================================
+package life.ctrl.model;
+
+import java.util.*;
+import life.ctrl.content.*;
+
+/** One explicit destination, connected by real doors and a walkable path. */
+public final class Navigation {
+  public record Goal(String map, float x, float y, String title, String hint) {}
+
+  private Navigation() {}
+
+  private static Goal prop(Content c, String map, String id, String title, String hint) {
+    for (var p : c.map(map).objects)
+      if (p.id.equals(id)) return new Goal(map, p.x, p.y, title, hint);
+    throw new IllegalArgumentException(id);
+  }
+
+  public static Goal goal(World w, LifeContent life) {
+    var s = w.state;
+    var c = w.content;
+    if (!s.plannedGirl.isEmpty())
+      return prop(
+          c,
+          s.plannedVenue,
+          "date",
+          "Встреча: " + life.girl(s.plannedGirl).name,
+          "Иди к золотой метке. [E] у столика начнёт свидание.");
+    if (s.paidJobs.isEmpty())
+      return prop(
+          c,
+          "room",
+          "pc",
+          "Первый заработок: касса для «Ложки»",
+          "[E] у ПК → выбрать правило → набрать код → тесты → оплата.");
+    if ((s.hunger < 25 || !s.ateFirstMeal)
+        && Arrays.stream(life.items).anyMatch(i -> i.kind.equals("food") && s.count(i.id) > 0))
+      return new Goal(
+          s.map,
+          s.x,
+          s.y,
+          "Еда куплена — открой карманы [I]",
+          "Нажми I и выбери «съесть». Купленная еда пока лежит в сумке.");
+    if (s.hunger < 25 || !s.ateFirstMeal)
+      return prop(
+          c,
+          "diner",
+          "counter",
+          "Поесть в «Ложке»",
+          "[E] у стойки. Суп: 220 ₽. Съесть можно в карманах [I].");
+    if (s.energy < 25 || (s.firstDateFinished && s.day() == 1 && s.goalChoice == 0))
+      return prop(
+          c,
+          "room",
+          "bed",
+          "Вернуться в комнату и поспать",
+          "[E] у кровати. Сон восстановит силы и начнёт новый день.");
+    if (!s.firstDateFinished || s.goalChoice == 2) {
+      String id = s.trackedGirl.isEmpty() ? "mira" : s.trackedGirl;
+      var g = life.girl(id);
+      var r = s.relation(id);
+      if (r.lastTalkDay == s.day() && (r.affinity < 12 || r.trust < 8))
+        return prop(
+            c,
+            "room",
+            "bed",
+            "Дайте друг другу время. Встретьтесь завтра.",
+            "[E] у кровати: начать новый день. Неудачная реплика не закрывает отношения.");
+      for (var map : c.maps)
+        for (var n : map.npcs)
+          if (n.id.equals(id)) {
+            var a = new World.Actor();
+            w.position(n, a);
+            return new Goal(
+                map.id,
+                a.x,
+                a.y,
+                r.met ? "Пообщаться: " + g.name : "Познакомиться: " + g.name,
+                r.met
+                    ? "Разговор по душам → приглашение. Сквер бесплатный."
+                    : "Подойди к девушке и нажми [E]. Никто не ждёт идеальной реплики.");
+          }
+    }
+    if (Career.paidCountToday(s) >= 3)
+      return prop(
+          c,
+          "room",
+          "bed",
+          "Работа на сегодня закончена",
+          "Три заказа сданы. Можно сделать свой проект, встретиться с девушкой или поспать.");
+    return prop(
+        c,
+        "room",
+        "pc",
+        "Новые заказы: заработай на свою жизнь",
+        "На ПК три заказа в день. [B] — деньги и ближайшая аренда.");
+  }
+
+  public static Goal localGoal(World w, Goal finalGoal) {
+    if (w.state.map.equals(finalGoal.map)) return finalGoal;
+    record Hop(String map, Content.Prop first) {}
+    ArrayDeque<Hop> q = new ArrayDeque<>();
+    Set<String> seen = new HashSet<>();
+    q.add(new Hop(w.state.map, null));
+    while (!q.isEmpty()) {
+      var h = q.remove();
+      if (!seen.add(h.map)) continue;
+      for (var p : w.content.map(h.map).objects)
+        if (p.action.equals("door")) {
+          var first = h.first == null ? p : h.first;
+          if (p.target.equals(finalGoal.map))
+            return new Goal(
+                w.state.map,
+                first.x,
+                first.y,
+                finalGoal.title,
+                "Следующий проход: " + w.content.map(first.target).name);
+          q.add(new Hop(p.target, first));
+        }
+    }
+    return finalGoal;
+  }
+
+  public static List<float[]> route(World w, float targetX, float targetY) {
+    int grid = 4, cols = w.map().width / grid, rows = w.map().height / grid;
+    int start = Math.round(w.state.y / grid) * cols + Math.round(w.state.x / grid);
+    int[] previous = new int[cols * rows];
+    Arrays.fill(previous, -1);
+    if (start < 0 || start >= previous.length) return List.of();
+    previous[start] = start;
+    ArrayDeque<Integer> todo = new ArrayDeque<>();
+    todo.add(start);
+    int goal = -1;
+    while (!todo.isEmpty()) {
+      int at = todo.remove(), x = at % cols, y = at / cols;
+      if (Math.hypot(x * grid - targetX, y * grid - targetY) < 17) {
+        goal = at;
+        break;
+      }
+      for (int[] d : DIRS) {
+        int nx = x + d[0], ny = y + d[1];
+        if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+        int next = ny * cols + nx;
+        if (previous[next] < 0
+            && !w.blocked(nx * grid - 2, ny * grid - 2)
+            && !w.blocked(nx * grid + 2, ny * grid - 2)
+            && !w.blocked(nx * grid - 2, ny * grid + 2)
+            && !w.blocked(nx * grid + 2, ny * grid + 2)) {
+          previous[next] = at;
+          todo.add(next);
+        }
+      }
+    }
+    if (goal < 0) return List.of();
+    ArrayList<float[]> path = new ArrayList<>();
+    for (int p = goal; p != start; p = previous[p])
+      path.add(new float[] {p % cols * grid, p / cols * grid});
+    Collections.reverse(path);
+    return path;
+  }
+
+  private static final int[][] DIRS = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+}
+END FILE: core/src/main/java/life/ctrl/model/Navigation.java
+
+======================================
+FILE: core/src/main/java/life/ctrl/model/Relationship.java
+======================================
+package life.ctrl.model;
+
+/** Durable relationship history. Affection cannot substitute for trust or consent. */
+public final class Relationship {
+  public boolean met;
+  public int affinity, trust, dates, storyChapter, sharedNights;
+  public int lastTalkDay = -1,
+      lastGiftDay = -1,
+      lastDateDay = -1,
+      lastNightDay = -1,
+      committedDay = -1;
+  public String lastTopic = "", memory = "Вы ещё не знакомы.";
+}
+END FILE: core/src/main/java/life/ctrl/model/Relationship.java
+
+======================================
+FILE: core/src/main/java/life/ctrl/model/Settings.java
+======================================
+package life.ctrl.model;
+
+import com.badlogic.gdx.Input.Keys;
+import com.badlogic.gdx.utils.Json;
+import java.io.IOException;
+import java.nio.file.*;
+import java.util.HashSet;
+import life.ctrl.save.SaveStore;
+
+public final class Settings {
+  public float music = .35f, sfx = .6f;
+  public boolean reducedEffects = false, fullscreen = false;
+  public int scale = 3;
+  public int up = Keys.W,
+      down = Keys.S,
+      left = Keys.A,
+      right = Keys.D,
+      interact = Keys.E,
+      journal = Keys.J;
+
+  public int key(int index) {
+    return switch (index) {
+      case 0 -> up;
+      case 1 -> down;
+      case 2 -> left;
+      case 3 -> right;
+      case 4 -> interact;
+      default -> journal;
+    };
+  }
+
+  public boolean bind(int index, int key) {
+    if (key == Keys.ESCAPE
+        || key == Keys.ENTER
+        || key == Keys.F11
+        || key == Keys.F5
+        || key == Keys.R
+        || key == Keys.B
+        || key == Keys.I
+        || key == Keys.M
+        || key == Keys.TAB
+        || key == Keys.UNKNOWN
+        || key == Keys.UP
+        || key == Keys.DOWN
+        || key == Keys.LEFT
+        || key == Keys.RIGHT) return false;
+    for (int i = 0; i < 6; i++) if (i != index && key(i) == key) return false;
+    switch (index) {
+      case 0 -> up = key;
+      case 1 -> down = key;
+      case 2 -> left = key;
+      case 3 -> right = key;
+      case 4 -> interact = key;
+      case 5 -> journal = key;
+      default -> throw new IllegalArgumentException();
+    }
+    return true;
+  }
+
+  public static Settings load(Path dir) {
+    try {
+      Settings s =
+          new Json().fromJson(Settings.class, Files.readString(dir.resolve("settings.json")));
+      if (s == null
+          || !Float.isFinite(s.music)
+          || !Float.isFinite(s.sfx)
+          || s.music < 0
+          || s.music > 1
+          || s.sfx < 0
+          || s.sfx > 1
+          || s.scale < 2
+          || s.scale > 4) throw new IOException();
+      HashSet<Integer> keys = new HashSet<>();
+      for (int i = 0; i < 6; i++)
+        if (s.key(i) <= 0 || s.key(i) > 255 || !keys.add(s.key(i)) || !s.bind(i, s.key(i)))
+          throw new IOException();
+      return s;
+    } catch (Exception e) {
+      return new Settings();
+    }
+  }
+
+  public void save(Path dir) throws IOException {
+    Files.createDirectories(dir);
+    Path tmp = dir.resolve("settings.tmp.json");
+    Files.writeString(tmp, new Json().prettyPrint(this));
+    SaveStore.replace(tmp, dir.resolve("settings.json"));
+  }
+}
+END FILE: core/src/main/java/life/ctrl/model/Settings.java
+
+======================================
+FILE: core/src/main/java/life/ctrl/model/Social.java
+======================================
+package life.ctrl.model;
+
+import life.ctrl.content.LifeContent;
+
+/** Every scene is initiated by the player and subject to the other adult's own preferences. */
+public final class Social {
+  private Social() {}
+
+  private static void change(Relationship r, int affection, int trust) {
+    r.affinity = Math.max(0, Math.min(100, r.affinity + affection));
+    r.trust = Math.max(0, Math.min(100, r.trust + trust));
+  }
+
+  public static String meet(GameState s, LifeContent.Girl g) {
+    var r = s.relation(g.id);
+    r.met = true;
+    if (g.id.equals("mira")) s.metMira = true;
+    r.memory = g.introduction;
+    return g.introduction;
+  }
+
+  public static String talk(GameState s, LifeContent.Girl g, int topic) {
+    var r = s.relation(g.id);
+    if (!r.met) meet(s, g);
+    if (r.lastTalkDay == s.day())
+      return "На сегодня вы уже поговорили по душам. Новая беседа — завтра; сейчас можно погулять"
+          + " или выбрать подарок.";
+    var t = g.topics[topic];
+    r.lastTalkDay = s.day();
+    r.lastTopic = t.id;
+    change(r, t.affinity, t.trust);
+    Life.advance(s, 15);
+    r.memory = t.response;
+    return t.response;
+  }
+
+  public static String gift(GameState s, LifeContent.Girl g, LifeContent.Item item) {
+    var r = s.relation(g.id);
+    if (!r.met) return "Сначала познакомьтесь.";
+    if (r.lastGiftDay == s.day())
+      return "Она благодарит, но просит оставить следующий подарок на другой день.";
+    if (s.count(item.id) < 1) return "У тебя нет этого подарка. Купить можно в кофейне.";
+    if (!item.kind.equals("gift"))
+      return "Это еда для тебя. Для подарка выбери предмет с пометкой «подарок».";
+    Life.consume(s, item.id);
+    r.lastGiftDay = s.day();
+    boolean likes = java.util.Arrays.asList(g.favoriteGifts).contains(item.id);
+    change(r, likes ? 7 : 1, likes ? 3 : 0);
+    r.memory =
+        likes
+            ? "Ты запомнил(а), что мне нравится. Спасибо — это очень приятно."
+            : "Спасибо. Я не очень увлекаюсь такими вещами, но ценю внимание.";
+    return r.memory;
+  }
+
+  public static String invite(GameState s, LifeContent.Girl g, String venue) {
+    var r = s.relation(g.id);
+    if (!s.plannedGirl.isEmpty()) return "У тебя уже назначена встреча. Посмотри цель на экране.";
+    if (!r.met || r.affinity < 12 || r.trust < 8)
+      return g.notReady + " Поговорите по душам и узнайте её интересы.";
+    if (r.lastDateDay == s.day())
+      return "Сегодня вы уже виделись. Она предлагает встретиться завтра.";
+    if (!java.util.Arrays.asList(g.venues).contains(venue))
+      return "Это место ей не подходит. Выбери другой вариант.";
+    if (!s.partnerId.isEmpty() && !s.partnerId.equals(g.id))
+      return "Сначала обсуди завершение нынешних отношений. Здесь знакомства не превращаются в"
+          + " тайные параллельные романы.";
+    s.plannedGirl = g.id;
+    s.plannedVenue = venue;
+    s.plannedDay = s.day();
+    return "Она согласилась. Место: "
+        + venueName(venue)
+        + ". Иди к отмеченному столику; она дождётся до конца дня.";
+  }
+
+  public static String venueName(String id) {
+    return switch (id) {
+      case "park" -> "сквер, столик у дерева";
+      case "cafe" -> "кофейня «Плёнка»";
+      default -> "забегаловка «Ложка»";
+    };
+  }
+
+  public static boolean canStartDate(GameState s, String venue) {
+    return !s.plannedGirl.isEmpty() && s.plannedVenue.equals(venue) && s.plannedDay == s.day();
+  }
+
+  public static String date(GameState s, LifeContent.Girl g, int choice) {
+    var r = s.relation(g.id);
+    if (!s.plannedGirl.equals(g.id) || s.plannedDay != s.day())
+      return "Сначала договоритесь о встрече.";
+    if (!s.map.equals(s.plannedVenue))
+      return "Сначала доберись до места встречи. Маршрут отмечен золотыми точками.";
+    int cost = s.plannedVenue.equals("park") ? 0 : 850;
+    if (s.money < cost)
+      return "Для этой встречи нужно 850 ₽. Можно перенести её в сквер — прогулка бесплатна.";
+    var c = g.dateChoices[choice];
+    Economy.spend(s, cost, "Свидание: " + g.name);
+    boolean food = !s.plannedVenue.equals("park");
+    s.plannedGirl = "";
+    s.plannedVenue = "";
+    r.lastDateDay = s.day();
+    r.dates++;
+    change(r, c.affinity, c.trust);
+    Life.advance(s, 90);
+    if (food) {
+      s.hunger = Math.min(100, s.hunger + 35);
+      s.ateFirstMeal = true;
+    }
+    s.firstDateFinished = true;
+    s.mood = Math.min(100, s.mood + 8);
+    if (r.dates >= 2 && r.trust >= 28 && r.storyChapter == 0) {
+      r.storyChapter = 1;
+      r.memory = g.story;
+      return c.response + "\n\n" + g.story;
+    }
+    r.memory = c.response;
+    return c.response;
+  }
+
+  public static String commit(GameState s, LifeContent.Girl g) {
+    var r = s.relation(g.id);
+    if (!s.partnerId.isEmpty() && !s.partnerId.equals(g.id))
+      return "Сначала заверши нынешние отношения.";
+    if (r.dates < 3 || r.trust < 40 || r.affinity < 40)
+      return "Ей нужно больше времени: хотя бы три свидания и достаточно доверия. Подарки не"
+          + " заменяют общения.";
+    if (s.partnerId.equals(g.id)) return "Вы уже вместе.";
+    s.partnerId = g.id;
+    r.committedDay = s.day();
+    r.memory = g.commitLine;
+    return g.commitLine;
+  }
+
+  public static String breakup(GameState s, LifeContent.Girl g) {
+    if (!s.partnerId.equals(g.id)) return "Вы не состоите в отношениях.";
+    s.partnerId = "";
+    var r = s.relation(g.id);
+    change(r, -12, -8);
+    r.committedDay = -1;
+    r.memory = "Вы честно обсудили расставание. Ей нужно время.";
+    return r.memory;
+  }
+
+  public static boolean canShareNight(GameState s, LifeContent.Girl g) {
+    var r = s.relation(g.id);
+    return s.partnerId.equals(g.id)
+        && r.dates >= 4
+        && r.trust >= 60
+        && r.affinity >= 60
+        && s.day() > r.committedDay
+        && r.lastNightDay != s.day()
+        && (s.minutes() % 1440 >= 18 * 60 || s.minutes() % 1440 < 2 * 60);
+  }
+
+  public static String shareNight(GameState s, LifeContent.Girl g, boolean mutualYes) {
+    var r = s.relation(g.id);
+    if (!mutualYes) return "Вы решаете не спешить. Можно просто побыть рядом.";
+    if (!s.map.equals("room")) return "Приглашение можно обсудить дома, у кровати.";
+    if (!canShareNight(s, g)) return g.notReady;
+    r.lastNightDay = s.day();
+    r.sharedNights++;
+    change(r, 3, 3);
+    Life.sleep(s);
+    s.mood = Math.min(100, s.mood + 10);
+    r.memory = "Утром вы проснулись рядом. Это осталось вашим личным воспоминанием.";
+    return r.memory;
+  }
+
+  public static void expire(GameState s) {
+    if (!s.plannedGirl.isEmpty() && s.day() > s.plannedDay) {
+      var r = s.relation(s.plannedGirl);
+      change(r, 0, -2);
+      r.memory = "Встреча не состоялась. Она предлагает договориться в другой день.";
+      s.plannedGirl = "";
+      s.plannedVenue = "";
+    }
+  }
+}
+END FILE: core/src/main/java/life/ctrl/model/Social.java
+
+======================================
+FILE: core/src/main/java/life/ctrl/model/World.java
+======================================
+package life.ctrl.model;
+
+import java.util.*;
+import life.ctrl.content.Content;
+
+public final class World {
+  public static final float STEP = 1f / 60f, SPEED = 64f, RADIUS = 4f;
+  public final Content content;
+  public final GameState state;
+  public boolean moving;
+  private String cacheMap = "", cacheGirl = "", cacheVenue = "";
+  private final ArrayList<Content.Npc> activeNpcs = new ArrayList<>();
+
+  public List<Content.Npc> npcs() {
+    if (!cacheMap.equals(state.map)
+        || !cacheGirl.equals(state.plannedGirl)
+        || !cacheVenue.equals(state.plannedVenue)) {
+      cacheMap = state.map;
+      cacheGirl = state.plannedGirl;
+      cacheVenue = state.plannedVenue;
+      activeNpcs.clear();
+      for (var m : content.maps)
+        for (var n : m.npcs) {
+          boolean meeting = n.id.equals(state.plannedGirl);
+          if (meeting ? state.map.equals(state.plannedVenue) : m.id.equals(state.map))
+            activeNpcs.add(n);
+        }
+    }
+    return activeNpcs;
+  }
+
+  public World(Content content, GameState state) {
+    this.content = content;
+    this.state = state;
+    validateState();
+  }
+
+  public Content.MapDef map() {
+    return content.map(state.map);
+  }
+
+  public void validateState() {
+    if (state.name == null
+        || state.name.isBlank()
+        || state.name.length() > 18
+        || !Float.isFinite(state.x)
+        || !Float.isFinite(state.y)
+        || !Double.isFinite(state.elapsed)
+        || state.elapsed < 0
+        || state.elapsed > 1e9
+        || state.direction < 0
+        || state.direction > 3
+        || state.outfit < 0
+        || state.outfit > 2
+        || state.visited == null) throw new IllegalArgumentException("Некорректное сохранение");
+    if (state.money < 0
+        || state.rentDebt < 0
+        || state.rentThroughDay < 3
+        || !validNeed(state.health)
+        || !validNeed(state.hunger)
+        || !validNeed(state.energy)
+        || !validNeed(state.mood)
+        || !Double.isFinite(state.gameMinutes)
+        || state.gameMinutes < 0
+        || state.gameMinutes > 1e7
+        || state.items == null
+        || state.relationships == null
+        || state.paidJobs == null
+        || state.transactions == null
+        || state.activeJob == null
+        || state.activeLedger == null
+        || state.codeSource == null
+        || state.codeSource.length() > 4096
+        || state.typedCount < 0
+        || state.typedCount > state.codeSource.length()
+        || state.partnerId == null
+        || state.plannedGirl == null
+        || state.plannedVenue == null
+        || state.trackedGirl == null
+        || state.jobStage < 0
+        || state.jobStage > 5) throw new IllegalArgumentException("Некорректные показатели");
+    if (state.codingXp < 0
+        || state.completedOrders < 0
+        || state.shipped == null
+        || state.upgrades == null
+        || state.customCases == null
+        || state.revisions == null
+        || state.revisions.size() > 8
+        || state.customCases.size() > 20
+        || state.rushPromises == null
+        || state.lastClientMessage == null
+        || state.workNotice == null) throw new IllegalArgumentException("Некорректная карьера");
+    for (var rev : state.revisions)
+      if (rev == null || rev.source == null || rev.source.length() > 4096 || rev.label == null)
+        throw new IllegalArgumentException("Некорректная версия проекта");
+    for (var item : state.items.entrySet())
+      if (item.getKey() == null || item.getValue() == null || item.getValue() <= 0)
+        throw new IllegalArgumentException("Некорректный инвентарь");
+    for (var relation : state.relationships.values())
+      if (relation == null
+          || relation.affinity < 0
+          || relation.affinity > 100
+          || relation.trust < 0
+          || relation.trust > 100
+          || relation.dates < 0
+          || relation.sharedNights < 0
+          || relation.memory == null) throw new IllegalArgumentException("Некорректные отношения");
+    if (blocked(state.x, state.y))
+      throw new IllegalArgumentException("Персонаж внутри препятствия");
+    if (state.hasLetter && state.deliveredLetter)
+      throw new IllegalArgumentException("Противоречивое состояние письма");
+  }
+
+  private static boolean validNeed(double value) {
+    return Double.isFinite(value) && value >= 0 && value <= 100;
+  }
+
+  public void tick(float dx, float dy) {
+    state.elapsed += STEP;
+    Life.advance(state, STEP * .5);
+    Social.expire(state);
+    float length = (float) Math.hypot(dx, dy);
+    moving = length > 0;
+    if (!moving) return;
+    dx = dx / length * SPEED * STEP;
+    dy = dy / length * SPEED * STEP;
+    state.direction = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 1 : 2) : (dy < 0 ? 3 : 0);
+    if (!blocked(state.x + dx, state.y)) state.x += dx;
+    if (!blocked(state.x, state.y + dy)) state.y += dy;
+  }
+
+  public boolean blocked(float x, float y) {
+    var m = map();
+    if (x < RADIUS || y < RADIUS || x > m.width - RADIUS || y > m.height - RADIUS) return true;
+    for (var r : m.solids) if (intersects(x, y, r)) return true;
+    for (var p : m.objects) if (p.solid != null && intersects(x, y, p.solid)) return true;
+    return false;
+  }
+
+  public static boolean intersects(float x, float y, float[] r) {
+    return x + RADIUS > r[0] && x - RADIUS < r[0] + r[2] && y + 2 > r[1] && y - 4 < r[1] + r[3];
+  }
+
+  public boolean visible(Content.Prop p) {
+    return !p.id.equals("letter") || (!state.hasLetter && !state.deliveredLetter);
+  }
+
+  public Content.Prop nearestProp() {
+    Content.Prop found = null;
+    double best = 29;
+    for (var p : map().objects) {
+      if (p.action.equals("decoration") || !visible(p)) continue;
+      double dist = Math.hypot(state.x - p.x, state.y - p.y);
+      if (dist < best) {
+        best = dist;
+        found = p;
+      }
+    }
+    return found;
+  }
+
+  public static final class Actor {
+    public float x, y;
+    public int direction;
+    public boolean moving;
+  }
+
+  public void position(Content.Npc n, Actor out) {
+    if (n.id.equals(state.plannedGirl) && state.map.equals(state.plannedVenue)) {
+      out.x = state.map.equals("park") ? 264 : 328;
+      out.y = state.map.equals("park") ? 155 : 216;
+      out.direction = 1;
+      out.moving = false;
+      return;
+    }
+    // A loop with a four-second pause at every waypoint; derived from saved world time.
+    double duration = 0;
+    int count = n.route.length;
+    for (int i = 0; i < count; i++)
+      duration +=
+          4
+              + Math.hypot(
+                      n.route[(i + 1) % count][0] - n.route[i][0],
+                      n.route[(i + 1) % count][1] - n.route[i][1])
+                  / 18;
+    double time = state.elapsed % duration;
+    for (int i = 0; i < count; i++) {
+      float[] a = n.route[i], b = n.route[(i + 1) % count];
+      double travel = Math.hypot(b[0] - a[0], b[1] - a[1]) / 18;
+      if (time < 4 + travel) {
+        float t = (float) Math.max(0, (time - 4) / travel);
+        out.x = a[0] + (b[0] - a[0]) * t;
+        out.y = a[1] + (b[1] - a[1]) * t;
+        out.direction =
+            time < 4
+                ? 0
+                : Math.abs(b[0] - a[0]) > Math.abs(b[1] - a[1])
+                    ? (b[0] < a[0] ? 1 : 2)
+                    : (b[1] < a[1] ? 3 : 0);
+        out.moving = time >= 4;
+        return;
+      }
+      time -= 4 + travel;
+    }
+  }
+
+  public Content.Npc nearestNpc() {
+    Content.Npc found = null;
+    double best = 28;
+    Actor a = new Actor();
+    for (var n : npcs()) {
+      position(n, a);
+      double dist = Math.hypot(state.x - a.x, state.y - a.y);
+      if (dist < best) {
+        best = dist;
+        found = n;
+      }
+    }
+    return found;
+  }
+
+  /** Nearby fixtures win over a passing NPC, consistently in the prompt and input handler. */
+  public Content.Npc interactionNpc() {
+    var prop = nearestProp();
+    if (prop != null
+        && Math.hypot(state.x - prop.x, state.y - prop.y) < 21
+        && Set.of("door", "shop", "computer", "rest", "date").contains(prop.action)) return null;
+    return nearestNpc();
+  }
+
+  public void enter(Content.Prop p) {
+    if (!p.action.equals("door")) throw new IllegalArgumentException("Это не дверь");
+    String old = state.map;
+    float x = state.x, y = state.y;
+    state.map = p.target;
+    state.x = p.targetX;
+    state.y = p.targetY;
+    if (blocked(state.x, state.y)) {
+      state.map = old;
+      state.x = x;
+      state.y = y;
+      throw new IllegalStateException("Выход двери заблокирован");
+    }
+    if (!state.visited.contains(state.map)) state.visited.add(state.map);
+    state.direction = p.target.equals("room") ? 3 : 0;
+    moving = false;
+  }
+
+  public String npcDialogue(Content.Npc npc) {
+    return switch (npc.id) {
+      case "mira" -> state.hasLetter ? "miraFound" : state.deliveredLetter ? "miraAgain" : "mira";
+      case "arkady" -> state.metArkady ? "arkadyAgain" : "arkady";
+      default -> npc.dialogue;
+    };
+  }
+
+  public String propDialogue(Content.Prop p) {
+    return switch (p.action) {
+      case "computer" -> "pc";
+      case "plant" -> state.wateredPlant ? "plantAgain" : "plant";
+      case "boxes" -> state.unpacked ? "boxesAgain" : "boxes";
+      case "post" -> state.signedMailbox ? "postAgain" : "post";
+      default -> p.action;
+    };
+  }
+
+  public void effect(String effect) {
+    switch (effect) {
+      case "meetMira" -> state.metMira = true;
+      case "meetArkady" -> state.metArkady = true;
+      case "meetLev" -> state.metLev = true;
+      case "inspectPc" -> state.inspectedPc = true;
+      case "askLetter" -> {
+        state.metMira = true;
+        state.askedLetter = true;
+      }
+      case "takeLetter" -> {
+        if (!state.deliveredLetter) state.hasLetter = true;
+      }
+      case "deliverLetter" -> {
+        if (state.hasLetter) {
+          state.hasLetter = false;
+          state.deliveredLetter = true;
+          state.metMira = true;
+        }
+      }
+      case "waterPlant" -> state.wateredPlant = true;
+      case "unpack" -> state.unpacked = true;
+      case "signMailbox" -> state.signedMailbox = true;
+      case "readBoard" -> state.readBoard = true;
+      case "rest" -> state.elapsed += 30;
+      case "water", "" -> {}
+      default -> throw new IllegalArgumentException("Неизвестный эффект: " + effect);
+    }
+  }
+}
+END FILE: core/src/main/java/life/ctrl/model/World.java
+
+======================================
+FILE: core/src/main/java/life/ctrl/save/SaveStore.java
+======================================
+package life.ctrl.save;
+
+import com.badlogic.gdx.utils.Json;
+import com.badlogic.gdx.utils.JsonWriter;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
+import life.ctrl.content.Content;
+import life.ctrl.model.*;
+
+/** Validated, atomic single-slot saves with a previous-good backup. */
+public final class SaveStore {
+  public static final int VERSION = 4;
+
+  public static final class Envelope {
+    public int version = VERSION;
+    public GameState state;
+
+    public Envelope() {}
+
+    public Envelope(GameState s) {
+      state = s;
+    }
+  }
+
+  public record Loaded(GameState state, boolean fromBackup) {}
+
+  private final Path directory;
+  private final Content content;
+
+  public SaveStore(Path directory, Content content) {
+    this.directory = directory;
+    this.content = content;
+  }
+
+  public static Path defaultDirectory() {
+    String override = System.getProperty("ctrl.dataDir");
+    if (override != null) return Path.of(override);
+    String base =
+        System.getProperty("os.name").startsWith("Windows")
+            ? System.getenv("LOCALAPPDATA")
+            : System.getenv("XDG_DATA_HOME");
+    if (base == null || base.isBlank())
+      base = Path.of(System.getProperty("user.home"), ".local", "share").toString();
+    return Path.of(base, "CtrlLife");
+  }
+
+  private Json json() {
+    Json j = new Json();
+    j.setOutputType(JsonWriter.OutputType.json);
+    j.setUsePrototypes(false);
+    return j;
+  }
+
+  public boolean exists() {
+    return Files.isRegularFile(directory.resolve("save.json"))
+        || Files.isRegularFile(directory.resolve("save.backup.json"));
+  }
+
+  private GameState read(Path file) throws IOException {
+    if (Files.size(file) > 65536) throw new IOException("Файл сохранения слишком большой");
+    try {
+      Envelope e = json().fromJson(Envelope.class, Files.readString(file, StandardCharsets.UTF_8));
+      if (e == null || (e.version < 1 || e.version > VERSION) || e.state == null)
+        throw new IllegalArgumentException("Версия сохранения не поддерживается");
+      if (e.version == 1) {
+        e.state.gameMinutes = 17 * 60 + 30 + e.state.elapsed / 2;
+        var m = content.map(e.state.map);
+        // The cutaway room and furniture changed. Old positions get a safe entrance.
+        if (e.state.map.equals("room")) {
+          e.state.x = m.spawnX;
+          e.state.y = m.spawnY;
+        }
+        try {
+          new World(content, e.state);
+        } catch (IllegalArgumentException ex) {
+          e.state.x = m.spawnX;
+          e.state.y = m.spawnY;
+        }
+      }
+      if (e.version < 3) {
+        e.state.completedOrders = e.state.paidJobs.size();
+        e.state.codingXp = e.state.completedOrders;
+        for (var ledger : e.state.paidJobs) {
+          String id = ledger.substring(ledger.indexOf(':') + 1);
+          if (!e.state.shipped.contains(id)) e.state.shipped.add(id);
+        }
+      }
+      if (e.version < 4) {
+        var map = content.map(e.state.map);
+        for (var prop : map.objects) {
+          if (prop.id.startsWith("v4_")
+              && prop.solid != null
+              && World.intersects(e.state.x, e.state.y, prop.solid)) {
+            e.state.x = map.spawnX;
+            e.state.y = map.spawnY;
+            break;
+          }
+        }
+      }
+      new World(content, e.state);
+      return e.state;
+    } catch (RuntimeException ex) {
+      throw new IOException("Повреждённое или несовместимое сохранение", ex);
+    }
+  }
+
+  public Loaded load() throws IOException {
+    try {
+      return new Loaded(read(directory.resolve("save.json")), false);
+    } catch (IOException main) {
+      try {
+        return new Loaded(read(directory.resolve("save.backup.json")), true);
+      } catch (IOException backup) {
+        throw new IOException("Не удалось прочитать сохранение и резервную копию", main);
+      }
+    }
+  }
+
+  public void save(GameState state) throws IOException {
+    new World(content, state);
+    Files.createDirectories(directory);
+    Path main = directory.resolve("save.json"),
+        temp = directory.resolve("save.tmp.json"),
+        backup = directory.resolve("save.backup.json");
+    Files.writeString(temp, json().prettyPrint(new Envelope(state)), StandardCharsets.UTF_8);
+    read(temp);
+    if (Files.isRegularFile(main)) {
+      boolean valid = true;
+      try {
+        read(main);
+      } catch (IOException ignored) {
+        valid = false;
+      }
+      if (valid) Files.copy(main, backup, StandardCopyOption.REPLACE_EXISTING);
+    }
+    replace(temp, main);
+  }
+
+  public static void replace(Path temp, Path file) throws IOException {
+    try {
+      Files.move(temp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+    } catch (AtomicMoveNotSupportedException ex) {
+      Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+    }
+  }
+
+  public Path directory() {
+    return directory;
+  }
+}
+END FILE: core/src/main/java/life/ctrl/save/SaveStore.java
+
+======================================
+FILE: core/src/main/resources/data/life.json
+======================================
+{
+  "girls": [
+    {
+      "id": "mira",
+      "name": "Мира",
+      "age": 25,
+      "portrait": "mira",
+      "homeMap": "stair",
+      "about": "Реставратор книг. Снимает комнату через стенку и выращивает рассаду для двора.",
+      "values": "Внимание к мелочам, спокойный разговор, уважение к её времени.",
+      "likes": "Старые книги, растения, тихий сквер. Дорогие жесты её смущают.",
+      "favoriteGifts": [
+        "book",
+        "seeds"
+      ],
+      "venues": [
+        "park",
+        "cafe"
+      ],
+      "introduction": "Я Мира, из пятой. Видела твои коробки. Если хочется выдохнуть после переезда — я как раз собиралась в сквер.",
+      "commitLine": "Мне с тобой спокойно. Да, давай будем вместе. Только обещай говорить, если что-то не так.",
+      "notReady": "Мне пока рано. Я хочу сначала узнать тебя получше.",
+      "nightLine": "Я бы хотела сегодня остаться у тебя. Если ты тоже этого хочешь. Мы никуда не спешим.",
+      "story": "Мира признаётся: она мечтает открыть маленькую мастерскую переплёта, но боится не справиться. Ей важно, что ты выслушал(а), а не стал(а) решать всё за неё.",
+      "topics": [
+        {
+          "id": "garden",
+          "label": "Спросить, что она выращивает для двора.",
+          "response": "Мира показывает фото рассады. Разговор затягивается: оказывается, она помнит историю каждого растения.",
+          "affinity": 14,
+          "trust": 12
+        },
+        {
+          "id": "quiet",
+          "label": "Рассказать, что после переезда чувствуешь себя чужим.",
+          "response": "Она кивает: «Я тоже долго так чувствовала. Можем знакомиться с городом вместе».",
+          "affinity": 12,
+          "trust": 14
+        },
+        {
+          "id": "impress",
+          "label": "Пообещать купить ей всё, когда разбогатеешь.",
+          "response": "«Лучше запомни, какой чай я люблю. Не хочу быть чьей-то наградой за успех».",
+          "affinity": -3,
+          "trust": -4
+        }
+      ],
+      "dateChoices": [
+        {
+          "label": "Слушать её историю и спросить о мастерской.",
+          "response": "Вы говорите о книгах до темноты. Уходя, Мира сама предлагает увидеться ещё.",
+          "affinity": 14,
+          "trust": 12
+        },
+        {
+          "label": "Всё время рассказывать только о своих будущих миллионах.",
+          "response": "Мира вежливо слушает, но между вами появляется дистанция. В следующий раз стоит дать ей слово.",
+          "affinity": -3,
+          "trust": -4
+        }
+      ]
+    },
+    {
+      "id": "asya",
+      "name": "Ася",
+      "age": 24,
+      "portrait": "asya",
+      "homeMap": "cafe",
+      "about": "Бариста и начинающий фотограф. Копит на выставку снимков ночного города.",
+      "values": "Честность, любопытство, чувство юмора без унижения других.",
+      "likes": "Фотоальбомы, кофе, спонтанные прогулки. Не любит заученные комплименты.",
+      "favoriteGifts": [
+        "zine",
+        "coffeeGift"
+      ],
+      "venues": [
+        "cafe",
+        "park"
+      ],
+      "introduction": "Я Ася. Кофе сначала оплачивают, знакомятся — бесплатно. Только без «твоих глаз как два капучино», договорились?",
+      "commitLine": "Я хочу, чтобы мы виделись уже не «как-нибудь», а по-настоящему. Да, я с тобой.",
+      "notReady": "Ты мне интересен(на), но я пока не готова торопиться.",
+      "nightLine": "Не хочется сегодня расходиться. Может, останемся вдвоём у тебя? Только если тебе тоже хорошо с этой мыслью.",
+      "story": "Ася показывает кадры, которые никому не решалась отправить. Ты замечаешь в них её собственный взгляд на город, и она решает всё-таки подать заявку на выставку.",
+      "topics": [
+        {
+          "id": "photos",
+          "label": "Спросить, какой снимок она сама любит больше всего.",
+          "response": "Ася достаёт телефон. Вы спорите о кадрировании и вдруг оба начинаете смеяться.",
+          "affinity": 14,
+          "trust": 12
+        },
+        {
+          "id": "honest",
+          "label": "Честно признаться, что почти ничего не знаешь о кофе.",
+          "response": "«Наконец-то! Давай покажу, с чего начать». Ей нравится, что ты не изображаешь эксперта.",
+          "affinity": 12,
+          "trust": 14
+        },
+        {
+          "id": "line",
+          "label": "Сказать заученный комплимент про её глаза.",
+          "response": "Ася приподнимает бровь: «Я же предупреждала. Попробуй просто поговорить со мной».",
+          "affinity": -3,
+          "trust": -3
+        }
+      ],
+      "dateChoices": [
+        {
+          "label": "Предложить вместе выбрать три снимка для выставки.",
+          "response": "Из трёх снимков получается целая история. Ася фотографирует ваши чашки и сохраняет кадр себе.",
+          "affinity": 14,
+          "trust": 12
+        },
+        {
+          "label": "Потребовать отложить телефон и уделять внимание только тебе.",
+          "response": "«Я показывала тебе важную часть своей жизни». Ася замолкает; свидание заканчивается раньше.",
+          "affinity": -5,
+          "trust": -7
+        }
+      ]
+    },
+    {
+      "id": "nika",
+      "name": "Ника",
+      "age": 27,
+      "portrait": "nika",
+      "homeMap": "park",
+      "about": "Backend-разработчица и басистка любительской группы. Гуляет после удалённой работы.",
+      "values": "Самостоятельность, прямота, уважение к чужим границам.",
+      "likes": "Музыка, технические книги, прогулки без шума. Не любит непрошеное наставничество.",
+      "favoriteGifts": [
+        "vinyl",
+        "book"
+      ],
+      "venues": [
+        "park",
+        "diner"
+      ],
+      "introduction": "Ника. Если тоже работаешь за компьютером — советую иногда вспоминать, что у него есть кнопка выключения.",
+      "commitLine": "Я люблю быть одна, но с тобой мне тоже хорошо. Давай попробуем отношения — честные, без игр в угадайку.",
+      "notReady": "Мне нужно больше доверия. Не воспринимай это как задачу, которую надо продавить.",
+      "nightLine": "Я хочу остаться с тобой сегодня. Никаких ожиданий по умолчанию: ты тоже этого хочешь?",
+      "story": "Ника рассказывает о выгорании на прошлой работе и о том, как музыка помогла ей вернуться к себе. Она редко говорит об этом; сегодняшний разговор для неё важен.",
+      "topics": [
+        {
+          "id": "music",
+          "label": "Спросить про её группу, а не только про работу.",
+          "response": "Ника оживляется и даёт послушать репетицию. В её голосе становится меньше привычной осторожности.",
+          "affinity": 14,
+          "trust": 12
+        },
+        {
+          "id": "boundaries",
+          "label": "Обсудить, как не жить работой круглые сутки.",
+          "response": "Вы обмениваетесь историями о переработках. «Хорошо, что ты это понимаешь», — говорит она.",
+          "affinity": 12,
+          "trust": 14
+        },
+        {
+          "id": "teach",
+          "label": "Начать объяснять ей, как правильно писать backend.",
+          "response": "«Ты ещё не видел(а) мой код». Ника не любит, когда знакомство превращают в соревнование.",
+          "affinity": -4,
+          "trust": -5
+        }
+      ],
+      "dateChoices": [
+        {
+          "label": "Спросить, что она сама хочет изменить в своей жизни.",
+          "response": "Вы долго сидите без неловкого молчания. Ника первой берёт тебя за руку на обратной дороге.",
+          "affinity": 14,
+          "trust": 12
+        },
+        {
+          "label": "Составить ей план жизни без её просьбы.",
+          "response": "«Я пришла на свидание, а не на разбор своей жизни». Ника просит закончить встречу.",
+          "affinity": -5,
+          "trust": -7
+        }
+      ]
+    }
+  ],
+  "items": [
+    {
+      "id": "soup",
+      "name": "Суп и хлеб",
+      "kind": "food",
+      "description": "Недорогой горячий ужин.",
+      "price": 220,
+      "hunger": 48,
+      "energy": 8
+    },
+    {
+      "id": "sandwich",
+      "name": "Сэндвич",
+      "kind": "food",
+      "description": "Можно взять с собой и съесть через [I].",
+      "price": 160,
+      "hunger": 32,
+      "energy": 4
+    },
+    {
+      "id": "coffee",
+      "name": "Кофе и тост",
+      "kind": "food",
+      "description": "Немного еды и бодрости.",
+      "price": 190,
+      "hunger": 20,
+      "energy": 22
+    },
+    {
+      "id": "book",
+      "name": "Книга с барахолки",
+      "kind": "gift",
+      "description": "Для Миры или Ники: стоит спросить, что они читают.",
+      "price": 350,
+      "hunger": 0,
+      "energy": 0
+    },
+    {
+      "id": "seeds",
+      "name": "Набор семян",
+      "kind": "gift",
+      "description": "Мира собирает рассаду для двора.",
+      "price": 180,
+      "hunger": 0,
+      "energy": 0
+    },
+    {
+      "id": "zine",
+      "name": "Фотоальбом города",
+      "kind": "gift",
+      "description": "Асе нравятся независимые фотографии.",
+      "price": 450,
+      "hunger": 0,
+      "energy": 0
+    },
+    {
+      "id": "coffeeGift",
+      "name": "Пакет кофе",
+      "kind": "gift",
+      "description": "Небольшой подарок Асе.",
+      "price": 280,
+      "hunger": 0,
+      "energy": 0
+    },
+    {
+      "id": "vinyl",
+      "name": "Пластинка местной группы",
+      "kind": "gift",
+      "description": "Ника играет на бас-гитаре.",
+      "price": 650,
+      "hunger": 0,
+      "energy": 0
+    }
+  ],
+  "jobs": [
+    {
+      "id": "total",
+      "title": "Касса для «Ложки»",
+      "brief": "Сумма заказа = цена одного блюда × количество. При нуле блюд сумма тоже нулевая.",
+      "function": "total",
+      "source": "fn total(price, count) {\n  return price * count;\n}",
+      "pay": 650,
+      "minutes": 90,
+      "algorithms": [
+        "Умножить цену на количество",
+        "Сложить цену и количество",
+        "Вычесть количество из цены"
+      ],
+      "tests": [
+        {
+          "args": [
+            70,
+            2
+          ],
+          "expected": 140
+        },
+        {
+          "args": [
+            55,
+            3
+          ],
+          "expected": 165
+        },
+        {
+          "args": [
+            30,
+            0
+          ],
+          "expected": 0
+        }
+      ],
+      "kind": "feature",
+      "tier": 0,
+      "xp": 1,
+      "client": "Тамара · Ложка",
+      "feedback": "Тамара: «Касса больше не обсчитывает гостей. Заглядывай на суп».",
+      "hint": "Проверь не только обычный ввод, но и ноль или точную границу условия.",
+      "cost": 0,
+      "once": false,
+      "operationBudget": 0,
+      "solutions": [
+        "fn total(price, count) {\n  return price * count;\n}",
+        "fn total(price, count) {\n  return price + count;\n}",
+        "fn total(price, count) {\n  return count * count;\n}"
+      ],
+      "initialSources": [
+        "fn total(price, count) {\n  return prce * count;\n}",
+        "fn total(price, count) {\n  return price + count;\n}",
+        "fn total(price, count) {\n  return count * count;\n}"
+      ],
+      "patches": [
+        "price * count",
+        "price + count",
+        "count * count"
+      ],
+      "seed": [
+        70,
+        2
+      ]
+    },
+    {
+      "id": "discount",
+      "title": "Скидка для кофейни",
+      "brief": "При сумме от 500 ₽ включительно дать скидку 10%. Ниже 500 ₽ цена не меняется.",
+      "function": "discount",
+      "source": "fn discount(sum) {\n  return sum >= 500 ? sum * 0.9 : sum;\n}",
+      "pay": 950,
+      "minutes": 120,
+      "algorithms": [
+        "Скидка при сумме >= 500",
+        "Скидка только при сумме > 500",
+        "Оставить сумму без проверки"
+      ],
+      "tests": [
+        {
+          "args": [
+            400
+          ],
+          "expected": 400
+        },
+        {
+          "args": [
+            500
+          ],
+          "expected": 450
+        },
+        {
+          "args": [
+            800
+          ],
+          "expected": 720
+        }
+      ],
+      "kind": "feature",
+      "tier": 0,
+      "xp": 1,
+      "client": "Ася · Плёнка",
+      "feedback": "Ася: «Теперь скидка срабатывает ровно на пятистах. Спасибо, что проверил границу».",
+      "hint": "Проверь не только обычный ввод, но и ноль или точную границу условия.",
+      "cost": 0,
+      "once": false,
+      "operationBudget": 0,
+      "solutions": [
+        "fn discount(sum) {\n  return sum >= 500 ? sum * 0.9 : sum;\n}",
+        "fn discount(sum) {\n  return sum > 500 ? sum * 0.9 : sum;\n}",
+        "fn discount(sum) { return sum; }"
+      ],
+      "initialSources": [
+        "fn discount(sum) {\n  return sum >= 500 ? sum * 0.9 : sum;\n}",
+        "fn discount(sum) {\n  return sum > 500 ? sum * 0.9 : sum;\n}",
+        "fn discount(sum) { return sum; }"
+      ],
+      "patches": [
+        "sum >= 500",
+        "sum > 500",
+        "Оставить сумму без скидки"
+      ],
+      "seed": [
+        400
+      ]
+    },
+    {
+      "id": "delivery",
+      "title": "Тариф доставки",
+      "brief": "До 3 км включительно доставка стоит 100 ₽. Дальше — 200 ₽.",
+      "function": "delivery",
+      "source": "fn delivery(distance) {\n  return distance <= 3 ? 100 : 200;\n}",
+      "pay": 800,
+      "minutes": 105,
+      "algorithms": [
+        "Ближняя зона: расстояние <= 3",
+        "Ближняя зона: расстояние < 3",
+        "Игнорировать границу зон"
+      ],
+      "tests": [
+        {
+          "args": [
+            1
+          ],
+          "expected": 100
+        },
+        {
+          "args": [
+            3
+          ],
+          "expected": 100
+        },
+        {
+          "args": [
+            6
+          ],
+          "expected": 200
+        }
+      ],
+      "kind": "feature",
+      "tier": 0,
+      "xp": 1,
+      "client": "Лев · доставка",
+      "feedback": "Лев: «Курьеры перестали спорить из-за третьего километра. Так гораздо лучше». ",
+      "hint": "Проверь не только обычный ввод, но и ноль или точную границу условия.",
+      "cost": 0,
+      "once": false,
+      "operationBudget": 0,
+      "solutions": [
+        "fn delivery(distance) {\n  return distance <= 3 ? 100 : 200;\n}",
+        "fn delivery(distance) {\n  return distance < 3 ? 100 : 200;\n}",
+        "fn delivery(distance) { return 100; }"
+      ],
+      "initialSources": [
+        "fn delivery(distance) {\n  return distance <= 3 ? 100 : 200;\n}",
+        "fn delivery(distance) {\n  return distance < 3 ? 100 : 200;\n}",
+        "fn delivery(distance) { return 100; }"
+      ],
+      "patches": [
+        "distance <= 3",
+        "distance < 3",
+        "Всегда 100 рублей"
+      ],
+      "seed": [
+        1
+      ]
+    },
+    {
+      "id": "refund",
+      "title": "Баг: лишний возврат",
+      "kind": "bug",
+      "brief": "Возврат не может быть больше суммы чека. Верни меньшее из paid и requested.",
+      "function": "refund",
+      "source": "fn refund(paid, requested) {\n  return requested > paid ? paid : requested;\n}",
+      "solutions": [
+        "fn refund(paid, requested) {\n  return requested;\n}",
+        "fn refund(paid, requested) {\n  return requested > paid ? paid : requested;\n}",
+        "fn refund(paid, requested) {\n  return requested < paid ? paid : requested;\n}"
+      ],
+      "initialSources": [
+        "fn refund(paid, requested) {\n  return requested;\n}",
+        "fn refund(paid, requested) {\n  return requested;\n}",
+        "fn refund(paid, requested) {\n  return requested;\n}"
+      ],
+      "pay": 1100,
+      "minutes": 120,
+      "tier": 1,
+      "xp": 2,
+      "client": "Тамара · Ложка",
+      "feedback": "Тамара: «Исправление уже на кассе. И ни одного лишнего списания».",
+      "hint": "В логе: paid=220, requested=500 → ушло 500. Возврат должен ограничиваться чеком.",
+      "cost": 0,
+      "once": false,
+      "operationBudget": 0,
+      "algorithms": [
+        "Вернуть всю запрошенную сумму",
+        "Ограничить возврат суммой чека",
+        "Выбрать большую сумму"
+      ],
+      "patches": [
+        "Вернуть всю запрошенную сумму",
+        "Ограничить возврат суммой чека",
+        "Выбрать большую сумму"
+      ],
+      "tests": [
+        {
+          "args": [
+            220,
+            100
+          ],
+          "expected": 100
+        },
+        {
+          "args": [
+            220,
+            500
+          ],
+          "expected": 220
+        },
+        {
+          "args": [
+            0,
+            50
+          ],
+          "expected": 0
+        }
+      ],
+      "seed": [
+        220,
+        100
+      ]
+    },
+    {
+      "id": "queue",
+      "title": "Баг: очередь фотографий",
+      "kind": "bug",
+      "brief": "Для пустой очереди ожидание 0. Иначе — 2 минуты на каждый снимок.",
+      "function": "queue",
+      "source": "fn queue(photos) {\n  return photos <= 0 ? 0 : photos * 2;\n}",
+      "solutions": [
+        "fn queue(photos) {\n  return photos * 2 + 2;\n}",
+        "fn queue(photos) {\n  return photos + 2;\n}",
+        "fn queue(photos) {\n  return photos <= 0 ? 0 : photos * 2;\n}"
+      ],
+      "initialSources": [
+        "fn queue(photos) {\n  return photos * 2 + 2;\n}",
+        "fn queue(photos) {\n  return photos * 2 + 2;\n}",
+        "fn queue(photos) {\n  return photos * 2 + 2;\n}"
+      ],
+      "pay": 1000,
+      "minutes": 110,
+      "tier": 1,
+      "xp": 2,
+      "client": "Ася · фотолаборатория",
+      "feedback": "Ася: «Пустая очередь больше не обещает вечное ожидание. Первый тестовый отпечаток — тебе».",
+      "hint": "Пользователь открыл пустую очередь. Проверь входы 0 и 1 — лишняя задержка видна сразу.",
+      "cost": 0,
+      "once": false,
+      "operationBudget": 0,
+      "algorithms": [
+        "Добавить запас в две минуты",
+        "Сложить снимки и две минуты",
+        "Пусто: 0, иначе photos * 2"
+      ],
+      "patches": [
+        "Добавить запас в две минуты",
+        "Сложить снимки и две минуты",
+        "Пусто: 0, иначе photos * 2"
+      ],
+      "tests": [
+        {
+          "args": [
+            0
+          ],
+          "expected": 0
+        },
+        {
+          "args": [
+            1
+          ],
+          "expected": 2
+        },
+        {
+          "args": [
+            12
+          ],
+          "expected": 24
+        }
+      ],
+      "seed": [
+        0
+      ]
+    },
+    {
+      "id": "booking",
+      "title": "Баг: переполненный зал",
+      "kind": "bug",
+      "brief": "Бронируем до 20 мест. Верни 1, если taken + requested <= 20; иначе 0.",
+      "function": "booking",
+      "source": "fn booking(taken, requested) {\n  return taken + requested <= 20 ? 1 : 0;\n}",
+      "solutions": [
+        "fn booking(taken, requested) {\n  return taken + requested <= 20 ? 1 : 0;\n}",
+        "fn booking(taken, requested) {\n  return taken <= 20 ? 1 : 0;\n}",
+        "fn booking(taken, requested) {\n  return taken + requested < 20 ? 1 : 0;\n}"
+      ],
+      "initialSources": [
+        "fn booking(taken, requested) {\n  return taken <= 20 ? 1 : 0;\n}",
+        "fn booking(taken, requested) {\n  return taken <= 20 ? 1 : 0;\n}",
+        "fn booking(taken, requested) {\n  return taken <= 20 ? 1 : 0;\n}"
+      ],
+      "pay": 1250,
+      "minutes": 140,
+      "tier": 1,
+      "xp": 2,
+      "client": "Ника · репетиционная",
+      "feedback": "Ника: «Наконец-то зал не вмещает сорок человек на бумаге. Теперь можно репетировать».",
+      "hint": "Лог заявки: taken=19, requested=2 → подтверждено. В условии потеряли размер новой группы.",
+      "cost": 0,
+      "once": false,
+      "operationBudget": 0,
+      "algorithms": [
+        "Проверить обе величины и границу 20",
+        "Проверить только занятые места",
+        "Считать полный зал ошибкой"
+      ],
+      "patches": [
+        "Проверить обе величины и границу 20",
+        "Проверить только занятые места",
+        "Считать полный зал ошибкой"
+      ],
+      "tests": [
+        {
+          "args": [
+            15,
+            5
+          ],
+          "expected": 1
+        },
+        {
+          "args": [
+            19,
+            2
+          ],
+          "expected": 0
+        },
+        {
+          "args": [
+            0,
+            20
+          ],
+          "expected": 1
+        }
+      ],
+      "seed": [
+        15,
+        5
+      ]
+    },
+    {
+      "id": "batch",
+      "title": "Профиль: пакет фотографий",
+      "kind": "profile",
+      "brief": "Стоимость обработки: 8 ₽ за фото. Сохрани результат, сократи вычисление до 1 операции.",
+      "function": "batch",
+      "source": "fn batch(photos) {\n  return photos * 8;\n}",
+      "solutions": [
+        "fn batch(photos) {\n  return photos + photos + photos + photos + photos + photos + photos + photos;\n}",
+        "fn batch(photos) {\n  return photos * 8;\n}",
+        "fn batch(photos) {\n  return photos * 6;\n}"
+      ],
+      "initialSources": [
+        "fn batch(photos) {\n  return photos + photos + photos + photos + photos + photos + photos + photos;\n}",
+        "fn batch(photos) {\n  return photos + photos + photos + photos + photos + photos + photos + photos;\n}",
+        "fn batch(photos) {\n  return photos + photos + photos + photos + photos + photos + photos + photos;\n}"
+      ],
+      "pay": 1450,
+      "minutes": 150,
+      "tier": 2,
+      "xp": 2,
+      "client": "Ася · выставка",
+      "feedback": "Ася: «Пакеты обрабатываются быстрее. У меня осталось время доснять вечерний свет».",
+      "hint": "Профилировщик считает реальные арифметические операции. Повторяющиеся слагаемые можно заменить умножением.",
+      "cost": 0,
+      "once": false,
+      "operationBudget": 1,
+      "algorithms": [
+        "Восемь одинаковых слагаемых",
+        "Умножить на 8",
+        "Умножить на 6"
+      ],
+      "patches": [
+        "Восемь одинаковых слагаемых",
+        "Умножить на 8",
+        "Умножить на 6"
+      ],
+      "tests": [
+        {
+          "args": [
+            0
+          ],
+          "expected": 0
+        },
+        {
+          "args": [
+            3
+          ],
+          "expected": 24
+        },
+        {
+          "args": [
+            18
+          ],
+          "expected": 144
+        }
+      ],
+      "seed": [
+        0
+      ]
+    },
+    {
+      "id": "cache",
+      "title": "Профиль: баланс абонемента",
+      "kind": "profile",
+      "brief": "Остаток = bought - used. Убери лишнюю арифметику, максимум 1 операция.",
+      "function": "cache",
+      "source": "fn cache(bought, used) {\n  return bought - used;\n}",
+      "solutions": [
+        "fn cache(bought, used) {\n  return bought - used;\n}",
+        "fn cache(bought, used) {\n  return (bought * 10 - used * 10) / 10;\n}",
+        "fn cache(bought, used) {\n  return used - bought;\n}"
+      ],
+      "initialSources": [
+        "fn cache(bought, used) {\n  return (bought * 10 - used * 10) / 10;\n}",
+        "fn cache(bought, used) {\n  return (bought * 10 - used * 10) / 10;\n}",
+        "fn cache(bought, used) {\n  return (bought * 10 - used * 10) / 10;\n}"
+      ],
+      "pay": 1500,
+      "minutes": 150,
+      "tier": 2,
+      "xp": 2,
+      "client": "Ника · репетиционная",
+      "feedback": "Ника: «Измерение до и после — вот это я уважаю. Патч маленький, эффект понятный».",
+      "hint": "Результат верный, но умножение обоих чисел на 10 и обратное деление ничего не меняют.",
+      "cost": 0,
+      "once": false,
+      "operationBudget": 1,
+      "algorithms": [
+        "Упростить до bought - used",
+        "Сохранить умножения и деление",
+        "Вычесть купленное из использованного"
+      ],
+      "patches": [
+        "Упростить до bought - used",
+        "Сохранить умножения и деление",
+        "Вычесть купленное из использованного"
+      ],
+      "tests": [
+        {
+          "args": [
+            10,
+            3
+          ],
+          "expected": 7
+        },
+        {
+          "args": [
+            4,
+            4
+          ],
+          "expected": 0
+        },
+        {
+          "args": [
+            20,
+            1
+          ],
+          "expected": 19
+        }
+      ],
+      "seed": [
+        10,
+        3
+      ]
+    },
+    {
+      "id": "fees",
+      "title": "Профиль: комиссия",
+      "kind": "profile",
+      "brief": "Комиссия равна 5% суммы. Максимум 1 операция без изменения результата.",
+      "function": "fees",
+      "source": "fn fees(sum) {\n  return sum * 0.05;\n}",
+      "solutions": [
+        "fn fees(sum) {\n  return sum / 100 * 5;\n}",
+        "fn fees(sum) {\n  return sum * 0.5;\n}",
+        "fn fees(sum) {\n  return sum * 0.05;\n}"
+      ],
+      "initialSources": [
+        "fn fees(sum) {\n  return sum / 100 * 5;\n}",
+        "fn fees(sum) {\n  return sum / 100 * 5;\n}",
+        "fn fees(sum) {\n  return sum / 100 * 5;\n}"
+      ],
+      "pay": 1350,
+      "minutes": 135,
+      "tier": 2,
+      "xp": 2,
+      "client": "Лев · доставка",
+      "feedback": "Лев: «Новая версия считает комиссию одним действием. Залил на рабочий терминал».",
+      "hint": "Два действия можно объединить. Не перепутай 0.05 с 0.5 — сравни ответ на 100.",
+      "cost": 0,
+      "once": false,
+      "operationBudget": 1,
+      "algorithms": [
+        "Разделить на 100, умножить на 5",
+        "Взять половину суммы",
+        "Умножить на 0.05"
+      ],
+      "patches": [
+        "Разделить на 100, умножить на 5",
+        "Взять половину суммы",
+        "Умножить на 0.05"
+      ],
+      "tests": [
+        {
+          "args": [
+            100
+          ],
+          "expected": 5
+        },
+        {
+          "args": [
+            600
+          ],
+          "expected": 30
+        },
+        {
+          "args": [
+            0
+          ],
+          "expected": 0
+        }
+      ],
+      "seed": [
+        100
+      ]
+    },
+    {
+      "id": "board",
+      "title": "Свой бот · объявления",
+      "kind": "project",
+      "brief": "Этап 1/3. Новые объявления живут 7 дней включительно: верни 1 при age <= 7, иначе 0.",
+      "function": "board",
+      "source": "fn board(age) {\n  return age <= 7 ? 1 : 0;\n}",
+      "solutions": [
+        "fn board(age) {\n  return age <= 7 ? 1 : 0;\n}",
+        "fn board(age) {\n  return age < 7 ? 1 : 0;\n}",
+        "fn board(age) {\n  return 1;\n}"
+      ],
+      "initialSources": [
+        "fn board(age) {\n  return age < 7 ? 1 : 0;\n}",
+        "fn board(age) {\n  return age < 7 ? 1 : 0;\n}",
+        "fn board(age) {\n  return age < 7 ? 1 : 0;\n}"
+      ],
+      "pay": 0,
+      "minutes": 100,
+      "tier": 0,
+      "xp": 1,
+      "client": "Соседи · свой проект",
+      "feedback": "В районном боте появились объявления. Мира первой разместила обмен книгами.",
+      "hint": "Это твой продукт. Отсечка в 7 дней должна включать сам седьмой день.",
+      "cost": 300,
+      "once": true,
+      "operationBudget": 0,
+      "algorithms": [
+        "Публиковать до 7 дней включительно",
+        "Убирать уже на седьмой день",
+        "Показывать всё навсегда"
+      ],
+      "patches": [
+        "Публиковать до 7 дней включительно",
+        "Убирать уже на седьмой день",
+        "Показывать всё навсегда"
+      ],
+      "tests": [
+        {
+          "args": [
+            1
+          ],
+          "expected": 1
+        },
+        {
+          "args": [
+            7
+          ],
+          "expected": 1
+        },
+        {
+          "args": [
+            8
+          ],
+          "expected": 0
+        }
+      ],
+      "seed": [
+        1
+      ]
+    },
+    {
+      "id": "remind",
+      "title": "Свой бот · напоминания",
+      "kind": "project",
+      "brief": "Этап 2/3. Напомни, если до события осталось от 0 до 2 дней включительно. Верни 1 или 0.",
+      "function": "remind",
+      "source": "fn remind(days) {\n  return days < 0 ? 0 : (days <= 2 ? 1 : 0);\n}",
+      "solutions": [
+        "fn remind(days) {\n  return days <= 2 ? 1 : 0;\n}",
+        "fn remind(days) {\n  return days < 0 ? 0 : (days <= 2 ? 1 : 0);\n}",
+        "fn remind(days) {\n  return days < 2 ? 1 : 0;\n}"
+      ],
+      "initialSources": [
+        "fn remind(days) {\n  return days <= 2 ? 1 : 0;\n}",
+        "fn remind(days) {\n  return days <= 2 ? 1 : 0;\n}",
+        "fn remind(days) {\n  return days <= 2 ? 1 : 0;\n}"
+      ],
+      "pay": 0,
+      "minutes": 120,
+      "tier": 0,
+      "xp": 1,
+      "client": "Соседи · свой проект",
+      "feedback": "Ася добавила в бот даты выставки. Соседям больше не приходится искать сообщение в чате.",
+      "hint": "Прошедшее событие — отрицательное число. Одной проверки <= 2 недостаточно.",
+      "cost": 300,
+      "once": true,
+      "operationBudget": 0,
+      "algorithms": [
+        "Напоминать обо всём, что <= 2",
+        "Проверить сначала прошлое, затем 2 дня",
+        "Не напоминать ровно за 2 дня"
+      ],
+      "patches": [
+        "Напоминать обо всём, что <= 2",
+        "Проверить сначала прошлое, затем 2 дня",
+        "Не напоминать ровно за 2 дня"
+      ],
+      "tests": [
+        {
+          "args": [
+            -1
+          ],
+          "expected": 0
+        },
+        {
+          "args": [
+            0
+          ],
+          "expected": 1
+        },
+        {
+          "args": [
+            2
+          ],
+          "expected": 1
+        },
+        {
+          "args": [
+            3
+          ],
+          "expected": 0
+        }
+      ],
+      "seed": [
+        -1
+      ]
+    },
+    {
+      "id": "support",
+      "title": "Свой бот · запуск",
+      "kind": "project",
+      "brief": "Этап 3/3. Поддержка бота: не больше 160 ₽ в день. Верни меньшее из donations и 160.",
+      "function": "support",
+      "source": "fn support(donations) {\n  return donations > 160 ? 160 : donations;\n}",
+      "solutions": [
+        "fn support(donations) {\n  return donations;\n}",
+        "fn support(donations) {\n  return 160;\n}",
+        "fn support(donations) {\n  return donations > 160 ? 160 : donations;\n}"
+      ],
+      "initialSources": [
+        "fn support(donations) {\n  return donations;\n}",
+        "fn support(donations) {\n  return donations;\n}",
+        "fn support(donations) {\n  return donations;\n}"
+      ],
+      "pay": 0,
+      "minutes": 140,
+      "tier": 0,
+      "xp": 1,
+      "client": "Соседи · свой проект",
+      "feedback": "Районный бот запущен. Поддержка жителей приносит 160 ₽ за следующий игровой день. Это дополнение к работе, а не замена ей.",
+      "hint": "Ограничение сверху нельзя превращать в фиксированную плату: на вводе 0 ответ тоже 0.",
+      "cost": 300,
+      "once": true,
+      "operationBudget": 0,
+      "algorithms": [
+        "Принимать любую сумму",
+        "Всегда считать 160",
+        "Ограничить сумму сверху: 160"
+      ],
+      "patches": [
+        "Принимать любую сумму",
+        "Всегда считать 160",
+        "Ограничить сумму сверху: 160"
+      ],
+      "tests": [
+        {
+          "args": [
+            0
+          ],
+          "expected": 0
+        },
+        {
+          "args": [
+            80
+          ],
+          "expected": 80
+        },
+        {
+          "args": [
+            500
+          ],
+          "expected": 160
+        }
+      ],
+      "seed": [
+        0
+      ]
+    }
+  ]
+}
+END FILE: core/src/main/resources/data/life.json
+
+======================================
+FILE: core/src/main/resources/data/world.json
+======================================
+{
+  "maps": [
+    {
+      "id": "room",
+      "name": "Комната в общежитии",
+      "subtitle": "8 м² · оплачено на три ночи",
+      "width": 480,
+      "height": 320,
+      "spawnX": 240,
+      "spawnY": 190,
+      "solids": [
+        [
+          0,
+          0,
+          480,
+          96
+        ],
+        [
+          0,
+          0,
+          144,
+          320
+        ],
+        [
+          336,
+          0,
+          144,
+          320
+        ],
+        [
+          0,
+          256,
+          480,
+          64
+        ]
+      ],
+      "objects": [
+        {
+          "id": "pc",
+          "label": "Включить ПК / открыть заказы",
+          "action": "computer",
+          "x": 187,
+          "y": 156,
+          "art": "desk",
+          "artX": 155,
+          "artY": 104,
+          "solid": [
+            155,
+            126,
+            64,
+            18
+          ]
+        },
+        {
+          "id": "bed",
+          "label": "Отдохнуть / пригласить партнёршу",
+          "action": "rest",
+          "x": 266,
+          "y": 164,
+          "art": "bed",
+          "artX": 278,
+          "artY": 108,
+          "solid": [
+            278,
+            118,
+            48,
+            62
+          ]
+        },
+        {
+          "id": "wardrobe",
+          "label": "Сменить куртку",
+          "action": "wardrobe",
+          "x": 188,
+          "y": 220,
+          "art": "wardrobe",
+          "artX": 147,
+          "artY": 195,
+          "solid": [
+            147,
+            196,
+            32,
+            45
+          ]
+        },
+        {
+          "id": "boxes",
+          "label": "Осмотреть вещи после переезда",
+          "action": "boxes",
+          "x": 285,
+          "y": 238,
+          "art": "boxes",
+          "artX": 294,
+          "artY": 214,
+          "solid": [
+            294,
+            230,
+            40,
+            18
+          ]
+        },
+        {
+          "id": "out",
+          "label": "Выйти в коридор",
+          "action": "door",
+          "x": 230,
+          "y": 247,
+          "art": null,
+          "artX": 0,
+          "artY": 0,
+          "solid": null,
+          "target": "stair",
+          "targetX": 160,
+          "targetY": 94
+        }
+      ],
+      "npcs": []
+    },
+    {
+      "id": "stair",
+      "name": "Тихий подъезд",
+      "subtitle": "Дом № 7 · второй этаж",
+      "width": 480,
+      "height": 320,
+      "spawnX": 160,
+      "spawnY": 94,
+      "solids": [
+        [
+          0,
+          0,
+          480,
+          64
+        ],
+        [
+          0,
+          0,
+          97,
+          320
+        ],
+        [
+          384,
+          0,
+          96,
+          320
+        ],
+        [
+          0,
+          272,
+          480,
+          48
+        ],
+        [
+          256,
+          139,
+          121,
+          109
+        ]
+      ],
+      "objects": [
+        {
+          "id": "home",
+          "label": "Открыть комнату 04",
+          "action": "door",
+          "x": 160,
+          "y": 77,
+          "art": null,
+          "artX": 0,
+          "artY": 0,
+          "solid": null,
+          "target": "room",
+          "targetX": 230,
+          "targetY": 239
+        },
+        {
+          "id": "street",
+          "label": "Спуститься во двор",
+          "action": "door",
+          "x": 246,
+          "y": 262,
+          "art": null,
+          "artX": 0,
+          "artY": 0,
+          "solid": null,
+          "target": "street",
+          "targetX": 174,
+          "targetY": 245
+        },
+        {
+          "id": "neighbor",
+          "label": "Постучать в комнату 05",
+          "action": "neighbor",
+          "x": 301,
+          "y": 77,
+          "art": null,
+          "artX": 0,
+          "artY": 0,
+          "solid": null
+        },
+        {
+          "id": "board",
+          "label": "Прочитать записку",
+          "action": "stairsNote",
+          "x": 119,
+          "y": 124,
+          "art": null,
+          "artX": 0,
+          "artY": 0,
+          "solid": null
+        }
+      ],
+      "npcs": [
+        {
+          "id": "mira",
+          "name": "Мира · соседка, 25 лет",
+          "art": "mira",
+          "route": [
+            [
+              187,
+              112
+            ],
+            [
+              220,
+              112
+            ],
+            [
+              220,
+              194
+            ],
+            [
+              187,
+              194
+            ]
+          ],
+          "dialogue": "mira"
+        }
+      ]
+    },
+    {
+      "id": "street",
+      "name": "Улица Тихая",
+      "subtitle": "Дом → кофейня → мастерская → «Ложка»",
+      "width": 960,
+      "height": 512,
+      "spawnX": 174,
+      "spawnY": 245,
+      "solids": [
+        [
+          0,
+          0,
+          960,
+          221
+        ],
+        [
+          0,
+          0,
+          16,
+          512
+        ],
+        [
+          944,
+          0,
+          16,
+          512
+        ],
+        [
+          0,
+          465,
+          960,
+          47
+        ],
+        [
+          38,
+          246,
+          37,
+          38
+        ],
+        [
+          300,
+          246,
+          37,
+          38
+        ],
+        [
+          555,
+          246,
+          37,
+          38
+        ],
+        [
+          879,
+          246,
+          37,
+          38
+        ]
+      ],
+      "objects": [
+        {
+          "id": "entrance",
+          "label": "Войти в дом № 7",
+          "action": "door",
+          "x": 174,
+          "y": 230,
+          "art": null,
+          "artX": 0,
+          "artY": 0,
+          "solid": null,
+          "target": "stair",
+          "targetX": 246,
+          "targetY": 248
+        },
+        {
+          "id": "post",
+          "label": "Осмотреть почтовый ящик",
+          "action": "post",
+          "x": 239,
+          "y": 267,
+          "art": "mailbox",
+          "artX": 225,
+          "artY": 225,
+          "solid": [
+            227,
+            248,
+            22,
+            13
+          ]
+        },
+        {
+          "id": "bench",
+          "label": "Посидеть под деревом",
+          "action": "bench",
+          "x": 666,
+          "y": 294,
+          "art": "bench",
+          "artX": 631,
+          "artY": 260,
+          "solid": [
+            631,
+            281,
+            64,
+            11
+          ]
+        },
+        {
+          "id": "lamp",
+          "label": "Осмотреть фонарь",
+          "action": "lamp",
+          "x": 404,
+          "y": 295,
+          "art": "lamp",
+          "artX": 395,
+          "artY": 219,
+          "solid": [
+            400,
+            282,
+            14,
+            9
+          ]
+        },
+        {
+          "id": "tree1",
+          "label": "",
+          "action": "decoration",
+          "x": 0,
+          "y": 0,
+          "art": "tree",
+          "artX": 30,
+          "artY": 180,
+          "solid": [
+            59,
+            241,
+            10,
+            17
+          ]
+        },
+        {
+          "id": "tree2",
+          "label": "",
+          "action": "decoration",
+          "x": 0,
+          "y": 0,
+          "art": "tree",
+          "artX": 705,
+          "artY": 215,
+          "solid": [
+            734,
+            279,
+            10,
+            17
+          ]
+        },
+        {
+          "id": "lamp2",
+          "label": "",
+          "action": "decoration",
+          "x": 0,
+          "y": 0,
+          "art": "lamp",
+          "artX": 866,
+          "artY": 344,
+          "solid": [
+            872,
+            406,
+            14,
+            9
+          ]
+        },
+        {
+          "id": "tree3",
+          "label": "",
+          "action": "decoration",
+          "x": 0,
+          "y": 0,
+          "art": "tree",
+          "artX": 72,
+          "artY": 379,
+          "solid": [
+            101,
+            444,
+            10,
+            17
+          ]
+        },
+        {
+          "id": "bench2",
+          "label": "Присесть у остановки",
+          "action": "bus",
+          "x": 503,
+          "y": 442,
+          "art": "bench",
+          "artX": 475,
+          "artY": 411,
+          "solid": [
+            475,
+            432,
+            64,
+            11
+          ]
+        },
+        {
+          "id": "workshop",
+          "label": "Войти в мастерскую",
+          "action": "door",
+          "x": 470,
+          "y": 230,
+          "art": null,
+          "artX": 0,
+          "artY": 0,
+          "solid": null,
+          "target": "workshop",
+          "targetX": 240,
+          "targetY": 248
+        },
+        {
+          "id": "diner",
+          "label": "Войти в «Ложку» — еда",
+          "action": "door",
+          "x": 814,
+          "y": 230,
+          "art": null,
+          "artX": 0,
+          "artY": 0,
+          "solid": null,
+          "target": "diner",
+          "targetX": 240,
+          "targetY": 248
+        },
+        {
+          "id": "cafe",
+          "label": "Войти в кофейню «Плёнка»",
+          "action": "door",
+          "x": 348,
+          "y": 230,
+          "art": null,
+          "artX": 0,
+          "artY": 0,
+          "solid": null,
+          "target": "cafe",
+          "targetX": 240,
+          "targetY": 248
+        },
+        {
+          "id": "park",
+          "label": "Пройти в сквер",
+          "action": "door",
+          "x": 900,
+          "y": 447,
+          "art": null,
+          "artX": 0,
+          "artY": 0,
+          "solid": null,
+          "target": "park",
+          "targetX": 240,
+          "targetY": 248
+        },
+        {
+          "id": "courier",
+          "label": "Подработка: доставка +240 ₽",
+          "action": "courier",
+          "x": 104,
+          "y": 306,
+          "art": "notice",
+          "artX": 80,
+          "artY": 254,
+          "solid": [
+            83,
+            286,
+            46,
+            17
+          ]
+        }
+      ],
+      "npcs": [
+        {
+          "id": "lev",
+          "name": "Лев · сосед, 29 лет",
+          "art": "lev",
+          "route": [
+            [
+              762,
+              435
+            ],
+            [
+              826,
+              435
+            ]
+          ],
+          "dialogue": "lev"
+        }
+      ],
+      "signs": [
+        {
+          "text": "ОБЩЕЖИТИЕ № 7",
+          "x": 142,
+          "y": 159,
+          "color": "ecdbb6"
+        },
+        {
+          "text": "ПЛЁНКА",
+          "x": 315,
+          "y": 177,
+          "color": "ead2ac"
+        },
+        {
+          "text": "МАСТЕРСКАЯ",
+          "x": 407,
+          "y": 178,
+          "color": "554947"
+        },
+        {
+          "text": "ЛОЖКА",
+          "x": 720,
+          "y": 147,
+          "color": "554947"
+        },
+        {
+          "text": "СКВЕР →",
+          "x": 854,
+          "y": 427,
+          "color": "ecdbb6"
+        }
+      ]
+    },
+    {
+      "id": "cafe",
+      "name": "Кофейня «Плёнка»",
+      "subtitle": "[E] — взаимодействие · [M] — карта",
+      "width": 480,
+      "height": 320,
+      "spawnX": 240,
+      "spawnY": 248,
+      "solids": [
+        [
+          0,
+          0,
+          480,
+          80
+        ],
+        [
+          0,
+          0,
+          96,
+          320
+        ],
+        [
+          384,
+          0,
+          96,
+          320
+        ],
+        [
+          0,
+          264,
+          480,
+          56
+        ]
+      ],
+      "objects": [
+        {
+          "id": "out",
+          "label": "Выйти на улицу",
+          "action": "door",
+          "x": 240,
+          "y": 255,
+          "art": null,
+          "artX": 0,
+          "artY": 0,
+          "solid": null,
+          "target": "street",
+          "targetX": 348,
+          "targetY": 242
+        },
+        {
+          "id": "counter",
+          "label": "Заказать еду и посмотреть подарки",
+          "action": "shop",
+          "x": 159,
+          "y": 153,
+          "art": "counter",
+          "artX": 112,
+          "artY": 112,
+          "solid": [
+            112,
+            130,
+            88,
+            18
+          ]
+        },
+        {
+          "id": "date",
+          "label": "Встреча за столиком",
+          "action": "date",
+          "x": 300,
+          "y": 218,
+          "art": "table",
+          "artX": 284,
+          "artY": 174,
+          "solid": [
+            284,
+            192,
+            32,
+            15
+          ]
+        },
+        {
+          "id": "v4_books",
+          "label": "",
+          "action": "decoration",
+          "x": 342,
+          "y": 157,
+          "art": "bookcase",
+          "artX": 342,
+          "artY": 104,
+          "solid": [
+            342,
+            143,
+            30,
+            14
+          ]
+        }
+      ],
+      "npcs": [
+        {
+          "id": "asya",
+          "name": "Ася · бариста, 24 года",
+          "art": "asya",
+          "route": [
+            [
+              228,
+              128
+            ],
+            [
+              252,
+              128
+            ]
+          ],
+          "dialogue": "asya"
+        }
+      ]
+    },
+    {
+      "id": "diner",
+      "name": "Забегаловка «Ложка»",
+      "subtitle": "[E] — взаимодействие · [M] — карта",
+      "width": 480,
+      "height": 320,
+      "spawnX": 240,
+      "spawnY": 248,
+      "solids": [
+        [
+          0,
+          0,
+          480,
+          80
+        ],
+        [
+          0,
+          0,
+          96,
+          320
+        ],
+        [
+          384,
+          0,
+          96,
+          320
+        ],
+        [
+          0,
+          264,
+          480,
+          56
+        ]
+      ],
+      "objects": [
+        {
+          "id": "out",
+          "label": "Выйти на улицу",
+          "action": "door",
+          "x": 240,
+          "y": 255,
+          "art": null,
+          "artX": 0,
+          "artY": 0,
+          "solid": null,
+          "target": "street",
+          "targetX": 814,
+          "targetY": 242
+        },
+        {
+          "id": "counter",
+          "label": "Заказать еду и посмотреть подарки",
+          "action": "shop",
+          "x": 159,
+          "y": 153,
+          "art": "counter",
+          "artX": 112,
+          "artY": 112,
+          "solid": [
+            112,
+            130,
+            88,
+            18
+          ]
+        },
+        {
+          "id": "date",
+          "label": "Встреча за столиком",
+          "action": "date",
+          "x": 300,
+          "y": 218,
+          "art": "table",
+          "artX": 284,
+          "artY": 174,
+          "solid": [
+            284,
+            192,
+            32,
+            15
+          ]
+        },
+        {
+          "id": "v4_fridge",
+          "label": "",
+          "action": "decoration",
+          "x": 342,
+          "y": 153,
+          "art": "fridge",
+          "artX": 342,
+          "artY": 110,
+          "solid": [
+            342,
+            139,
+            28,
+            14
+          ]
+        }
+      ],
+      "npcs": [
+        {
+          "id": "tamara",
+          "name": "Тамара · хозяйка, 46 лет",
+          "art": "tamara",
+          "route": [
+            [
+              212,
+              125
+            ],
+            [
+              232,
+              125
+            ]
+          ],
+          "dialogue": "tamara"
+        }
+      ]
+    },
+    {
+      "id": "workshop",
+      "name": "Мастерская Аркадия",
+      "subtitle": "[E] — взаимодействие · [M] — карта",
+      "width": 480,
+      "height": 320,
+      "spawnX": 240,
+      "spawnY": 248,
+      "solids": [
+        [
+          0,
+          0,
+          480,
+          80
+        ],
+        [
+          0,
+          0,
+          96,
+          320
+        ],
+        [
+          384,
+          0,
+          96,
+          320
+        ],
+        [
+          0,
+          264,
+          480,
+          56
+        ]
+      ],
+      "objects": [
+        {
+          "id": "out",
+          "label": "Выйти на улицу",
+          "action": "door",
+          "x": 240,
+          "y": 255,
+          "art": null,
+          "artX": 0,
+          "artY": 0,
+          "solid": null,
+          "target": "street",
+          "targetX": 470,
+          "targetY": 242
+        },
+        {
+          "id": "bench",
+          "label": "Совет по заказам и подработкам",
+          "action": "mentor",
+          "x": 175,
+          "y": 156,
+          "art": "desk",
+          "artX": 143,
+          "artY": 108,
+          "solid": [
+            143,
+            128,
+            64,
+            20
+          ]
+        },
+        {
+          "id": "v4_crt_0",
+          "label": "",
+          "action": "decoration",
+          "x": 113,
+          "y": 217,
+          "art": "crt_spare",
+          "artX": 113,
+          "artY": 193,
+          "solid": [
+            113,
+            207,
+            24,
+            10
+          ]
+        },
+        {
+          "id": "v4_crt_1",
+          "label": "",
+          "action": "decoration",
+          "x": 305,
+          "y": 215,
+          "art": "crt_spare",
+          "artX": 305,
+          "artY": 191,
+          "solid": [
+            305,
+            205,
+            24,
+            10
+          ]
+        },
+        {
+          "id": "v4_crt_2",
+          "label": "",
+          "action": "decoration",
+          "x": 335,
+          "y": 231,
+          "art": "crt_spare",
+          "artX": 335,
+          "artY": 207,
+          "solid": [
+            335,
+            221,
+            24,
+            10
+          ]
+        }
+      ],
+      "npcs": [
+        {
+          "id": "arkady",
+          "name": "Аркадий · мастер, 42 года",
+          "art": "arkady",
+          "route": [
+            [
+              260,
+              136
+            ],
+            [
+              300,
+              136
+            ]
+          ],
+          "dialogue": "arkady"
+        }
+      ]
+    },
+    {
+      "id": "park",
+      "name": "Сквер у пруда",
+      "subtitle": "[E] — взаимодействие · [M] — карта",
+      "width": 480,
+      "height": 320,
+      "spawnX": 240,
+      "spawnY": 248,
+      "solids": [
+        [
+          0,
+          0,
+          480,
+          56
+        ],
+        [
+          0,
+          0,
+          24,
+          320
+        ],
+        [
+          456,
+          0,
+          24,
+          320
+        ],
+        [
+          0,
+          264,
+          480,
+          56
+        ],
+        [
+          96,
+          88,
+          90,
+          70
+        ]
+      ],
+      "objects": [
+        {
+          "id": "out",
+          "label": "Выйти на улицу",
+          "action": "door",
+          "x": 240,
+          "y": 255,
+          "art": null,
+          "artX": 0,
+          "artY": 0,
+          "solid": null,
+          "target": "street",
+          "targetX": 900,
+          "targetY": 440
+        },
+        {
+          "id": "date",
+          "label": "Столик для встречи",
+          "action": "date",
+          "x": 240,
+          "y": 153,
+          "art": "table",
+          "artX": 224,
+          "artY": 112,
+          "solid": [
+            224,
+            130,
+            32,
+            16
+          ]
+        },
+        {
+          "id": "bench",
+          "label": "Посидеть и отдохнуть 30 минут",
+          "action": "wait",
+          "x": 339,
+          "y": 217,
+          "art": "bench",
+          "artX": 310,
+          "artY": 178,
+          "solid": [
+            310,
+            199,
+            64,
+            11
+          ]
+        }
+      ],
+      "npcs": [
+        {
+          "id": "nika",
+          "name": "Ника · разработчица, 27 лет",
+          "art": "nika",
+          "route": [
+            [
+              352,
+              106
+            ],
+            [
+              392,
+              106
+            ],
+            [
+              392,
+              158
+            ],
+            [
+              352,
+              158
+            ]
+          ],
+          "dialogue": "nika"
+        }
+      ]
+    }
+  ],
+  "dialogues": [
+    {
+      "id": "mira",
+      "speaker": "Мира",
+      "text": "Ты из четвёртой? Я Мира. Если батарея начнёт стучать, не пугайся. Так этот дом здоровается.",
+      "choices": [
+        {
+          "label": "Я Саша. Только переехал(а).",
+          "next": "miraLetter",
+          "effect": "meetMira"
+        },
+        {
+          "label": "Где здесь чинят компьютеры?",
+          "next": "miraWorkshop",
+          "effect": "meetMira"
+        },
+        {
+          "label": "Ещё увидимся.",
+          "next": "",
+          "effect": "meetMira"
+        }
+      ]
+    },
+    {
+      "id": "miraLetter",
+      "speaker": "Мира",
+      "text": "Мне сегодня оставили письмо под лавкой у магазина. Но пошёл дождь… Если будешь гулять, посмотри там. Я пока разберусь с лампой в подъезде.",
+      "choices": [
+        {
+          "label": "Посмотрю.",
+          "next": "",
+          "effect": "askLetter"
+        },
+        {
+          "label": "Сначала осмотрюсь.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    },
+    {
+      "id": "miraWorkshop",
+      "speaker": "Мира",
+      "text": "Выйди из дома и иди направо. Аркадий стоит у мастерской с рыжей вывеской. Заодно можно забрать моё письмо под лавкой у магазина.",
+      "choices": [
+        {
+          "label": "Спасибо, загляну.",
+          "next": "",
+          "effect": "askLetter"
+        }
+      ]
+    },
+    {
+      "id": "miraFound",
+      "speaker": "Мира",
+      "text": "Это моё письмо! Бумага совсем сухая. Спасибо. Внутри семена — мама прислала для нашего двора.",
+      "choices": [
+        {
+          "label": "Пусть здесь будет чуть зеленее.",
+          "next": "miraThanks",
+          "effect": "deliverLetter"
+        }
+      ]
+    },
+    {
+      "id": "miraThanks",
+      "speaker": "Мира",
+      "text": "Весной посадим вместе. А пока держи мой номер. Если потеряешься в новом районе — пиши. Теперь ты здесь не совсем один.",
+      "choices": [
+        {
+          "label": "До завтра, Мира.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    },
+    {
+      "id": "miraAgain",
+      "speaker": "Мира",
+      "text": "Я поставила конверт на подоконник. Поймала себя на том, что уже жду весну. Как тебе наш квартал?",
+      "choices": [
+        {
+          "label": "Тихо. Мне нравится.",
+          "next": "miraQuiet",
+          "effect": ""
+        },
+        {
+          "label": "Расскажи про мастерскую.",
+          "next": "miraWorkshop",
+          "effect": ""
+        },
+        {
+          "label": "Пойду домой.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    },
+    {
+      "id": "miraQuiet",
+      "speaker": "Мира",
+      "text": "Да. Иногда слишком. Но стоит кому-то переехать — и в окне загорается ещё один свет.",
+      "choices": [
+        {
+          "label": "Теперь и в моём.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    },
+    {
+      "id": "arkady",
+      "speaker": "Аркадий",
+      "text": "Новое лицо! Я Аркадий. В этом доме даже чайники ко мне на диагностику ходят. Что у тебя?",
+      "choices": [
+        {
+          "label": "Компьютер включается, но не загружается.",
+          "next": "arkadyPc",
+          "effect": "meetArkady"
+        },
+        {
+          "label": "Знакомлюсь с районом.",
+          "next": "arkadyTown",
+          "effect": "meetArkady"
+        }
+      ]
+    },
+    {
+      "id": "arkadyPc",
+      "speaker": "Аркадий",
+      "text": "Для первого заказа мощный компьютер не нужен. Начни с кассы для «Ложки»: цена умножается на количество. Результат проверь тестами.",
+      "choices": [
+        {
+          "label": "Запомню. А мастерская?",
+          "next": "arkadyClosed",
+          "effect": "inspectPc"
+        }
+      ]
+    },
+    {
+      "id": "arkadyClosed",
+      "speaker": "Аркадий",
+      "text": "Мастерская открыта. Но твой ПК уже годится для простых заказов. А если нужны быстрые деньги — доставка у доски объявлений.",
+      "choices": [
+        {
+          "label": "До встречи, Аркадий.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    },
+    {
+      "id": "arkadyTown",
+      "speaker": "Аркадий",
+      "text": "Направо — лавка с продуктами. Лев часто гуляет у остановки. А Мира знает всех в подъезде. Сходи познакомься: город начинается с людей.",
+      "choices": [
+        {
+          "label": "Спасибо за ориентиры.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    },
+    {
+      "id": "arkadyAgain",
+      "speaker": "Аркадий",
+      "text": "Ну как, обжился? Если старый компьютер пищит, запиши число сигналов. Это его способ попросить о помощи.",
+      "choices": [
+        {
+          "label": "Три сигнала.",
+          "next": "arkadyPc",
+          "effect": ""
+        },
+        {
+          "label": "Просто зашёл поздороваться.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    },
+    {
+      "id": "lev",
+      "speaker": "Лев",
+      "text": "Я вышел за хлебом час назад. Задержался послушать дождь под навесом. Звучит как загрузка старого модема, правда?",
+      "choices": [
+        {
+          "label": "Я недавно сюда переехал(а).",
+          "next": "levHome",
+          "effect": "meetLev"
+        },
+        {
+          "label": "Теперь тоже это слышу.",
+          "next": "levRain",
+          "effect": "meetLev"
+        }
+      ]
+    },
+    {
+      "id": "levHome",
+      "speaker": "Лев",
+      "text": "Тогда добро пожаловать. Не пытайся прожить всю новую жизнь за один вечер. Иногда достаточно найти дорогу домой.",
+      "choices": [
+        {
+          "label": "Хороший план на сегодня.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    },
+    {
+      "id": "levRain",
+      "speaker": "Лев",
+      "text": "Главное, чтобы дождь не занял телефонную линию. Ладно, пойду… Ещё пять минут.",
+      "choices": [
+        {
+          "label": "Увидимся.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    },
+    {
+      "id": "pc",
+      "speaker": "Старый компьютер",
+      "text": "Вентилятор раскручивается. Три коротких сигнала — и тёмный экран. На корпусе карандашом: «Работал до переезда».",
+      "choices": [
+        {
+          "label": "Записать симптомы в журнал.",
+          "next": "pcNote",
+          "effect": "inspectPc"
+        },
+        {
+          "label": "Выключить питание.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    },
+    {
+      "id": "pcNote",
+      "speaker": "Заметка",
+      "text": "Сначала стоит поговорить с мастером. Соседка Мира наверняка подскажет дорогу. Журнал открывается клавишей J.",
+      "choices": [
+        {
+          "label": "Встать из-за стола.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    },
+    {
+      "id": "bed",
+      "speaker": "Комната 04",
+      "text": "На кровати пахнет свежим бельём. Ты садишься на край, слушаешь дождь. За стеной кто-то тихо ставит чайник.",
+      "choices": [
+        {
+          "label": "Отдохнуть пару минут.",
+          "next": "",
+          "effect": "rest"
+        },
+        {
+          "label": "Пока ещё погуляю.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    },
+    {
+      "id": "kitchen",
+      "speaker": "Маленькая кухня",
+      "text": "Две конфорки, чашка без пары и кран, который наконец перестал капать. Для первого вечера — вполне достаточно.",
+      "choices": [
+        {
+          "label": "Налить стакан воды.",
+          "next": "",
+          "effect": "water"
+        }
+      ]
+    },
+    {
+      "id": "plant",
+      "speaker": "На подоконнике",
+      "text": "Предыдущий жилец оставил растение с запиской: «Свет любит. Переезды — не очень». Кажется, у вас есть кое-что общее.",
+      "choices": [
+        {
+          "label": "Немного полить.",
+          "next": "",
+          "effect": "waterPlant"
+        }
+      ]
+    },
+    {
+      "id": "plantAgain",
+      "speaker": "На подоконнике",
+      "text": "Земля ещё влажная. Растение пережило переезд. Теперь можно дать ему немного покоя.",
+      "choices": [
+        {
+          "label": "Оставить у окна.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    },
+    {
+      "id": "boxes",
+      "speaker": "Коробка «РАЗНОЕ»",
+      "text": "Сверху лежит старый блокнот. На первой странице: «Не обязательно знать весь путь. Достаточно следующего шага».",
+      "choices": [
+        {
+          "label": "Положить блокнот на стол.",
+          "next": "",
+          "effect": "unpack"
+        }
+      ]
+    },
+    {
+      "id": "boxesAgain",
+      "speaker": "Коробка «РАЗНОЕ»",
+      "text": "Верхняя коробка разобрана. Мелочь, а комната уже кажется немного больше.",
+      "choices": [
+        {
+          "label": "Закрыть коробку.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    },
+    {
+      "id": "neighbor",
+      "speaker": "Комната 05",
+      "text": "Из-за двери доносится тиканье часов. На ручке записка: «Я в подъезде. Мира».",
+      "choices": [
+        {
+          "label": "Отойти от двери.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    },
+    {
+      "id": "stairsNote",
+      "speaker": "Записка на стене",
+      "text": "«Дорогие соседи! Если лампа моргает, не бейте по выключателю. Она чувствительная. Заявку уже оставила. М.»",
+      "choices": [
+        {
+          "label": "Улыбнуться.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    },
+    {
+      "id": "notice",
+      "speaker": "Доска объявлений",
+      "text": "«Отдам книги по программированию. Спросить у Миры». Ниже — расписание уборки двора и нарисованный от руки кот.",
+      "choices": [
+        {
+          "label": "Запомнить.",
+          "next": "",
+          "effect": "readBoard"
+        }
+      ]
+    },
+    {
+      "id": "post",
+      "speaker": "Почтовый ящик",
+      "text": "Нацарапанное имя старого жильца заклеено чистой бумажкой. Здесь скоро будет твоё имя.",
+      "choices": [
+        {
+          "label": "Подписать свой ящик.",
+          "next": "",
+          "effect": "signMailbox"
+        }
+      ]
+    },
+    {
+      "id": "postAgain",
+      "speaker": "Почтовый ящик",
+      "text": "Теперь здесь аккуратно подписано твоё имя. Маленькое доказательство того, что ты действительно переехал(а).",
+      "choices": [
+        {
+          "label": "Закрыть дверцу.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    },
+    {
+      "id": "letter",
+      "speaker": "Под лавкой",
+      "text": "Плотный конверт спрятался от дождя за ножкой скамейки. На обороте написано: «Мире, для нового двора».",
+      "choices": [
+        {
+          "label": "Бережно взять конверт.",
+          "next": "",
+          "effect": "takeLetter"
+        }
+      ]
+    },
+    {
+      "id": "bench",
+      "speaker": "Под деревом",
+      "text": "Капли собираются на листьях, а потом разом падают на тротуар. Из окна магазина тянет тёплым светом.",
+      "choices": [
+        {
+          "label": "Послушать дождь.",
+          "next": "",
+          "effect": "rest"
+        }
+      ]
+    },
+    {
+      "id": "bus",
+      "speaker": "У остановки",
+      "text": "Автобус уже ушёл. За мокрым стеклом висит схема большого города. Сегодня тебе хватит этой улицы.",
+      "choices": [
+        {
+          "label": "Вернуться на тротуар.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    },
+    {
+      "id": "lamp",
+      "speaker": "Уличный фонарь",
+      "text": "Фонарь гудит негромко и ровно. В лужах его свет выглядит как тёплая медь.",
+      "choices": [
+        {
+          "label": "Погреться в свете.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    },
+    {
+      "id": "grocery",
+      "speaker": "Магазин «У дома»",
+      "text": "«Сегодня инвентаризация. Извините за неудобства». За стеклом кто-то сосредоточенно пересчитывает пачки чая.",
+      "choices": [
+        {
+          "label": "Отойти от витрины.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    },
+    {
+      "id": "workshop",
+      "speaker": "Мастерская Аркадия",
+      "text": "«Идёт учёт деталей. Мастер рядом, на улице». На вывеске маленький паяльник и надпись: «Вещам нужен второй шанс».",
+      "choices": [
+        {
+          "label": "Поискать Аркадия поблизости.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    },
+    {
+      "id": "asya",
+      "speaker": "Ася",
+      "text": "Привет. Давай познакомимся.",
+      "choices": [
+        {
+          "label": "Спасибо.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    },
+    {
+      "id": "nika",
+      "speaker": "Ника",
+      "text": "Привет. Здесь хорошо отдыхать после работы.",
+      "choices": [
+        {
+          "label": "Спасибо.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    },
+    {
+      "id": "tamara",
+      "speaker": "Тамара",
+      "text": "Горячая еда — у стойки слева. Если совсем без денег, у меня есть бесплатная порция супа. А на доске у дома всегда найдётся доставка.",
+      "choices": [
+        {
+          "label": "Спасибо.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    },
+    {
+      "id": "mentor",
+      "speaker": "Аркадий",
+      "text": "На этом ПК хватит сил для простых заказов. Клиент платит за верный результат. Сначала прочитай правило, потом проверь крайние случаи.",
+      "choices": [
+        {
+          "label": "Спасибо.",
+          "next": "",
+          "effect": ""
+        }
+      ]
+    }
+  ]
+}
+END FILE: core/src/main/resources/data/world.json

@@ -1,0 +1,4670 @@
+PINUX ASTRA / CTRL+LIFE — UI / Desktop / Windows / AstraCode
+Branch: ctrl-life; Repo: IZKGMD/AutoGDBot
+Files: 11
+
+
+======================================
+FILE: core/src/main/java/life/ctrl/ui/AstraCodeApp.java
+======================================
+package life.ctrl.ui;
+
+import com.badlogic.gdx.graphics.Color;
+import com.badlogic.gdx.scenes.scene2d.Actor;
+import com.badlogic.gdx.scenes.scene2d.ui.Label;
+import com.badlogic.gdx.scenes.scene2d.ui.ScrollPane;
+import com.badlogic.gdx.scenes.scene2d.ui.Skin;
+import com.badlogic.gdx.scenes.scene2d.ui.Table;
+import com.badlogic.gdx.scenes.scene2d.ui.TextButton;
+import com.badlogic.gdx.scenes.scene2d.utils.ChangeListener;
+import com.badlogic.gdx.utils.Align;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Locale;
+import life.ctrl.CtrlLife;
+import life.ctrl.CtrlLife.Mode;
+import life.ctrl.bytescript.ByteScript;
+import life.ctrl.content.LifeContent;
+import life.ctrl.model.Career;
+import life.ctrl.model.Coding;
+import life.ctrl.model.GameState;
+
+/**
+ * High-resolution Scene2D implementation of the complete Workbench gameplay.
+ * The rendered 480x270 PixelCanvas is deliberately not used by this application.
+ * GameState, Coding and ByteScript are the single source of truth for its results.
+ */
+final class AstraCodeApp {
+  private static final Color FG = Color.valueOf("dfe5ed");
+  private static final Color MUTED = Color.valueOf("8c9aab");
+  private static final Color BLUE = Color.valueOf("78b4ee");
+  private static final Color GREEN = Color.valueOf("98c379");
+  private static final Color GOLD = Color.valueOf("e5c07b");
+  private static final Color ERROR = Color.valueOf("e18a94");
+
+  private final CtrlLife game;
+  private final LifeScreens life;
+  private final Skin skin;
+  private final Table root = new Table();
+  private int displayedPage = -1, boardPage, portfolioPage;
+  private String displayedKey = "", notice = "";
+  private boolean dirty = true, rush;
+  private double[] inputs = {0};
+  private String labResult = "Измени аргументы и запусти собственный тест.";
+  private int baseline = -1, operations = -1;
+
+  AstraCodeApp(CtrlLife game, LifeScreens life, Skin skin) {
+    this.game = game;
+    this.life = life;
+    this.skin = skin;
+    root.top().left();
+    root.setBackground(skin.getDrawable("pane-bg"));
+  }
+
+  Table view() { return root; }
+  void invalidate() { dirty = true; }
+
+  private GameState state() { return game.world().state; }
+  private LifeContent.Job job() {
+    return state().activeJob.isEmpty() ? null : life.data.job(state().activeJob);
+  }
+  private void persist() { game.refreshState(); }
+  private void message(String text) { notice = text; dirty = true; }
+  private void page(int n) { life.codePage = n; dirty = true; }
+  private void leave() { persist(); game.switchMode(Mode.WORLD); }
+
+  void tick() {
+    if (job() == null && (life.codePage == 1 || life.codePage == 2 ||
+        life.codePage == 3 || life.codePage == 4 || life.codePage == 5 ||
+        life.codePage == 6 || life.codePage == 10)) life.codePage = 0;
+    String report = life.report == null ? "" :
+        life.report.compiled() + ":" + life.report.passed() + ":" + life.report.message();
+    String key = life.codePage + "|" + state().activeJob + "|" + state().jobStage +
+        "|" + state().typedCount + "|" + state().codeSource + "|" + report +
+        "|" + state().money + "|" + state().codingXp + "|" + state().revisions.size() +
+        "|" + state().shipped.size() + "|" + state().upgrades.size();
+    if (dirty || life.codePage != displayedPage || !key.equals(displayedKey)) {
+      displayedPage = life.codePage;
+      displayedKey = key;
+      dirty = false;
+      rebuild();
+    }
+  }
+
+  private Label label(String text, Color color, boolean small) {
+    Label.LabelStyle style = new Label.LabelStyle(
+        skin.getFont(small ? "small-font" : "ui-font"), color);
+    Label result = new Label(text, style);
+    result.setAlignment(Align.left);
+    return result;
+  }
+
+  private Label wrap(String text, Color color) {
+    Label label = label(text, color, true);
+    label.setWrap(true);
+    label.setAlignment(Align.topLeft);
+    return label;
+  }
+
+  private TextButton button(String text, Runnable action, boolean enabled) {
+    TextButton.TextButtonStyle style = new TextButton.TextButtonStyle();
+    style.font = skin.getFont("small-font");
+    style.fontColor = enabled ? FG : MUTED;
+    style.overFontColor = Color.WHITE;
+    style.up = skin.getDrawable("button-bg");
+    style.over = skin.getDrawable("hover-bg");
+    style.down = skin.getDrawable("hover-bg");
+    TextButton btn = new TextButton(text, style);
+    btn.setDisabled(!enabled);
+    btn.getLabel().setAlignment(Align.left);
+    btn.getLabel().setWrap(true);
+    btn.padLeft(14);
+    btn.padRight(11);
+    if (enabled) btn.addListener(new ChangeListener() {
+      @Override public void changed(ChangeEvent event, Actor actor) {
+        action.run();
+        dirty = true;
+      }
+    });
+    return btn;
+  }
+
+  private void action(Table table, String caption, Runnable run) {
+    action(table, caption, run, true);
+  }
+  private void action(Table table, String caption, Runnable run, boolean enabled) {
+    table.add(button(caption, run, enabled)).height(43).growX().minWidth(0).padBottom(8);
+    table.row();
+  }
+
+  private void note(Table table, String value) {
+    Label label = wrap(value, MUTED);
+    table.add(label).width(625).growX().minWidth(0).padBottom(16);
+    table.row();
+  }
+
+  private void title(Table table, String category, String name, String subtitle) {
+    Label eye = label(category.toUpperCase(Locale.ROOT), BLUE, true);
+    table.add(eye).left().padBottom(12);
+    table.row();
+    table.add(label(name, FG, false)).left().padBottom(7);
+    table.row();
+    note(table, subtitle);
+  }
+
+  private Table block() {
+    Table table = new Table();
+    table.top().left().pad(17);
+    table.setBackground(skin.getDrawable("input-bg"));
+    return table;
+  }
+
+  private void addBlock(Table content, Table block) {
+    content.add(block).growX().minWidth(0).padBottom(12);
+    content.row();
+  }
+
+  private void header(Table bar) {
+    bar.setBackground(skin.getDrawable("window-header"));
+    bar.left().padLeft(17).padRight(18);
+    Label logo = label("A  /  ASTRA CODE", BLUE, false);
+    bar.add(logo).left().padRight(25);
+    bar.add(label("ByteScript  •  project workspace", MUTED, true)).left();
+    bar.add().expandX();
+    bar.add(label(Career.rank(state()) + "   ·   " + state().codingXp + " XP", MUTED, true))
+        .padRight(20);
+    bar.add(label(state().money + " ₽", GOLD, true));
+  }
+
+  private void nav(Table side, String name, int page, boolean available) {
+    boolean selected = life.codePage == page;
+    TextButton b = button((selected ? "▎  " : "     ") + name, () -> navigate(page), available);
+    // Desktop navigation uses a quiet flat surface, not the blue CTA capsules.
+    // Only the active document has an accent, like Archcraft's compact menus.
+    b.getStyle().up = skin.getDrawable(selected ? "term-tab" : "term-toolbar");
+    b.getStyle().over = skin.getDrawable("term-tab");
+    b.getStyle().down = skin.getDrawable("term-tab");
+    b.getStyle().fontColor = selected ? BLUE : MUTED;
+    b.getStyle().overFontColor = FG;
+    side.add(b).height(36).growX().minWidth(0).padBottom(2);
+    side.row();
+  }
+
+  private void navigate(int next) {
+    if (next == 4) {
+      if (job() == null) { page(0); return; }
+      if (life.report == null || !life.report.passed()) {
+        test();
+        if (life.report == null || !life.report.passed()) {
+          message("Сначала пройди тесты, затем открой предпросмотр.");
+          page(2);
+          return;
+        }
+      }
+      life.previewInput = job().id.equals("discount") ? 500 :
+          job().seed[job().seed.length - 1];
+    }
+    if (next == 5) prepareLab();
+    page(next);
+  }
+
+  private void sidebar(Table side) {
+    side.top().left().pad(12);
+    side.setBackground(skin.getDrawable("window-bg"));
+    Label work = label("WORKSPACE", BLUE, true);
+    side.add(work).left().padLeft(11).padTop(8).padBottom(12);
+    side.row();
+    nav(side, "Контракты", 0, true);
+    nav(side, "main.bs", 2, job() != null);
+    nav(side, "Исправления", 3, job() != null);
+    nav(side, "Предпросмотр", 4, job() != null);
+    nav(side, "Лаборатория", 5, job() != null);
+    nav(side, "Git / версии", 6, job() != null);
+    side.add(label("PROGRESSION", BLUE, true)).padLeft(11).padTop(16).padBottom(10).left();
+    side.row();
+    nav(side, "Карьера", 7, true);
+    nav(side, "Портфолио", 11, true);
+    nav(side, "Оборудование", 8, true);
+    nav(side, "Свой бот", 9, true);
+    side.add().expandY();
+    side.row();
+    action(side, "Выйти из ПК", this::leave);
+  }
+
+  private void rebuild() {
+    root.clearChildren();
+    Table bar = new Table();
+    header(bar);
+    root.add(bar).height(53).growX();
+    root.row();
+
+    Table body = new Table();
+    body.top().left();
+    Table side = new Table();
+    sidebar(side);
+    body.add(side).width(208).growY().top();
+    Table content = new Table();
+    content.top().left().pad(22);
+    content.defaults().left();
+    renderPage(content);
+    if (!notice.isEmpty()) {
+      Table info = block();
+      Label message = wrap(notice, GOLD);
+      info.add(message).width(600).growX().minWidth(0);
+      addBlock(content, info);
+    }
+    ScrollPane pane = new ScrollPane(content, new ScrollPane.ScrollPaneStyle());
+    pane.setFadeScrollBars(true);
+    pane.setOverscroll(false, false);
+    pane.setScrollingDisabled(true, false);
+    body.add(pane).grow().minWidth(0);
+    root.add(body).grow().minHeight(0);
+  }
+
+  private void renderPage(Table content) {
+    LifeContent.Job j = job();
+    switch (life.codePage) {
+      case 0 -> board(content);
+      case 1 -> brief(content, j);
+      case 2 -> editor(content, j);
+      case 3 -> patches(content, j);
+      case 4 -> preview(content, j);
+      case 5 -> lab(content, j);
+      case 6 -> history(content);
+      case 7 -> career(content);
+      case 8 -> gear(content);
+      case 9 -> project(content);
+      case 10 -> abandon(content);
+      case 11 -> portfolio(content);
+      default -> board(content);
+    }
+  }
+
+  private void choose(LifeContent.Job j) {
+    if (!state().activeJob.isEmpty() && state().jobStage >= 2 && state().jobStage < 5) {
+      message("Текущий исходник сохранён. Закончи заказ или отложи его через Git.");
+      page(2);
+      return;
+    }
+    String reason = Career.blocked(state(), j);
+    if (!reason.isEmpty()) { message(reason); return; }
+    state().activeJob = j.id;
+    rush = false;
+    life.report = null;
+    notice = "";
+    page(1);
+    persist();
+  }
+
+  private void board(Table t) {
+    title(t, "TASKMAIL / JOB BOARD", "Биржа заказов",
+        "День " + state().day() + "  ·  оплачено " + Career.paidCountToday(state()) +
+        " из 3 клиентских заказов сегодня. Выбирай задачу, читай ТЗ, пиши код и проверяй тесты.");
+    var offers = Career.offers(state(), life.data);
+    int pages = Math.max(1, (offers.size() + 3) / 4);
+    boardPage = Math.floorMod(boardPage, pages);
+    for (int i = boardPage * 4; i < Math.min(offers.size(), boardPage * 4 + 4); i++) {
+      LifeContent.Job j = offers.get(i);
+      String reason = Career.blocked(state(), j);
+      Table card = block();
+      card.add(label(j.client + "   /   " + j.title, FG, false)).growX().left();
+      card.row();
+      card.add(label(j.pay + " ₽   •   " + Career.duration(state(), j) + " мин   •   " +
+          (reason.isEmpty() ? "Доступно" : reason), reason.isEmpty() ? GREEN : MUTED, true))
+          .padTop(7).padBottom(10).left();
+      card.row();
+      action(card, reason.isEmpty() ? "Открыть заказ" : "Недоступно",
+          () -> choose(j), reason.isEmpty());
+      addBlock(t, card);
+    }
+    Table switcher = new Table();
+    switcher.add(button("←", () -> { boardPage = Math.floorMod(boardPage - 1, pages); }, pages > 1))
+        .width(70).height(42);
+    switcher.add(label("   Страница " + (boardPage + 1) + " / " + pages + "   ", MUTED, true));
+    switcher.add(button("→", () -> { boardPage = (boardPage + 1) % pages; }, pages > 1))
+        .width(70).height(42);
+    t.add(switcher).left();
+    t.row();
+  }
+
+  private void brief(Table t, LifeContent.Job j) {
+    title(t, "CONTRACT / " + j.id, j.title, j.client + "   •   " + j.pay + " ₽");
+    Table card = block();
+    card.add(wrap(j.brief, FG)).width(610).growX().minWidth(0).padBottom(16);
+    card.row();
+    card.add(label("Время: " + Career.duration(state(), j) + " мин   /   запуск: " +
+        j.cost + " ₽", GOLD, true)).left();
+    card.row();
+    if (!j.once && state().completedOrders > 0) {
+      action(card, rush ? "● Срочный заказ (+25%)" : "○ Срочный заказ (+25%)",
+          () -> rush = !rush);
+    }
+    if (j.kind.equals("feature")) {
+      card.add(label("ВЫБЕРИ РЕАЛИЗАЦИЮ", BLUE, true)).left().padTop(15);
+      card.row();
+      for (int i = 0; i < j.algorithms.length; i++) {
+        int choice = i;
+        action(card, j.algorithms[i], () -> start(j, choice));
+      }
+    } else {
+      action(card, j.kind.equals("profile") ? "Открыть профилировщик и код" :
+          "Открыть исходник", () -> start(j, 0));
+      action(card, "Подсказка клиента", () -> message(j.hint));
+    }
+    addBlock(t, card);
+    action(t, "← Вернуться на биржу", () -> page(0));
+  }
+
+  private void start(LifeContent.Job j, int choice) {
+    String result = Coding.accept(state(), j, choice, rush, true);
+    if (state().jobStage < 2 || !state().activeJob.equals(j.id)) {
+      message(result);
+      return;
+    }
+    life.report = null;
+    notice = "";
+    page(2);
+    persist();
+  }
+
+  private void editor(Table t, LifeContent.Job j) {
+    title(t, "EDITOR / SRC", j.title,
+        "main.bs   ·   ByteScript   /   Нажимай буквенные клавиши: игровой код печатается автоматически.");
+    Table code = block();
+    code.add(label("◇  main.bs", BLUE, true)).left().padBottom(13);
+    code.row();
+    String source = state().codeSource;
+    int typed = Math.max(0, Math.min(state().typedCount, source.length()));
+    String[] lines = source.substring(0, typed).split("\n", -1);
+    int first = Math.max(0, lines.length - 18);
+    for (int i = first; i < lines.length; i++) {
+      Table row = new Table();
+      row.left();
+      row.add(label(String.format("%02d   ", i + 1), MUTED, true)).width(55).left();
+      String codeLine = lines[i];
+      String trim = codeLine.stripLeading();
+      Color syntax = trim.startsWith("fn ") ? BLUE :
+          trim.startsWith("return ") ? GOLD :
+          trim.startsWith("//") ? MUTED : GREEN;
+      row.add(label(codeLine + (i == lines.length - 1 ? " ▏" : ""), syntax, true))
+          .left().growX();
+      code.add(row).left().growX().minWidth(0).padBottom(4);
+      code.row();
+    }
+    code.add(label("Символов: " + typed + " / " + source.length() +
+        "  •  " + (source.isEmpty() ? 100 :
+            Math.round(typed * 100.0 / source.length())) + "%", GOLD, true))
+        .padTop(17).left();
+    addBlock(t, code);
+
+    Table console = block();
+    console.add(label("ПРОБЛЕМЫ   /   ВЫВОД   /   ТЕСТЫ", BLUE, true)).left().padBottom(11);
+    console.row();
+    if (life.report == null) {
+      console.add(wrap(typed < source.length() ?
+          "РЕЖИМ ВВОДА • нажимай клавиши, чтобы допечатать исходник." :
+          "Код готов. Запусти компиляцию и тесты.", MUTED))
+          .width(610).growX().minWidth(0);
+    } else {
+      console.add(wrap((life.report.passed() ? "PASS • " : "FAIL • ") +
+          life.report.message(), life.report.passed() ? GREEN : ERROR))
+          .width(610).growX().minWidth(0);
+      console.row();
+      for (String result : life.report.cases()) {
+        console.add(wrap(result, result.endsWith("OK") ? GREEN : ERROR))
+            .width(610).growX().minWidth(0).padTop(5);
+        console.row();
+      }
+    }
+    addBlock(t, console);
+    Table commands = new Table();
+    commands.defaults().padRight(7);
+    commands.add(button("▶ Компиляция / тесты", this::test, true)).height(43).growX();
+    commands.add(button("Исправления", () -> page(3), true)).height(43).growX();
+    commands.add(button("Предпросмотр", () -> navigate(4),
+        life.report != null && life.report.passed())).height(43).growX();
+    t.add(commands).growX().minWidth(0);
+    t.row();
+    Table extras = new Table();
+    extras.defaults().padRight(7);
+    extras.add(button("Лаборатория", () -> navigate(5), true)).height(43).growX();
+    extras.add(button("Git / версии", () -> page(6), true)).height(43).growX();
+    t.add(extras).growX().minWidth(0).padTop(7);
+    t.row();
+  }
+
+  private void test() {
+    if (job() == null) return;
+    life.report = Coding.test(state(), job());
+    message((life.report.passed() ? "✓ " : "✕ ") + life.report.message());
+    persist();
+  }
+
+  private void patches(Table t, LifeContent.Job j) {
+    title(t, "DEBUGGER / CODE REVIEW", "Исправление ошибок",
+        "Выбери изменение и заново напечатай код. Ошибки компиляции проверяются настоящим ByteScript.");
+    note(t, state().codeSource.contains("prce") ?
+        "Имя prce не объявлено. В аргументах есть price и count — что должно участвовать в произведении?"
+        : j.hint);
+    for (int i = 0; i < j.patches.length; i++) {
+      int choice = i;
+      action(t, j.patches[i], () -> {
+        Coding.repair(state(), j, choice, true);
+        life.report = null;
+        notice = "Патч применён. Допечатай код и повтори тесты.";
+        page(2);
+        persist();
+      });
+    }
+    action(t, "← Вернуться к исходнику", () -> page(2));
+  }
+
+  private void preview(Table t, LifeContent.Job j) {
+    title(t, "RUN / LIVE PREVIEW", "Предпросмотр",
+        "Результат выполняется игровым интерпретатором ByteScript. Перед отправкой обязательно запусти его.");
+    if (life.report == null || !life.report.passed()) {
+      note(t, "Чтобы открыть предпросмотр, сначала запусти тесты в редакторе.");
+      action(t, "К тестам", () -> page(2));
+      return;
+    }
+    double value;
+    try {
+      value = Coding.preview(state(), j, life.previewInput);
+    } catch (RuntimeException e) {
+      note(t, "Ошибка запуска: " + e.getMessage());
+      action(t, "К исходнику", () -> page(2));
+      return;
+    }
+    Table result = block();
+    result.add(label("INPUT   →   OUTPUT", BLUE, true)).left().padBottom(16);
+    result.row();
+    result.add(label(Coding.format(life.previewInput) + "   →   " +
+        Coding.format(value), GREEN, false)).left().padBottom(16);
+    result.row();
+    Table controls = new Table();
+    controls.add(button("−10", () -> life.previewInput = Math.max(-10000, life.previewInput - 10), true))
+        .width(76).height(40).padRight(5);
+    controls.add(button("−1", () -> life.previewInput = Math.max(-10000, life.previewInput - 1), true))
+        .width(76).height(40).padRight(5);
+    controls.add(button("+1", () -> life.previewInput = Math.min(10000, life.previewInput + 1), true))
+        .width(76).height(40).padRight(5);
+    controls.add(button("+10", () -> life.previewInput = Math.min(10000, life.previewInput + 10), true))
+        .width(76).height(40);
+    result.add(controls).left();
+    addBlock(t, result);
+    note(t, "Время работы: " + Career.duration(state(), j) + " мин. " +
+        "Премия: " + Career.bonus(state(), j) + " ₽.");
+    action(t, j.once ? "Запустить этап • −" + j.cost + " ₽" :
+        "Сдать клиенту • " + (j.pay + Career.bonus(state(), j)) + " ₽",
+        () -> deliver(j), state().jobStage != 5);
+    action(t, "← Вернуться к исходнику", () -> page(2));
+  }
+
+  private void deliver(LifeContent.Job j) {
+    String result = Coding.deliver(state(), j);
+    if (state().jobStage == 5) {
+      persist();
+      game.successCue();
+      life.scene(j.once ? "Этап запущен" : "Работа принята", result, Mode.WORLD);
+    } else message(result);
+  }
+
+  private int operations(String source, LifeContent.Job j) {
+    try {
+      var program = ByteScript.compile(source);
+      int max = 0;
+      for (var item : j.tests) max = Math.max(max, program.operations(item.args));
+      return max;
+    } catch (RuntimeException e) {
+      return -1;
+    }
+  }
+
+  private void measure(LifeContent.Job j) {
+    baseline = operations(state().revisions.isEmpty() ? state().codeSource :
+        state().revisions.get(0).source, j);
+    operations = operations(state().codeSource, j);
+  }
+
+  private void prepareLab() {
+    if (job() == null) return;
+    inputs = job().seed.clone();
+    labResult = "Проверь ноль, границы и отрицательные числа, затем запусти.";
+    measure(job());
+  }
+
+  private void lab(Table t, LifeContent.Job j) {
+    title(t, "TOOLS / PROFILER", "Лаборатория",
+        "Свои тестовые случаи приносят бонус за качество. Ограничение — 10 000 по модулю.");
+    var params = ByteScript.compile(j.source).parameters();
+    for (int i = 0; i < inputs.length; i++) {
+      int index = i;
+      Table row = block();
+      row.add(label(params.get(i) + " = " + Coding.format(inputs[i]), FG, false))
+          .width(180).left().padRight(12);
+      for (int step : new int[] {-10, -1, 1, 10}) {
+        row.add(button((step > 0 ? "+" : "") + step, () -> {
+          inputs[index] = Math.max(-10000, Math.min(10000, inputs[index] + step));
+        }, true)).width(64).height(39).padRight(5);
+      }
+      addBlock(t, row);
+    }
+    note(t, "Операций: было " + (baseline < 0 ? "—" : baseline) +
+        " → сейчас " + (operations < 0 ? "ошибка" : operations) +
+        (j.operationBudget > 0 ? "  /  лимит " + j.operationBudget : "") +
+        "     •     собственные тесты " + Math.min(2, state().customCases.size()) + " / 2");
+    Table box = block();
+    box.add(wrap(labResult, FG)).width(600).growX().minWidth(0);
+    addBlock(t, box);
+    action(t, "▶ Запустить свой тест", () -> {
+      labResult = Coding.probe(state(), j, inputs.clone());
+      measure(j);
+      persist();
+    });
+    action(t, "Подсказка клиента", () -> message(j.hint));
+    action(t, "← К исходнику", () -> page(2));
+  }
+
+  private void history(Table t) {
+    title(t, "SOURCE CONTROL / GIT", "История версий",
+        "Локальные коммиты и откат сохраняются вместе с игровым прогрессом.");
+    action(t, "Создать коммит", () -> {
+      message(Coding.commit(state()));
+      persist();
+    });
+    for (int i = 0; i < state().revisions.size(); i++) {
+      int index = i;
+      Coding.Revision rev = state().revisions.get(i);
+      action(t, rev.label + "    /    " + rev.source.replace('\n', ' ').replaceAll(".*return ", ""),
+          () -> {
+            message(Coding.restore(state(), index));
+            life.report = null;
+            persist();
+          });
+    }
+    action(t, "Отложить заказ", () -> page(10));
+    action(t, "← К исходнику", () -> page(2));
+  }
+
+  private void abandon(Table t) {
+    title(t, "PROJECT / CANCEL", "Отложить заказ?",
+        "Исходник и локальные коммиты будут удалены, но деньги и репутация останутся.");
+    action(t, "Отложить без штрафа", () -> {
+      message(Coding.abandon(state()));
+      life.report = null;
+      page(0);
+      persist();
+    });
+    action(t, "Сохранить и вернуться", () -> page(6));
+  }
+
+  private void career(Table t) {
+    title(t, "PROFILE / CAREER", "Карьера разработчика",
+        Career.rank(state()) + "    •    " + state().codingXp + " XP    •    " +
+        state().completedOrders + " выполненных заказов");
+    note(t, Career.tier(state()) == 0 ?
+        "При 3 XP откроются задачи по поиску ошибок." :
+        Career.tier(state()) == 1 ?
+        "При 8 XP откроются задачи на производительность." :
+        "Открыты все категории. Лимит: 3 оплачиваемых заказа за день.");
+    Table feedback = block();
+    feedback.add(label("ПОСЛЕДНЕЕ СООБЩЕНИЕ КЛИЕНТА", BLUE, true)).left().padBottom(12);
+    feedback.row();
+    feedback.add(wrap(state().lastClientMessage.isEmpty() ?
+        "Первый клиент ещё ждёт твою работу." : state().lastClientMessage, FG))
+        .width(600).growX().minWidth(0);
+    addBlock(t, feedback);
+    action(t, "Готовые проекты: " + state().shipped.size(), () -> page(11));
+    action(t, "← К заказам", () -> page(0));
+  }
+
+  private void portfolio(Table t) {
+    title(t, "PROFILE / PORTFOLIO", "Портфолио", "Все выпущенные проекты и отзывы заказчиков.");
+    var shipped = Arrays.stream(life.data.jobs)
+        .filter(j -> state().shipped.contains(j.id)).toList();
+    int pages = Math.max(1, (shipped.size() + 5) / 6);
+    portfolioPage = Math.floorMod(portfolioPage, pages);
+    if (shipped.isEmpty()) note(t, "Первый проект появится здесь после релиза.");
+    for (int i = portfolioPage * 6; i < Math.min(shipped.size(), portfolioPage * 6 + 6); i++) {
+      LifeContent.Job j = shipped.get(i);
+      action(t, "✓  " + j.title + "  •  " + j.client, () -> message(j.feedback));
+    }
+    if (pages > 1) action(t, "Следующая страница " + (portfolioPage + 1) + " / " + pages,
+        () -> portfolioPage = (portfolioPage + 1) % pages);
+    action(t, "← К карьере", () -> page(7));
+  }
+
+  private void gear(Table t) {
+    title(t, "HARDWARE / UPGRADES", "Рабочее место",
+        "Покупки меняют реальные значения длительности и усталости в игровом мире.");
+    for (var g : Career.GEAR) {
+      Table row = block();
+      row.add(label(g.title(), FG, false)).left().padBottom(10);
+      row.row();
+      row.add(wrap(g.description(), MUTED)).width(600).growX().minWidth(0);
+      row.row();
+      boolean installed = state().upgrades.contains(g.id());
+      action(row, installed ? "✓ Установлено" : "Купить • " + g.price() + " ₽",
+          () -> {
+            message(Career.buy(state(), g.id()));
+            persist();
+          }, !installed);
+      addBlock(t, row);
+    }
+    action(t, "← К заказам", () -> page(0));
+  }
+
+  private void project(Table t) {
+    title(t, "SIDE PROJECT / ROADMAP", "Районный бот",
+        "Три настоящих этапа: объявления → напоминания → запуск.");
+    int stage = Career.projectStage(state());
+    note(t, "Выполнено этапов: " + stage + " / 3");
+    if (stage == 3) {
+      note(t, "Бот работает и приносит 160 ₽ за игровой день. Все три этапа находятся в портфолио.");
+    } else {
+      LifeContent.Job j = life.data.job(List.of("board", "remind", "support").get(stage));
+      Table card = block();
+      card.add(label(j.title, FG, false)).left().padBottom(12);
+      card.row();
+      card.add(wrap("Нужны код, тесты и " + j.cost + " ₽ на запуск. " +
+          Career.duration(state(), j) + " мин работы.", MUTED)).width(600).growX().minWidth(0);
+      card.row();
+      action(card, "Взяться за этап", () -> choose(j), Career.blocked(state(), j).isEmpty());
+      if (!Career.blocked(state(), j).isEmpty()) {
+        card.add(wrap(Career.blocked(state(), j), GOLD)).width(600).growX().minWidth(0);
+      }
+      addBlock(t, card);
+    }
+    action(t, "← К заказам", () -> page(0));
+  }
+}
+END FILE: core/src/main/java/life/ctrl/ui/AstraCodeApp.java
+
+======================================
+FILE: core/src/main/java/life/ctrl/ui/LifeScreens.java
+======================================
+package life.ctrl.ui;
+
+import java.util.*;
+import life.ctrl.CtrlLife;
+import life.ctrl.CtrlLife.Mode;
+import life.ctrl.content.*;
+import life.ctrl.model.*;
+import life.ctrl.render.PixelCanvas;
+
+/** Narrative, work and social UI. Mutations always go through the domain systems. */
+public final class LifeScreens {
+  private final CtrlLife game;
+  private final PixelCanvas c;
+  private final Workbench workbench;
+  private final PinuxAstra pinux;
+  public final LifeContent data;
+  public int introPage, codePage, shopPage;
+  public String girlId = "mira", socialPage = "home", socialMessage = "", mapId = "";
+  public boolean remote;
+  public Coding.Report report;
+  public double previewInput = 2;
+  private double cachedInput = Double.NaN, cachedResult;
+  private String cachedSource = "";
+  public String sceneTitle = "", sceneText = "";
+  public Mode sceneReturn = Mode.WORLD;
+  private static final String TEXT = "efe4c6",
+      SOFT = "a7b5b6",
+      GOLD = "edbb71",
+      GREEN = "a5c19c",
+      RED = "e49a83";
+
+  public LifeScreens(CtrlLife game, PixelCanvas canvas) {
+    this.game = game;
+    c = canvas;
+    data = LifeContent.load();
+    workbench = new Workbench(game, this, canvas);
+    pinux = new PinuxAstra(game, this, workbench, canvas);
+  }
+
+  private GameState s() {
+    return game.world().state;
+  }
+
+  private void btn(String text, int x, int y, int w, Runnable run) {
+    game.uiButton(text, x, y, w, 22, true, run);
+  }
+
+  private void btn(String text, int x, int y, int w, boolean enabled, Runnable run) {
+    game.uiButton(text, x, y, w, 22, enabled, run);
+  }
+
+  private void mode(Mode mode) {
+    game.switchMode(mode);
+  }
+
+  private void persist() {
+    game.refreshState();
+  }
+
+  private void frame(String eyebrow, String title) {
+    c.rect(0, 0, 480, 270, "15232eee");
+    c.panel(12, 10, 456, 250);
+    c.small(eyebrow, 26, 22, GREEN);
+    c.text(title, 26, 39, TEXT);
+  }
+
+  public void scene(String title, String text, Mode back) {
+    sceneTitle = title;
+    sceneText = text;
+    sceneReturn = back;
+    mode(Mode.SCENE);
+    persist();
+  }
+
+  public void draw(Mode mode) {
+    switch (mode) {
+      case INTRO -> intro();
+      case SHOP -> shop();
+      case IDE -> coding();
+      case SOCIAL -> social();
+      case CONTACTS -> contacts();
+      case REST -> rest();
+      case SCENE -> scene();
+      case NIGHT -> night();
+      case BUDGET -> budget();
+      case JOURNAL -> journal();
+      case MAP -> map();
+      case BAG -> bag();
+      default -> {}
+    }
+  }
+
+  public void openSocial(String id, boolean phone) {
+    girlId = id;
+    remote = phone;
+    socialPage = "home";
+    socialMessage = "";
+    var g = data.girl(id);
+    if (!phone && !s().relation(id).met) socialMessage = Social.meet(s(), g);
+    if (!phone && s().relation(id).met && socialMessage.isEmpty())
+      socialMessage = Career.community(s(), s().map);
+    mode(Mode.SOCIAL);
+    persist();
+  }
+
+  public void openCode() {
+    s().inspectedPc = true;
+    codePage = s().activeJob.isEmpty() || s().jobStage < 2 || s().jobStage == 5 ? 0 : 2;
+    report = null;
+    pinux.open();
+    mode(Mode.IDE);
+    persist();
+  }
+
+  public void openDate() {
+    if (!Social.canStartDate(s(), s().map)) {
+      scene(
+          "Столик для встреч",
+          "Здесь можно провести свидание. Сначала познакомься с девушкой и пригласи её — лично или"
+              + " через контакты [R].",
+          Mode.WORLD);
+      return;
+    }
+    girlId = s().plannedGirl;
+    remote = false;
+    socialPage = "date";
+    mode(Mode.SOCIAL);
+  }
+
+  public boolean pcKeyDown(int key) {
+    return pinux.keyDown(key);
+  }
+
+  public void pcKeyTyped(char ch) {
+    pinux.keyTyped(ch);
+  }
+
+  public boolean pcPointerDown(int x, int y) {
+    return pinux.pointerDown(x, y);
+  }
+
+  public void pcPointerMove(int x, int y) {
+    pinux.pointerMove(x, y);
+  }
+
+  public boolean pcPointerDragged(int x, int y) {
+    return pinux.pointerDragged(x, y);
+  }
+
+  public boolean pcPointerUp(int x, int y) {
+    return pinux.pointerUp(x, y);
+  }
+
+  public void pcCancelPointer() {
+    pinux.cancelPointer();
+  }
+
+  public com.badlogic.gdx.scenes.scene2d.Stage pcNativeStage() {
+    return pinux.inputStage();
+  }
+
+  public boolean isLegacyEditorOpen() { return pinux.isLegacyEditorOpen(); }
+
+  public void renderPcOverlay(float delta) {
+    pinux.renderNativeDesktop(delta);
+  }
+
+  public void resizePc(int width, int height) {
+    pinux.resizeNative(width, height);
+  }
+
+  public void typeKey() {
+    if (codePage != 2 || s().jobStage != 2) return;
+    // Two tactile phases: after failed tests, the next real keystroke starts fixing.
+    if (report != null && !report.passed()
+        && s().typedCount >= s().codeSource.length() && !s().activeJob.isEmpty()) {
+      var job = data.job(s().activeJob);
+      for (int i = 0; i < job.solutions.length; i++)
+        if (job.source.equals(job.solutions[i])) {
+          Coding.repair(s(), job, i, true);
+          report = null;
+          break;
+        }
+    }
+    Coding.type(s());
+  }
+
+  public void intro() {
+    String[] titles = {
+      "Последняя маршрутка", "Комната за тонкой стеной", "Первый шаг — заработать"
+    };
+    String[] texts = {
+      "Тебе 23 года. В родном городе закрылась фирма, где ты работал(а) в поддержке. Несколько"
+          + " недель поиска — и первый удалённый заказ от маленькой забегаловки.\n\n"
+          + "С сумкой и старым компьютером ты приехал(а) в Берёзовск на маршрутке. Здесь можно"
+          + " начать заново.",
+      "Восемь квадратных метров в общежитии: узкая кровать, облупленная стена и стол у розетки."
+          + " Кухня и душ общие, в коридоре.\n\n"
+          + "У тебя 10000 ₽. Комната оплачена на три ночи. Потом — 3000 ₽ в неделю. Впереди еда,"
+          + " работа, знакомства и свои решения.",
+      "Сегодня у тебя конкретный план:\n\n"
+          + "1. Подойти к столу и нажать E.\n"
+          + "2. Сделать заказ «Касса для Ложки» за 650 ₽.\n"
+          + "3. Поесть в «Ложке» и познакомиться с соседкой.\n\n"
+          + "WASD / стрелки — ходить. E — действие. Золотые точки ведут к цели. J — план, M —"
+          + " карта, R — контакты, B — деньги."
+    };
+    frame("ПЕРВЫЙ ДЕНЬ  /  " + (introPage + 1) + " ИЗ 3", titles[introPage]);
+    c.wrap(texts[introPage], 28, 69, 422, TEXT);
+    btn(
+        introPage == 2 ? "Понятно. К компьютеру →" : "Дальше →",
+        28,
+        226,
+        424,
+        () -> {
+          if (introPage < 2) {
+            introPage++;
+            game.resetSelection();
+          } else {
+            s().introSeen = true;
+            mode(Mode.WORLD);
+            persist();
+          }
+        });
+  }
+
+  private void scene() {
+    frame("СОБЫТИЕ", sceneTitle);
+    c.wrap(sceneText, 28, 72, 420, 145, TEXT);
+    btn("Продолжить", 28, 226, 424, () -> mode(sceneReturn));
+  }
+
+  private void shop() {
+    boolean cafe = s().map.equals("cafe");
+    frame(
+        cafe ? "КОФЕЙНЯ «ПЛЁНКА»" : "ЗАБЕГАЛОВКА «ЛОЖКА»", "У стойки · у тебя " + s().money + " ₽");
+    c.small(
+        shopPage == 0
+            ? "Купленная еда лежит в карманах [I]."
+            : "Подарок полезен, когда ты знаешь её интересы.",
+        28,
+        63,
+        SOFT);
+    List<LifeContent.Item> list =
+        Arrays.stream(data.items)
+            .filter(i -> shopPage == 0 ? i.kind.equals("food") : i.kind.equals("gift"))
+            .toList();
+    int y = 82;
+    for (var item : list) {
+      if (y > 181) break;
+      String label = item.name + " · " + item.price + " ₽  [есть " + s().count(item.id) + "]";
+      btn(label, 28, y, 424, () -> scene("Покупка", Life.buy(s(), item), Mode.SHOP));
+      y += 22;
+    }
+    btn(
+        shopPage == 0 ? "Подарки →" : "← Еда",
+        28,
+        196,
+        206,
+        () -> {
+          shopPage = 1 - shopPage;
+          game.resetSelection();
+        });
+    btn(
+        "Бесплатный суп",
+        246,
+        196,
+        206,
+        () -> scene("Помощь на трудный день", Life.freeMeal(s()), Mode.SHOP));
+    btn("Отойти от стойки", 28, 226, 424, () -> mode(Mode.WORLD));
+  }
+
+  private void bag() {
+    frame("КАРМАНЫ  [I]", "Еда и подарки");
+    int y = 66;
+    for (var item : data.items) {
+      if (s().count(item.id) == 0) continue;
+      if (y > 202) break;
+      game.uiButton(
+          item.name
+              + " ×"
+              + s().count(item.id)
+              + (item.kind.equals("food") ? " — съесть" : " — подарок"),
+          28,
+          y,
+          424,
+          18,
+          item.kind.equals("food"),
+          () -> scene("Перекус", Life.eat(s(), item), Mode.BAG));
+      y += 19;
+    }
+    if (s().items.isEmpty())
+      c.wrap(
+          "Сейчас пусто. Еду можно купить в «Ложке» или в кофейне. Подарки передаются при личной"
+              + " встрече.",
+          28,
+          78,
+          420,
+          SOFT);
+    btn("Закрыть", 28, 226, 424, () -> mode(Mode.WORLD));
+  }
+
+  private void rest() {
+    frame("КОМНАТА В ОБЩЕЖИТИИ", "Передохнуть");
+    c.wrap(
+        "Энергия: "
+            + (int) s().energy
+            + " / 100. Сон восстанавливает силы и здоровье. Сытость за ночь уменьшится. Следующая"
+            + " аренда — день "
+            + (s().rentThroughDay + 1)
+            + ", 3000 ₽.",
+        28,
+        74,
+        420,
+        SOFT);
+    btn(
+        "Завершить день · проснуться в 08:00",
+        28,
+        140,
+        424,
+        () -> {
+          Life.sleep(s());
+          Social.expire(s());
+          scene(
+              "После сна",
+              "Ты выспался(ась). День "
+                  + s().day()
+                  + ", "
+                  + s().clock()
+                  + ". Проверь сытость и выбери цель в журнале [J].",
+              Mode.WORLD);
+        });
+    if (!s().partnerId.isEmpty())
+      btn(
+          "Поговорить о вечере вдвоём",
+          28,
+          168,
+          424,
+          () -> {
+            girlId = s().partnerId;
+            socialPage = "night";
+            remote = false;
+            mode(Mode.SOCIAL);
+          });
+    btn(
+        "Посидеть 30 минут · энергия +12",
+        28,
+        196,
+        424,
+        () -> {
+          Life.advance(s(), 30);
+          s().energy = Math.min(100, s().energy + 12);
+          scene(
+              "Короткий отдых",
+              "Стало немного легче. Но полноценный сон это не заменяет.",
+              Mode.WORLD);
+        });
+    btn("Встать", 28, 226, 424, () -> mode(Mode.WORLD));
+  }
+
+  private void budget() {
+    frame("БЮДЖЕТ  [B]", s().money + " ₽ · долг " + s().rentDebt + " ₽");
+    c.wrap(
+        "Аренда: 3000 ₽ раз в неделю. Следующая — день "
+            + (s().rentThroughDay + 1)
+            + ". Еда: примерно 400–650 ₽ в день.\n"
+            + "Кодинг: 650–1500 ₽, до 3 заказов/день. Бонусы отдельно.\n"
+            + "Сквер бесплатно, столик 850 ₽. Запущенный бот: +160 ₽/день.",
+        28,
+        66,
+        420,
+        SOFT);
+    int y = 137;
+    var entries = s().transactions;
+    for (int i = entries.size() - 1; i >= Math.max(0, entries.size() - 4); i--) {
+      var e = entries.get(i);
+      c.small(
+          "Д" + e.day + "  " + (e.amount >= 0 ? "+" : "") + e.amount + " ₽  " + e.reason,
+          28,
+          y,
+          e.amount >= 0 ? GREEN : TEXT);
+      y += 15;
+    }
+    btn(
+        "Погасить долг",
+        28,
+        205,
+        206,
+        s().rentDebt > 0 && s().money > 0,
+        () -> scene("Аренда", Economy.repay(s()), Mode.BUDGET));
+    btn("Закрыть", 246, 205, 206, () -> mode(Mode.WORLD));
+  }
+
+  private void journal() {
+    frame("ПЛАН НА ДЕНЬ  [J]", "День " + s().day() + " · " + s().clock());
+    var goal = Navigation.goal(game.world(), data);
+    c.text(goal.title(), 28, 68, GOLD);
+    c.wrap(goal.hint(), 28, 88, 420, TEXT);
+    c.small("Золотой маршрут на земле ведёт к нужной двери и объекту.", 28, 130, SOFT);
+    btn(
+        "Цель: заработок кодингом",
+        28,
+        151,
+        424,
+        () -> {
+          s().goalChoice = 1;
+          mode(Mode.WORLD);
+          persist();
+        });
+    btn(
+        "Цель: знакомства и отношения",
+        28,
+        177,
+        424,
+        () -> {
+          s().goalChoice = 2;
+          mode(Mode.CONTACTS);
+          persist();
+        });
+    btn("Показать карту", 28, 203, 206, () -> mode(Mode.MAP));
+    btn("К делу →", 246, 203, 206, () -> mode(Mode.WORLD));
+  }
+
+  private void map() {
+    frame("КАРТА  [M]", "Ты здесь: " + game.world().map().name);
+    String id = mapId.isEmpty() ? s().map : mapId;
+    var m = game.world().content.map(id);
+    float ratio = Math.min(300f / m.width, 151f / m.height),
+        w = m.width * ratio,
+        h = m.height * ratio,
+        ox = 25 + (300 - w) / 2,
+        oy = 65 + (151 - h) / 2;
+    c.scaledArt(id, ox, oy, w, h);
+    var boundary = life.ctrl.render.SceneLayout.bounds(id);
+    c.clip(
+        ox + boundary.x() * ratio,
+        oy + boundary.y() * ratio,
+        boundary.width() * ratio,
+        boundary.height() * ratio);
+    Arrays.stream(m.objects)
+        .filter(p -> p.art != null && game.world().visible(p))
+        .sorted(
+            Comparator.comparingDouble(
+                p -> p.solid != null ? p.solid[1] + p.solid[3] : p.artY + c.artHeight(p.art)))
+        .forEach(
+            p -> {
+              String art = p.art;
+              if (p.id.equals("boxes") && s().unpacked) art = "boxes_open";
+              if (p.id.equals("post") && s().signedMailbox) art = "mailbox_signed";
+              if (p.art.equals("desk") && id.equals("room") && s().upgrades.contains("ssd"))
+                art = "desk_ssd";
+              c.scaledArt(
+                  art,
+                  ox + p.artX * ratio,
+                  oy + p.artY * ratio,
+                  c.artWidth(art) * ratio,
+                  c.artHeight(art) * ratio);
+            });
+    c.unclip();
+    for (var p : m.objects)
+      if (p.action.equals("door")) {
+        float x = ox + p.x * ratio, y = oy + p.y * ratio;
+        c.rect(x - 2, y - 2, 5, 5, GOLD);
+      }
+    if (s().map.equals(id)) c.rect(ox + s().x * ratio - 3, oy + s().y * ratio - 3, 6, 6, "fff2c0");
+    var target = Navigation.goal(game.world(), data);
+    var local = Navigation.localGoal(game.world(), target);
+    if (local.map().equals(id)) {
+      float x = ox + local.x() * ratio, y = oy + local.y() * ratio;
+      c.text("!", x - 2, y - 10, GOLD);
+    }
+    c.small("БЕЛЫЙ — ТЫ", 333, 72, TEXT);
+    c.small("ЗОЛОТОЙ — ДВЕРИ", 333, 89, GOLD);
+    c.small("! — БЛИЖАЙШАЯ ЦЕЛЬ", 333, 106, GOLD);
+    c.wrap(target.title(), 333, 133, 116, SOFT);
+    btn(
+        id.equals("street") ? "Моя локация" : "Улица целиком",
+        28,
+        226,
+        206,
+        () -> {
+          mapId = id.equals("street") ? s().map : "street";
+          game.resetSelection();
+        });
+    btn("Продолжить путь", 246, 226, 206, () -> mode(Mode.WORLD));
+  }
+
+  private void contacts() {
+    frame("КОНТАКТЫ  [R]", "Люди, ради которых хочется выйти из дома");
+    int y = 76;
+    for (var g : data.girls) {
+      var r = s().relation(g.id);
+      c.art("portrait_" + g.portrait, 28, y - 4);
+      String status =
+          s().partnerId.equals(g.id)
+              ? "вместе"
+              : r.met ? "знакомы · свиданий " + r.dates : "ещё не знакомы";
+      btn(g.name + ", " + g.age + " · " + status, 69, y, 383, () -> openSocial(g.id, true));
+      y += 46;
+    }
+    btn("Вернуться", 28, 226, 424, () -> mode(Mode.WORLD));
+  }
+
+  private void social() {
+    var g = data.girl(girlId);
+    var r = s().relation(g.id);
+    frame(
+        g.name.toUpperCase() + " · " + g.age + " ЛЕТ",
+        switch (socialPage) {
+          case "date" -> "Свидание · " + Social.venueName(s().plannedVenue);
+          case "night" -> "Остаться вдвоём?";
+          default ->
+              s().partnerId.equals(g.id) ? "Вы вместе" : "Знакомство, которое может стать важным";
+        });
+    c.art("portrait_" + g.portrait, 28, 67);
+    c.small(
+        "Симпатия " + r.affinity + "  Доверие " + r.trust + "  Свидания " + r.dates, 72, 68, GOLD);
+    String body =
+        socialMessage.isEmpty()
+            ? (socialPage.equals("home")
+                ? g.about
+                : socialPage.equals("night")
+                    ? g.nightLine
+                    : socialPage.equals("date")
+                        ? "Это время для вас двоих. Выбери, как провести разговор."
+                        : g.likes)
+            : socialMessage;
+    c.wrap(body, 72, 85, 378, TEXT);
+    switch (socialPage) {
+      case "home" -> {
+        if (remote) {
+          btn(
+              "Найти в городе →",
+              28,
+              150,
+              424,
+              () -> {
+                s().trackedGirl = g.id;
+                s().goalChoice = 2;
+                mode(Mode.WORLD);
+                persist();
+              });
+          btn(
+              "Договориться о встрече",
+              28,
+              176,
+              424,
+              r.met,
+              () -> {
+                socialPage = "invite";
+                game.resetSelection();
+              });
+        } else {
+          btn(
+              "Поговорить по душам",
+              28,
+              150,
+              206,
+              () -> {
+                socialPage = "talk";
+                socialMessage = "";
+                game.resetSelection();
+              });
+          btn(
+              "Передать подарок",
+              246,
+              150,
+              206,
+              () -> {
+                socialPage = "gift";
+                socialMessage = "";
+                game.resetSelection();
+              });
+          btn(
+              "Пригласить на свидание",
+              28,
+              176,
+              206,
+              () -> {
+                socialPage = "invite";
+                socialMessage = "";
+                game.resetSelection();
+              });
+          btn(
+              "Об отношениях",
+              246,
+              176,
+              206,
+              () -> {
+                socialPage = "commit";
+                socialMessage = "";
+                game.resetSelection();
+              });
+        }
+        c.small("Интересы: " + g.likes.substring(0, Math.min(68, g.likes.length())), 28, 206, SOFT);
+        btn("До встречи", 28, 231, 424, () -> mode(remote ? Mode.CONTACTS : Mode.WORLD));
+      }
+      case "talk" -> {
+        int y = 151;
+        for (int i = 0; i < g.topics.length; i++) {
+          int index = i;
+          btn(
+              g.topics[i].label,
+              28,
+              y,
+              424,
+              () -> scene(g.name, Social.talk(s(), g, index), Mode.WORLD));
+          y += 26;
+        }
+      }
+      case "gift" -> {
+        int y = 139;
+        for (var item : data.items) {
+          if (!item.kind.equals("gift") || s().count(item.id) < 1) continue;
+          if (y > 218) break;
+          game.uiButton(
+              item.name + " ×" + s().count(item.id),
+              28,
+              y,
+              424,
+              18,
+              true,
+              () -> scene(g.name, Social.gift(s(), g, item), Mode.WORLD));
+          y += 18;
+        }
+        if (y == 139) c.small("Подарков нет. Купить можно в кофейне.", 28, 164, SOFT);
+        btn(
+            "Назад",
+            28,
+            231,
+            424,
+            () -> {
+              socialPage = "home";
+              socialMessage = "";
+              game.resetSelection();
+            });
+      }
+      case "invite" -> {
+        int y = 151;
+        for (String venue : g.venues) {
+          btn(
+              Social.venueName(venue) + (venue.equals("park") ? " · бесплатно" : " · 850 ₽"),
+              28,
+              y,
+              424,
+              () -> {
+                String result = Social.invite(s(), g, venue);
+                scene(g.name, result, Mode.WORLD);
+              });
+          y += 26;
+        }
+        btn(
+            "Назад",
+            28,
+            231,
+            424,
+            () -> {
+              socialPage = "home";
+              game.resetSelection();
+            });
+      }
+      case "date" -> {
+        int y = 151;
+        for (int i = 0; i < g.dateChoices.length; i++) {
+          int index = i;
+          btn(
+              g.dateChoices[i].label,
+              28,
+              y,
+              424,
+              () -> scene(g.name, Social.date(s(), g, index), Mode.WORLD));
+          y += 28;
+        }
+        if (!s().plannedVenue.equals("park"))
+          btn(
+              "Перенести в сквер · бесплатно",
+              28,
+              211,
+              424,
+              () -> {
+                if (Arrays.asList(g.venues).contains("park")) {
+                  s().plannedVenue = "park";
+                  scene(
+                      "Перенос встречи",
+                      "Вы договорились встретиться в сквере. Золотой маршрут покажет путь.",
+                      Mode.WORLD);
+                }
+              });
+      }
+      case "commit" -> {
+        btn(
+            "Предложить быть парой",
+            28,
+            151,
+            424,
+            () -> scene(g.name, Social.commit(s(), g), Mode.WORLD));
+        btn(
+            "Честно обсудить расставание",
+            28,
+            179,
+            424,
+            s().partnerId.equals(g.id),
+            () -> {
+              socialPage = "breakup";
+              game.resetSelection();
+            });
+        btn(
+            "Не торопиться",
+            28,
+            231,
+            424,
+            () -> {
+              socialPage = "home";
+              game.resetSelection();
+            });
+      }
+      case "breakup" -> {
+        c.wrap(
+            "Это завершит отношения. Доверие и симпатия уменьшатся; новая встреча не отменит"
+                + " разговор автоматически.",
+            28,
+            150,
+            424,
+            SOFT);
+        btn(
+            "Да, сказать честно",
+            28,
+            205,
+            206,
+            () -> scene(g.name, Social.breakup(s(), g), Mode.WORLD));
+        btn(
+            "Пока не говорить",
+            246,
+            205,
+            206,
+            () -> {
+              socialPage = "home";
+              game.resetSelection();
+            });
+      }
+      case "night" -> {
+        c.wrap(
+            Social.canShareNight(s(), g)
+                ? "Вы оба этого хотите. Если передумаешь, можно отказаться — без обид и объяснений."
+                : "Для этого нужны устойчивые отношения, доверие и вечернее время. Сейчас можно"
+                    + " просто побыть рядом.",
+            28,
+            144,
+            424,
+            SOFT);
+        btn(
+            "Да, мы оба этого хотим",
+            28,
+            205,
+            206,
+            Social.canShareNight(s(), g),
+            () -> mode(Mode.NIGHT));
+        btn(
+            "Давай не сегодня",
+            246,
+            205,
+            206,
+            () -> scene(g.name, Social.shareNight(s(), g, false), Mode.WORLD));
+      }
+    }
+  }
+
+  private void night() {
+    c.rect(0, 0, 480, 270, "10151e");
+    c.center("ВЕЧЕР ВДВОЁМ", 66, GOLD);
+    c.wrap(
+        "Вы убираете телефоны и закрываете дверь. За окном ещё шумит город.\n\n"
+            + "Свет в комнате гаснет. Эту ночь вы решаете провести вместе.",
+        66,
+        106,
+        348,
+        TEXT);
+    btn(
+        "Следующее утро",
+        92,
+        214,
+        296,
+        () -> scene("Утро", Social.shareNight(s(), data.girl(girlId), true), Mode.WORLD));
+  }
+
+  public void dispose() {
+    pinux.dispose();
+  }
+
+  private void coding() {
+    pinux.draw();
+  }
+}
+END FILE: core/src/main/java/life/ctrl/ui/LifeScreens.java
+
+======================================
+FILE: core/src/main/java/life/ctrl/ui/PinuxAstra.java
+======================================
+package life.ctrl.ui;
+
+import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.Input.Keys;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import life.ctrl.CtrlLife;
+import life.ctrl.CtrlLife.Mode;
+import life.ctrl.model.Career;
+import life.ctrl.model.Coding;
+import life.ctrl.model.GameState;
+import life.ctrl.render.PixelCanvas;
+import life.ctrl.ui.PinuxWindowManager.App;
+import life.ctrl.ui.PinuxWindowManager.Window;
+
+/**
+ * Pinux Astra: a fictional, isolated GUI shell entirely rendered inside libGDX.
+ * It cannot read files or execute commands on the host machine.
+ */
+public final class PinuxAstra {
+  private final CtrlLife game;
+  private final LifeScreens life;
+  private final Workbench workbench;
+  private final PixelCanvas c;
+  private final PinuxWindowManager wm = new PinuxWindowManager();
+  private final PinuxWallpaper wallpaper = new PinuxWallpaper();
+  private final PinuxDesktopStage nativeDesktop;
+  private final ArrayDeque<String> output = new ArrayDeque<>();
+  private final ArrayList<String> commandHistory = new ArrayList<>();
+  private int historyIndex;
+  private String command = "";
+  private float boot, time, noticeTime;
+  private String notice = "";
+  private boolean menuOpen, warmTheme, quietMotion;
+  private static final String TEXT = "e5edf3", SUB = "9cb1bf";
+  private static final String SKY = "8bcfe9", GREEN = "a8dfb5";
+  private static final String GOLD = "f0cb8a", DARK = "08121e";
+
+  public PinuxAstra(CtrlLife game, LifeScreens life, Workbench workbench, PixelCanvas canvas) {
+    this.game = game;
+    this.life = life;
+    this.workbench = workbench;
+    c = canvas;
+    nativeDesktop = new PinuxDesktopStage(this, wallpaper.texture());
+    log("Pinux Astra / shell 0.5 / x86_64");
+    log("Type 'help' to see available commands.");
+  }
+
+  private GameState s() { return game.world().state; }
+  private String accent() { return warmTheme ? GOLD : SKY; }
+
+  public void open() {
+    wm.reset();
+    menuOpen = false;
+    boot = 0;
+    notice = "";
+    noticeTime = 0;
+    nativeDesktop.show();
+  }
+
+  public com.badlogic.gdx.scenes.scene2d.Stage inputStage() { return nativeDesktop.inputStage(); }
+
+  public String clockText() { return s().clock(); }
+  public boolean isLegacyEditorOpen() { return nativeDesktop.isCodeFront(); }
+  public boolean isCodeFront() { return nativeDesktop.isCodeFront(); }
+  CtrlLife game() { return game; }
+  LifeScreens life() { return life; }
+
+  public void openApp(App app) { launch(app); }
+
+  public void openLegacyEditor() {
+    // Historical entry point retained for callers; the editor is now 100% Scene2D.
+    nativeDesktop.openNativeWindow(App.CODE);
+    game.resetSelection();
+  }
+
+  public String terminalHistory() { return String.join("\n", output); }
+
+  public String terminalSubmit(String line) {
+    command = line;
+    execute();
+    return terminalHistory();
+  }
+
+  public String[] offerSummaries() {
+    return Career.offers(s(), life.data).stream()
+        .map(j -> j.title + "  /  " + j.pay + " ₽")
+        .toArray(String[]::new);
+  }
+
+  public void openJobBoard() {
+    life.codePage = 0;
+    openLegacyEditor();
+  }
+
+  public void toggleTheme() { warmTheme = !warmTheme; }
+  public void toggleMotion() { quietMotion = !quietMotion; }
+
+  public void resizeNative(int w, int h) { nativeDesktop.resize(w, h); }
+
+  public void renderNativeDesktop(float delta) {
+    nativeDesktop.setVisible(true);
+    nativeDesktop.setDesktopVisible(true);
+    nativeDesktop.draw(delta);
+  }
+
+  public void draw() {
+    // The game world still renders to the pixel framebuffer, but ALL Pinux
+    // applications (including Astra Code) render at the real window resolution.
+    float delta = Math.min(.1f, Gdx.graphics.getDeltaTime());
+    time += delta;
+    noticeTime = Math.max(0, noticeTime - delta);
+  }
+
+  private void bootSplash() {
+    c.rect(0, 0, 480, 270, "07101e");
+    c.rect(176, 64, 128, 74, "18314b");
+    c.rect(187, 76, 106, 2, accent());
+    c.title("PINUX", 188, 86, TEXT);
+    c.text("ASTRA", 194, 110, accent());
+    c.small("Preparing desktop environment...", 130, 165, SUB);
+    c.rect(132, 189, 216, 3, "2d465a");
+    c.rect(132, 189, 216 * Math.min(1f, boot / .55f), 3, accent());
+  }
+
+  /** Desktop artwork is authored independently from the window and application UI. */
+  private void desktopWallpaper() {
+    wallpaper.draw(c.batch, warmTheme);
+    if (wm.openCount() == 0) {
+      desktopIcon("<>", "Astra Code", 18, 32, App.CODE, "6555b6");
+      desktopIcon(">_", "Terminal", 18, 81, App.TERMINAL, "354364");
+      desktopIcon("[]", "Files", 18, 130, App.FILES, "a37c54");
+      desktopIcon("@", "TaskMail", 18, 179, App.MAIL, "675188");
+    }
+  }
+
+  public void dispose() {
+    nativeDesktop.dispose();
+    wallpaper.dispose();
+  }
+
+  private boolean hovered(int x, int y, int w, int h) {
+    return c.mouseX() >= x && c.mouseX() < x + w
+        && c.mouseY() >= y && c.mouseY() < y + h;
+  }
+
+  private void hotspot(String label, int x, int y, int w, int h, Runnable action) {
+    game.uiHotspot(label, x, y, w, h, action);
+  }
+
+  /** Desktop shortcuts are composed, not rendered as generic game-menu buttons. */
+  private void desktopIcon(String symbol, String label, int x, int y, App app, String color) {
+    boolean hover = hovered(x, y, 75, 49);
+    if (hover) c.roundRect(x, y, 75, 49, 6, "20213c91");
+    // One soft icon surface; the old thick dark outline is deliberately gone.
+    c.roundRect(x + 22, y + (hover ? 2 : 3), 29, 27, 7, "18172d55");
+    c.roundRect(x + 23, y + (hover ? 2 : 3), 27, 26, 7, color);
+    c.small(symbol, x + 35 - c.smallWidth(symbol) / 2f,
+        y + (hover ? 8 : 9), "f4efff");
+    float textX = x + (75 - c.smallWidth(label)) / 2f;
+    c.small(label, textX, y + 35, "f2ebfa");
+    hotspot(label, x, y, 75, 49, () -> launch(app));
+  }
+
+  private void paintWindow(Window w, boolean active) {
+    if (w.app == App.CODE) {
+      if (wm.isMaximizedCode()) {
+        workbench.draw(); // Existing career/ByteScript actions remain authoritative.
+      } else codePreview(w, active);
+      return;
+    }
+    switch (w.app) {
+      case TERMINAL -> terminal(w);
+      case FILES -> files(w, active);
+      case MAIL -> mail(w, active);
+      case SETTINGS -> settings(w, active);
+      default -> {}
+    }
+  }
+
+  private void codePreview(Window w, boolean active) {
+    int x = w.x + 9, y = w.y + 24, width = w.width - 20;
+    c.small("ASTRA CODE  /  WORKSPACE", x, y, accent());
+    c.rect(x, y + 15, width, 1, "38576b");
+    c.small("EXPLORER       src/  main.bs", x + 4, y + 26, SUB);
+    String source = s().activeJob.isEmpty()
+        ? "// Open TaskMail or expand to start a job"
+        : s().codeSource.replace('\n', ' ');
+    c.fitted(source, x + 4, y + 44, width - 8, GREEN, true);
+    c.small(s().activeJob.isEmpty() ? "No active contract" : "Project: " + s().activeJob,
+        x + 4, y + 63, GOLD);
+    if (active) {
+      button("EXPAND IDE", x + 4, w.y + w.height - 27, 112, 18,
+          () -> wm.toggleMaximize(App.CODE));
+      button("TASKS", x + 121, w.y + w.height - 27, 77, 18, () -> {
+        life.codePage = 0;
+        wm.toggleMaximize(App.CODE);
+      });
+    }
+  }
+
+  private void files(Window w, boolean active) {
+    int x = w.x + 12, y = w.y + 28;
+    c.rect(x, y, w.width - 24, 21, "1c3549");
+    c.fitted("‹   /home/dev/projects", x + 8, y + 4, w.width - 43, TEXT, true);
+    c.small("PLACES", x + 2, y + 33, accent());
+    c.small("⌂  Home", x + 6, y + 48, SUB);
+    c.small("▣  Projects", x + 6, y + 66, SUB);
+    c.rect(x + 104, y + 30, 1, w.height - 92, "345266");
+    c.small("src/", x + 117, y + 35, TEXT);
+    c.small("main.bs", x + 117, y + 54, GREEN);
+    c.small("README.md", x + 117, y + 73, SUB);
+    c.small(".git/", x + 117, y + 92, SUB);
+    if (active)
+      button("Open in Astra Code", x + 115, w.y + w.height - 26,
+          Math.min(167, w.width - 135), 18, () -> launch(App.CODE));
+  }
+
+  private void mail(Window w, boolean active) {
+    int x = w.x + 12, y = w.y + 26;
+    c.small("INBOX  /  JOBS", x, y, accent());
+    c.small("Client contracts  •  Day " + s().day(), x, y + 17, SUB);
+    c.rect(x, y + 34, w.width - 24, 1, "34566b");
+    var offers = Career.offers(s(), life.data);
+    int take = Math.min(3, offers.size());
+    for (int i = 0; i < take; i++) {
+      var j = offers.get(i);
+      int yy = y + 40 + i * 29;
+      c.rect(x, yy, w.width - 24, 27, i % 2 == 0 ? "152b3d" : "132636");
+      c.fitted("●  " + j.title, x + 8, yy + 4, w.width - 98, TEXT, true);
+      c.small(j.pay + " ₽", w.right() - 79, yy + 5, GOLD);
+    }
+    if (active)
+      button("Open job board", x, w.bottom() - 25, Math.min(172, w.width - 24), 18, () -> {
+        life.codePage = 0;
+        launch(App.CODE);
+      });
+  }
+
+  private void settings(Window w, boolean active) {
+    int x = w.x + 14, y = w.y + 30;
+    c.small("PERSONALIZATION", x, y, accent());
+    c.small("Desktop wallpaper", x, y + 24, TEXT);
+    c.small(warmTheme ? "DUSK / AMBER" : "MIDNIGHT / BLUE", x, y + 42, SUB);
+    c.small("Animation and motion", x, y + 70, TEXT);
+    c.small(quietMotion ? "REDUCED" : "SMOOTH", x, y + 88, SUB);
+    if (active) {
+      button("Change theme", x, y + 114, 116, 17, () -> warmTheme = !warmTheme);
+      button("Toggle motion", x + 123, y + 114, 123, 17, () -> quietMotion = !quietMotion);
+    }
+  }
+
+  private void terminal(Window w) {
+    int x = w.x + 9, y = w.y + 23;
+    int width = w.width - 18, height = w.height - 26;
+    c.rect(x, y, width, height, "071421");
+    c.small("PINUX ASTRA  |  bash-like interactive shell", x + 6, y + 5, accent());
+    c.rect(x + 5, y + 20, width - 10, 1, "294b62");
+    int rows = Math.max(1, (height - 53) / 13);
+    String[] lines = output.toArray(String[]::new);
+    int from = Math.max(0, lines.length - rows);
+    for (int i = from; i < lines.length; i++)
+      c.fitted(lines[i], x + 7, y + 25 + (i - from) * 13, width - 17,
+          lines[i].startsWith("$") ? GREEN : SUB, true);
+    c.rect(x + 5, y + height - 22, width - 10, 17, "0d2434");
+    c.fitted("dev@astra:~$ " + command + (blink() ? "▌" : ""), x + 8,
+        y + height - 20, width - 19, TEXT, true);
+  }
+
+  private boolean blink() { return (int) (time * 2.2f) % 2 == 0; }
+
+  private void drawTopBar() {
+    c.rect(0, 0, 480, 16, "0b1126db");
+    c.rect(0, 15, 480, 1, "ac86de22");
+    boolean menuHover = hovered(7, 1, 18, 14);
+    c.roundRect(7, 1, 17, 14, 5, menuHover ? "51427eae" : "53428a76");
+    c.small("A", 12, 2, "ded1ff");
+    c.small("Pinux Astra", 31, 3, "e3dcef");
+    String appName = wm.front() == null ? "Рабочий стол" : wm.front().title;
+    c.fitted(appName, 153, 3, 171, "ac9dc4", true);
+    c.small("●", 365, 3, "a7c6bf");
+    c.small(s().clock() + "   •   " + s().day() + " день", 382, 3, "e8dff3");
+    hotspot("Pinux menu", 7, 1, 18, 14, () -> menuOpen = !menuOpen);
+  }
+
+  private void drawDock() {
+    // Compact floating dock inspired by contemporary desktop environments.
+    c.rect(0, 242, 480, 28, "080d2277");
+    c.roundRect(129, 244, 223, 24, 10, "030716b0");
+    c.roundRect(130, 245, 221, 22, 9, "292444d7");
+    dockItem("A", App.CODE, 143, () -> launch(App.CODE), "6a55b4");
+    dockItem(">_", App.TERMINAL, 180, () -> launch(App.TERMINAL), "313b5d");
+    dockItem("[]", App.FILES, 217, () -> launch(App.FILES), "aa7d4f");
+    dockItem("@", App.MAIL, 254, () -> launch(App.MAIL), "705891");
+    dockItem("S", App.SETTINGS, 291, () -> launch(App.SETTINGS), "404d69");
+    boolean exitHover = hovered(425, 249, 48, 17);
+    c.roundRect(422, 248, 52, 17, 7, exitHover ? "573c60dd" : "211c34a8");
+    c.small("Выйти", 427, 251, exitHover ? "ffffff" : "c3b8d0");
+    hotspot("Встать из-за компьютера", 422, 248, 52, 17,
+        () -> { game.switchMode(Mode.WORLD); game.refreshState(); });
+  }
+
+  private void dockItem(String glyph, App app, int x, Runnable action, String tint) {
+    boolean active = wm.isFront(app);
+    boolean opened = wm.get(app).visible;
+    boolean hover = hovered(x, 245, 30, 22);
+    if (hover) c.roundRect(x - 2, 245, 33, 21, 6, "7564b479");
+    c.roundRect(x + 3, hover ? 246 : 247, 23, 18, 5, active ? "715aba" : tint);
+    c.small(glyph, x + 14.5f - c.smallWidth(glyph) / 2,
+        hover ? 247 : 248, "f8f3ff");
+    if (opened) c.roundRect(x + 11, 265, 7, 2, 1, "c6aaff");
+    hotspot(app.toString(), x - 2, 245, 33, 22, action);
+  }
+
+  private void drawApplicationMenu() {
+    c.rect(10, 23, 188, 198, "04071970");
+    c.roundRect(11, 24, 183, 192, 9, "16192de9");
+    c.roundRect(13, 26, 179, 38, 7, "292442ef");
+    c.text("Pinux Astra", 24, 35, "f3ecff");
+    c.small("ПРИЛОЖЕНИЯ", 25, 72, "b9a9d6");
+    menuItem("A", "Astra Code", 91, App.CODE);
+    menuItem(">_", "Terminal", 115, App.TERMINAL);
+    menuItem("[]", "Files", 139, App.FILES);
+    menuItem("@", "TaskMail", 163, App.MAIL);
+    menuItem("S", "Settings", 187, App.SETTINGS);
+  }
+
+  private void menuItem(String glyph, String title, int y, App app) {
+    boolean hover = hovered(19, y - 4, 169, 22);
+    if (hover) c.roundRect(19, y - 4, 169, 22, 5, "52447a9b");
+    c.roundRect(24, y - 1, 19, 17, 5, hover ? "8165c2" : "353654");
+    c.small(glyph, 33.5f - c.smallWidth(glyph) / 2, y + 1, "f2ebff");
+    c.small(title, 54, y, hover ? "ffffff" : "dfd6ed");
+    hotspot(title, 19, y - 4, 169, 22, () -> launch(app));
+  }
+
+  private void drawNotification() {
+    c.rect(257, 21, 217, 38, "07121de8");
+    c.rect(258, 22, 215, 36, "18384d");
+    c.small("PINUX ASTRA  •  SYSTEM", 264, 26, accent());
+    c.fitted(notice, 264, 42, 200, TEXT, true);
+  }
+
+  private void notify(String message) {
+    notice = message;
+    noticeTime = 3.4f;
+  }
+
+  private void button(String text, int x, int y, int width, int height, Runnable action) {
+    game.uiButton(text, x, y, width, height, true, action);
+  }
+
+  private void launch(App app) {
+    menuOpen = false;
+    nativeDesktop.openNativeWindow(app);
+    game.resetSelection();
+  }
+
+  private void log(String text) {
+    output.addLast(text);
+    while (output.size() > 90) output.removeFirst();
+  }
+
+  private void execute() {
+    String raw = command.strip();
+    command = "";
+    if (raw.isEmpty()) return;
+    log("$ " + raw);
+    commandHistory.add(raw);
+    if (commandHistory.size() > 50) commandHistory.remove(0);
+    historyIndex = commandHistory.size();
+    String cmd = raw.toLowerCase(Locale.ROOT);
+    if (cmd.equals("clear")) { output.clear(); return; }
+    switch (cmd) {
+      case "help" -> {
+        log("ls pwd cat whoami date neofetch clear echo");
+        log("git status | git log | jobs | test | code | files | mail");
+        log("desktop | settings | exit");
+      }
+      case "pwd" -> log("/home/dev/projects");
+      case "whoami" -> log("dev");
+      case "date" -> log("Day " + s().day() + ", " + s().clock());
+      case "ls", "ls -la" -> log("src/  main.bs  README.md  .git/");
+      case "neofetch" -> {
+        log("◆ PINUX ASTRA 0.5  |  Java 21 / libGDX");
+        log("User: dev  |  shell: astra-sh  |  runtime: offline");
+      }
+      case "cat readme.md" -> log("CTRL+LIFE programming workspace. Run: test");
+      case "cat main.bs" -> {
+        if (s().activeJob.isEmpty()) log("No active project.");
+        else for (String line : s().codeSource.split("\n")) log(line);
+      }
+      case "git status" -> {
+        log(s().activeJob.isEmpty() ? "On branch main; clean working tree" :
+            "On branch main; project: " + s().activeJob);
+        log("Local revisions: " + s().revisions.size());
+      }
+      case "git log" -> {
+        if (s().revisions.isEmpty()) log("No local commits.");
+        else for (var r : s().revisions) log("commit " + r.label);
+      }
+      case "jobs" -> log("Active: " + (s().activeJob.isEmpty() ? "none" : s().activeJob));
+      case "test" -> {
+        if (s().activeJob.isEmpty()) log("No project. Open Astra Code first.");
+        else {
+          life.report = Coding.test(s(), life.data.job(s().activeJob));
+          log((life.report.passed() ? "PASS  " : "FAIL  ") + life.report.message());
+          for (String caseResult : life.report.cases()) log(caseResult);
+          game.refreshState();
+          notify(life.report.passed() ? "All tests passed" : "Tests found issues");
+        }
+      }
+      case "code" -> launch(App.CODE);
+      case "files" -> launch(App.FILES);
+      case "mail" -> launch(App.MAIL);
+      case "settings" -> launch(App.SETTINGS);
+      case "desktop", "exit" -> nativeDesktop.closeFrontNativeWindow();
+      default -> {
+        if (cmd.startsWith("echo ")) log(raw.substring(5));
+        else log("command not found: " + raw + "  [help]");
+      }
+    }
+  }
+
+  /** Only game actions are executed here; no host OS commands or filesystem access. */
+  public boolean keyDown(int key) {
+    if (key == Keys.F1) { launch(App.CODE); return true; }
+    if (key == Keys.F2) { launch(App.TERMINAL); return true; }
+    if (key == Keys.F3) { launch(App.FILES); return true; }
+    if (key == Keys.F4) { launch(App.MAIL); return true; }
+    if (key == Keys.F6) { launch(App.SETTINGS); return true; }
+    if (key == Keys.TAB) { nativeDesktop.cycleNativeWindows(); return true; }
+    if (key == Keys.ESCAPE) {
+      if (nativeDesktop.hasNativeWindows()) nativeDesktop.closeFrontNativeWindow();
+      else if (menuOpen) menuOpen = false;
+      else { game.switchMode(Mode.WORLD); game.refreshState(); }
+      return true;
+    }
+    return true;
+  }
+
+  /** Called before the regular game key handler by the native desktop Stage. */
+  boolean codeTypingKey(int key) {
+    if (game.mode() != Mode.IDE || !nativeDesktop.isCodeFront()) return false;
+    boolean character = (key >= Keys.A && key <= Keys.Z)
+        || (key >= Keys.NUM_0 && key <= Keys.NUM_9)
+        || (key >= Keys.NUMPAD_0 && key <= Keys.NUMPAD_9)
+        || key == Keys.SPACE || key == Keys.COMMA || key == Keys.PERIOD
+        || key == Keys.SLASH || key == Keys.SEMICOLON || key == Keys.MINUS
+        || key == Keys.EQUALS || key == Keys.APOSTROPHE || key == Keys.BACKSLASH
+        || key == Keys.LEFT_BRACKET || key == Keys.RIGHT_BRACKET;
+    if (character && life.codePage == 2) {
+      life.typeKey();
+      return true;
+    }
+    return false;
+  }
+
+  public void keyTyped(char ch) {
+    if (!wm.isFront(App.TERMINAL)) return;
+    if (ch >= 32 && ch != 127 && command.length() < 120) command += ch;
+  }
+
+  public boolean pointerDown(int x, int y) {
+    if (menuOpen && x > 195 && y > 18) menuOpen = false;
+    if (menuOpen && x < 196 && y > 19 && y < 216) return false;
+    return wm.pointerDown(x, y);
+  }
+
+  public void pointerMove(int x, int y) { wm.pointerMove(x, y); }
+  public boolean pointerDragged(int x, int y) { wm.pointerDragged(x, y); wm.pointerMove(x, y); return true; }
+  public boolean pointerUp(int x, int y) { return wm.pointerUp(x, y); }
+  public void cancelPointer() { wm.cancelDrag(); nativeDesktop.setVisible(false); }
+}
+END FILE: core/src/main/java/life/ctrl/ui/PinuxAstra.java
+
+======================================
+FILE: core/src/main/java/life/ctrl/ui/PinuxDesktopStage.java
+======================================
+package life.ctrl.ui;
+
+import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.graphics.Color;
+import com.badlogic.gdx.graphics.Pixmap;
+import com.badlogic.gdx.graphics.Texture;
+import com.badlogic.gdx.graphics.g2d.BitmapFont;
+import com.badlogic.gdx.graphics.g2d.NinePatch;
+import com.badlogic.gdx.graphics.g2d.TextureRegion;
+import com.badlogic.gdx.scenes.scene2d.Actor;
+import com.badlogic.gdx.scenes.scene2d.Stage;
+import com.badlogic.gdx.scenes.scene2d.Touchable;
+import com.badlogic.gdx.scenes.scene2d.actions.Actions;
+import com.badlogic.gdx.scenes.scene2d.ui.Button;
+import com.badlogic.gdx.scenes.scene2d.ui.Image;
+import com.badlogic.gdx.scenes.scene2d.ui.Label;
+import com.badlogic.gdx.scenes.scene2d.ui.Skin;
+import com.badlogic.gdx.scenes.scene2d.ui.Table;
+import com.badlogic.gdx.scenes.scene2d.utils.ChangeListener;
+import com.badlogic.gdx.scenes.scene2d.utils.NinePatchDrawable;
+import com.badlogic.gdx.scenes.scene2d.utils.Drawable;
+import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable;
+import com.badlogic.gdx.utils.Align;
+import com.badlogic.gdx.utils.Scaling;
+import com.badlogic.gdx.utils.viewport.ScreenViewport;
+import life.ctrl.ui.PinuxWindowManager.App;
+
+/**
+ * True-resolution Scene2D desktop for Pinux Astra.
+ *
+ * The pixel-art world retains its 480x270 framebuffer; only the desktop
+ * user interface renders after the game's framebuffer at native window size.
+ * Scene2D owns layout, pointer hit testing, hover, focus, and animations.
+ */
+public final class PinuxDesktopStage {
+  private final PinuxAstra shell;
+  // The desktop owns game-IDE typing while Astra Code is focused. This prevents
+  // Scene2D controls from swallowing tactile ByteScript input on Windows.
+  private final Stage stage = new Stage(new ScreenViewport()) {
+    @Override public boolean keyDown(int keycode) {
+      if (shell != null && shell.codeTypingKey(keycode)) return true;
+      return super.keyDown(keycode);
+    }
+    @Override public boolean keyTyped(char character) {
+      if (shell != null && shell.isCodeFront()) return true;
+      return super.keyTyped(character);
+    }
+  };
+  private final Skin skin = new Skin();
+  private Table topBar, dock, shortcuts, launcher;
+  private Label clock, current;
+  private Image wallpaper, wallpaperDim;
+  private PinuxNativeWindows windows;
+  private boolean visible;
+  private float scale = 1f;
+
+  public PinuxDesktopStage(PinuxAstra shell, Texture desktopTexture) {
+    this.shell = shell;
+    BitmapFont ui = font("fonts/hd/ui.fnt", .48f);
+    BitmapFont small = font("fonts/hd/small.fnt", .48f);
+    skin.add("ui-font", ui);
+    skin.add("small-font", small);
+    skin.add("dock-bg", patch("dock-bg", 11, 30, 34, 45, 242, 0), Drawable.class);
+    skin.add("wallpaper-dim", patch("wallpaper-dim", 0, 12, 17, 25, 137, 0), Drawable.class);
+    skin.add("shortcut-idle", patch("shortcut-idle", 7, 36, 41, 51, 0, 0), Drawable.class);
+    skin.add("shortcut-hover", patch("shortcut-hover", 7, 55, 63, 75, 145, 0), Drawable.class);
+    skin.add("dock-idle", patch("dock-idle", 5, 36, 41, 51, 0, 0), Drawable.class);
+    skin.add("dock-hover", patch("dock-hover", 5, 65, 77, 91, 180, 0), Drawable.class);
+    skin.add("top-bg", patch("top-bg", 0, 25, 28, 36, 247, 0), Drawable.class);
+    skin.add("hover-bg", patch("hover-bg", 12, 20, 49, 100, 86, 154), Drawable.class);
+    skin.add("button-bg", patch("button-bg", 13, 20, 43, 105, 90, 159), Drawable.class);
+    skin.add("launcher-bg", patch("launcher-bg", 9, 26, 30, 39, 252, 0), Drawable.class);
+    skin.add("window-bg", patch("window-bg", 7, 30, 33, 40, 253, 0), Drawable.class);
+    skin.add("pane-bg", patch("pane-bg", 11, 10, 18, 35, 246, 0), Drawable.class);
+    skin.add("input-bg", patch("input-bg", 8, 20, 32, 53, 245, 0), Drawable.class);
+    skin.add("window-header", patch("window-header", 4, 41, 45, 55, 255, 0), Drawable.class);
+    skin.add("title-button", patch("title-button", 7, 32, 40, 60, 176, 0), Drawable.class);
+    skin.add("title-button-hover", patch("title-button-hover", 7, 61, 71, 105, 235, 0), Drawable.class);
+    skin.add("title-close-hover", patch("title-close-hover", 7, 123, 52, 74, 248, 0), Drawable.class);
+    // OneDark / Archcraft-inspired terminal palette. Keep separate from the
+    // desktop and other applications until this single design is approved.
+    skin.add("term-frame", patch("term-frame", 12, 46, 50, 60, 255, 0), Drawable.class);
+    skin.add("term-header", patch("term-header", 7, 41, 45, 55, 255, 0), Drawable.class);
+    skin.add("term-surface", patch("term-surface", 8, 30, 33, 40, 255, 0), Drawable.class);
+    skin.add("term-toolbar", patch("term-toolbar", 5, 35, 39, 48, 255, 0), Drawable.class);
+    skin.add("term-tab", patch("term-tab", 5, 47, 52, 62, 255, 0), Drawable.class);
+    skin.add("term-prompt", patch("term-prompt", 6, 41, 45, 55, 255, 0), Drawable.class);
+    skin.add("term-title-button", patch("term-title-button", 5, 41, 45, 55, 180, 0), Drawable.class);
+    skin.add("term-title-hover", patch("term-title-hover", 5, 72, 81, 97, 255, 0), Drawable.class);
+    skin.add("term-title-close", patch("term-title-close", 5, 154, 59, 68, 255, 0), Drawable.class);
+
+    addIcon("code", 93, 72, 188);
+    addIcon("terminal", 60, 69, 111);
+    addIcon("files", 193, 139, 87);
+    addIcon("mail", 137, 94, 196);
+    addIcon("settings", 91, 96, 139);
+
+    wallpaper = new Image(new TextureRegionDrawable(new TextureRegion(desktopTexture)));
+    wallpaper.setScaling(Scaling.stretch);
+    wallpaper.setTouchable(Touchable.disabled);
+    stage.addActor(wallpaper);
+    wallpaperDim = new Image(skin.getDrawable("wallpaper-dim"));
+    wallpaperDim.setTouchable(Touchable.disabled);
+    stage.addActor(wallpaperDim);
+    build();
+    windows = new PinuxNativeWindows(stage, skin, shell);
+    setVisible(false);
+    resize(Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
+  }
+
+  private BitmapFont font(String path, float amount) {
+    BitmapFont f = new BitmapFont(Gdx.files.internal(path));
+    f.getData().setScale(amount);
+    f.setUseIntegerPositions(false);
+    f.getRegion().getTexture().setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
+    return f;
+  }
+
+  private NinePatchDrawable patch(String id, int r, int red, int green, int blue,
+                                  int alpha, int unused) {
+    // NinePatch texture created at 3x target radius to keep silhouettes smooth.
+    int size = 96, border = 32, radius = Math.min(38, r * 2);
+    Pixmap pix = new Pixmap(size, size, Pixmap.Format.RGBA8888);
+    for (int y = 0; y < size; y++) {
+      float ay = Math.abs(y + .5f - size / 2f) - (size / 2f - radius);
+      for (int x = 0; x < size; x++) {
+        float ax = Math.abs(x + .5f - size / 2f) - (size / 2f - radius);
+        float distance = (float)Math.hypot(Math.max(ax, 0), Math.max(ay, 0))
+            + Math.min(0, Math.max(ax, ay)) - radius;
+        float a = Math.max(0, Math.min(1, .5f - distance)) * alpha / 255f;
+        pix.drawPixel(x, y, (red << 24) | (green << 16) | (blue << 8) | Math.round(a * 255));
+      }
+    }
+    Texture t = new Texture(pix);
+    t.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
+    pix.dispose();
+    skin.add(id + "-texture", t);
+    NinePatch patch = new NinePatch(t, border, border, border, border);
+    return new NinePatchDrawable(patch);
+  }
+
+  private void addIcon(String name, int r, int g, int b) {
+    int n = 128;
+    Pixmap pix = new Pixmap(n, n, Pixmap.Format.RGBA8888);
+    // Archcraft uses understated monochrome symbols rather than oversized
+    // glossy application cards. Leave the icon texture transparent.
+    pix.setColor(0xf5f0ffff);
+    // Crisp, recognizable native icons; no emoji font fallbacks.
+    switch(name) {
+      case "code" -> {
+        stroke(pix,41,47,29,63,4); stroke(pix,29,63,41,79,4);
+        stroke(pix,83,47,95,63,4); stroke(pix,95,63,83,79,4);
+        stroke(pix,71,44,54,83,4);
+      }
+      case "terminal" -> {
+        stroke(pix,30,47,49,62,4);stroke(pix,49,62,30,77,4);
+        pix.fillRectangle(57,77,33,4);
+      }
+      case "files" -> {
+        stroke(pix,29,53,29,90,5);
+        stroke(pix,29,90,99,90,5);
+        stroke(pix,99,90,99,53,5);
+        stroke(pix,99,53,63,53,5);
+        stroke(pix,63,53,55,44,5);
+        stroke(pix,55,44,29,44,5);
+        stroke(pix,29,44,29,53,5);
+      }
+      case "mail" -> {
+        stroke(pix,28,47,99,47,4); stroke(pix,28,47,63,75,4);
+        stroke(pix,99,47,63,75,4); stroke(pix,28,47,28,86,4);
+        stroke(pix,99,47,99,86,4); stroke(pix,28,86,99,86,4);
+      }
+      case "settings" -> {
+        for (int rad=21; rad<=25; rad++) pix.drawCircle(64,64,rad);
+        for (int rad=7; rad<=9; rad++) pix.drawCircle(64,64,rad);
+        for(int i=0;i<8;i++){
+          double angle=i*Math.PI/4;
+          int ax=64+(int)(24*Math.cos(angle)), ay=64+(int)(24*Math.sin(angle));
+          int bx=64+(int)(33*Math.cos(angle)), by=64+(int)(33*Math.sin(angle));
+          stroke(pix,ax,ay,bx,by,5);
+        }
+      }
+    }
+    Texture t = new Texture(pix);
+    t.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
+    pix.dispose();
+    skin.add("icon-" + name, t);
+  }
+
+  private static void stroke(Pixmap p, int x, int y, int ex, int ey, int size) {
+    for (int dx = -size/2; dx <= size/2; dx++)
+      for (int dy = -size/2; dy <= size/2; dy++)
+        p.drawLine(x+dx, y+dy, ex+dx, ey+dy);
+  }
+
+  private Label label(String text, boolean secondary) {
+    Label.LabelStyle style = new Label.LabelStyle(
+        skin.getFont(secondary ? "small-font" : "ui-font"),
+        Color.valueOf(secondary ? "c6bfd8" : "f5efff"));
+    Label l = new Label(text, style);
+    l.setAlignment(Align.center);
+    return l;
+  }
+
+  private Image icon(String name) {
+    Image img = new Image(new TextureRegionDrawable(new TextureRegion(skin.get("icon-" + name, Texture.class))));
+    img.setScaling(Scaling.fit);
+    return img;
+  }
+
+  private Button button(Runnable action) {
+    Button.ButtonStyle style = new Button.ButtonStyle();
+    style.up = skin.getDrawable("button-bg");
+    style.over = skin.getDrawable("hover-bg");
+    style.down = skin.getDrawable("hover-bg");
+    Button b = new Button(style);
+    b.setProgrammaticChangeEvents(false);
+    b.addListener(new ChangeListener() {
+      @Override public void changed(ChangeEvent e, Actor actor) {
+        if (!b.isChecked()) return;
+        b.setChecked(false);
+        action.run();
+      }
+    });
+    return b;
+  }
+
+  private Button shortcut(String icon, String title, App app) {
+    Button.ButtonStyle style = new Button.ButtonStyle();
+    style.up = skin.getDrawable("shortcut-idle");
+    style.over = skin.getDrawable("shortcut-hover");
+    style.down = skin.getDrawable("shortcut-hover");
+    Button b = new Button(style);
+    b.addListener(new ChangeListener() {
+      @Override public void changed(ChangeEvent e, Actor actor) { shell.openApp(app); }
+    });
+    b.pad(3);
+    b.add(this.icon(icon)).size(35,35).center();
+    b.row();
+    b.add(label(title, true)).minWidth(90).padTop(1).center();
+    return b;
+  }
+
+  private Button dockButton(String icon, App app) {
+    Button.ButtonStyle style = new Button.ButtonStyle();
+    style.up = skin.getDrawable("dock-idle");
+    style.over = skin.getDrawable("dock-hover");
+    style.down = skin.getDrawable("dock-hover");
+    Button b = new Button(style);
+    b.addListener(new ChangeListener() {
+      @Override public void changed(ChangeEvent e, Actor actor) { shell.openApp(app); }
+    });
+    b.pad(4);
+    b.add(this.icon(icon)).size(27,27);
+    b.addListener(new com.badlogic.gdx.scenes.scene2d.utils.ClickListener() {
+      @Override public void enter(com.badlogic.gdx.scenes.scene2d.InputEvent e,
+                                  float x, float y, int pointer, Actor fromActor) {
+        b.clearActions();
+        b.addAction(Actions.scaleTo(1.07f, 1.07f, .13f));
+      }
+      @Override public void exit(com.badlogic.gdx.scenes.scene2d.InputEvent e,
+                                 float x, float y, int pointer, Actor toActor) {
+        b.clearActions();
+        b.addAction(Actions.scaleTo(1,1,.15f));
+      }
+    });
+    b.setTransform(true);
+    return b;
+  }
+
+  private void build() {
+    // Archcraft/Openbox-inspired Polybar: compact 30 px, workspace indicators,
+    // calm secondary text and a real application launcher on the left.
+    topBar = new Table();
+    topBar.setBackground(skin.getDrawable("top-bg"));
+    topBar.left().padLeft(20).padRight(20);
+    Label menuIcon = label("A", false);
+    menuIcon.setColor(Color.valueOf("5294E2"));
+    topBar.add(menuIcon).width(20).left();
+    Label distro = label("pinux", true);
+    distro.setColor(Color.valueOf("DBE1E9"));
+    topBar.add(distro).padLeft(5).padRight(26).left();
+    Label workspaces = label("01    02    03", true);
+    workspaces.setColor(Color.valueOf("8492A3"));
+    topBar.add(workspaces).padRight(16);
+    topBar.add().expandX();
+    current = label("Рабочий стол", true);
+    current.setColor(Color.valueOf("929BAB"));
+    topBar.add(current).padRight(23);
+    Label status = label("●", true);
+    status.setColor(Color.valueOf("98C379"));
+    topBar.add(status).padRight(10);
+    Label session = label("ASTRA", true);
+    session.setColor(Color.valueOf("8191A4"));
+    topBar.add(session).padRight(15);
+    clock = label("20:47", true);
+    clock.setColor(Color.valueOf("D5DBE4"));
+    topBar.add(clock);
+    stage.addActor(topBar);
+
+    // Desktop shortcuts remain usable but do not look like mobile app cards.
+    shortcuts = new Table();
+    shortcuts.top().left();
+    shortcuts.add(shortcut("code", "Astra Code", App.CODE)).size(94,79).padBottom(2);
+    shortcuts.row();
+    shortcuts.add(shortcut("terminal", "Terminal", App.TERMINAL)).size(94,79).padBottom(2);
+    shortcuts.row();
+    shortcuts.add(shortcut("files", "Files", App.FILES)).size(94,79).padBottom(2);
+    shortcuts.row();
+    shortcuts.add(shortcut("mail", "TaskMail", App.MAIL)).size(94,79);
+    stage.addActor(shortcuts);
+
+    // Small centered dock: icons have no coloured square behind them.
+    dock = new Table();
+    dock.setBackground(skin.getDrawable("dock-bg"));
+    dock.pad(6, 10, 6, 10);
+    dock.defaults().padLeft(5).padRight(5);
+    dock.add(dockButton("code", App.CODE)).size(40);
+    dock.add(dockButton("terminal", App.TERMINAL)).size(40);
+    dock.add(dockButton("files", App.FILES)).size(40);
+    dock.add(dockButton("mail", App.MAIL)).size(40);
+    dock.add(dockButton("settings", App.SETTINGS)).size(40);
+    stage.addActor(dock);
+
+    launcher = new Table();
+    launcher.top().left();
+    launcher.setBackground(skin.getDrawable("launcher-bg"));
+    launcher.pad(16);
+    Label heading = label("ПРИЛОЖЕНИЯ", true);
+    heading.setColor(Color.valueOf("9FAAB8"));
+    launcher.add(heading).width(255).height(28).padBottom(11).left();
+    launcher.row();
+    for (var entry : new Object[][] {
+        {"code", "Astra Code", App.CODE},
+        {"terminal", "Terminal", App.TERMINAL},
+        {"files", "Files", App.FILES},
+        {"mail", "TaskMail", App.MAIL},
+        {"settings", "Settings", App.SETTINGS}
+    }) {
+      String ico = (String)entry[0], title = (String)entry[1];
+      App app = (App)entry[2];
+      Button b = button(() -> { launcher.setVisible(false); shell.openApp(app); });
+      b.add(icon(ico)).size(22).pad(5);
+      Label txt = label(title, true); txt.setAlignment(Align.left);
+      b.add(txt).width(203).left().padLeft(8);
+      launcher.add(b).width(267).height(40).padBottom(4);
+      launcher.row();
+    }
+    launcher.setVisible(false);
+    stage.addActor(launcher);
+    topBar.addListener(new com.badlogic.gdx.scenes.scene2d.utils.ClickListener() {
+      @Override public void clicked(com.badlogic.gdx.scenes.scene2d.InputEvent e, float x, float y) {
+        if (x <= 152) {
+          boolean show = !launcher.isVisible();
+          launcher.setVisible(show);
+          launcher.toFront();
+        }
+      }
+    });
+  }
+
+  public Stage inputStage() { return stage; }
+  public boolean isVisible() { return visible; }
+
+  public void openNativeWindow(App app) {
+    windows.open(app);
+    current.setText(switch (app) {
+      case TERMINAL -> "Terminal";
+      case FILES -> "Files";
+      case MAIL -> "TaskMail";
+      case SETTINGS -> "Settings";
+      case CODE -> "Astra Code";
+    });
+    raiseChrome();
+  }
+
+  public void raiseChrome() {
+    topBar.toFront();
+    dock.toFront();
+    launcher.toFront();
+  }
+
+  public void setDesktopVisible(boolean showDesktop) {
+    wallpaper.setVisible(showDesktop);
+    wallpaperDim.setVisible(showDesktop);
+    // Desktop launchers remain behind open applications but are not visually
+    // duplicated inside maximized application workspaces.
+    shortcuts.setVisible(showDesktop && !windows.hasOpen());
+  }
+
+  public boolean hasNativeWindows() { return windows.hasOpen(); }
+
+  public boolean isCodeFront() { return windows.isFrontCode(); }
+
+  public void cycleNativeWindows() { windows.cycleFocus(); }
+
+  public void closeFrontNativeWindow() { windows.closeFront(); }
+
+  public void resetNativeWindows() { windows.reset(); }
+
+  public void setVisible(boolean show) {
+    visible = show;
+    stage.getRoot().setVisible(show);
+    if (!show && launcher != null) launcher.setVisible(false);
+  }
+
+  public void resize(int w, int h) {
+    stage.getViewport().update(w, h, true);
+    float width = stage.getWidth(), height = stage.getHeight();
+    scale = Math.max(.67f, Math.min(1.35f, height / 810f));
+    skin.getFont("ui-font").getData().setScale(.37f * scale);
+    skin.getFont("small-font").getData().setScale(.39f * scale);
+    wallpaper.setBounds(0, 0, width, height);
+    wallpaperDim.setBounds(0, 0, width, height);
+    topBar.setBounds(0, height - 30 * scale, width, 30 * scale);
+    topBar.padLeft(20 * scale);
+    topBar.padRight(20 * scale);
+    shortcuts.setTransform(true);
+    shortcuts.setSize(94, 334);
+    shortcuts.setScale(scale);
+    shortcuts.setPosition(22 * scale, Math.max(74 * scale, height - 385 * scale));
+    dock.invalidateHierarchy();
+    dock.setTransform(true);
+    dock.setSize(275, 50);
+    dock.setScale(scale);
+    dock.setPosition((width - 275 * scale) / 2, 14 * scale);
+    launcher.setTransform(true);
+    launcher.setSize(302, 325);
+    launcher.setScale(scale);
+    launcher.setPosition(18 * scale, height - 30 * scale - 335 * scale);
+    launcher.invalidateHierarchy();
+    if (windows != null) windows.resize(w, h);
+  }
+
+  public void show() {
+    if (windows != null) windows.reset();
+    setVisible(true);
+    stage.getRoot().setColor(1,1,1,0);
+    stage.getRoot().addAction(Actions.fadeIn(.22f));
+  }
+
+  public void draw(float delta) {
+    if (!visible) return;
+    clock.setText(shell.clockText());
+    windows.tick();
+    stage.act(Math.min(delta, .05f));
+    stage.draw();
+  }
+
+  public void dispose() {
+    stage.dispose();
+    skin.dispose();
+  }
+}
+END FILE: core/src/main/java/life/ctrl/ui/PinuxDesktopStage.java
+
+======================================
+FILE: core/src/main/java/life/ctrl/ui/PinuxNativeWindows.java
+======================================
+package life.ctrl.ui;
+
+import com.badlogic.gdx.graphics.Color;
+import com.badlogic.gdx.Input;
+import com.badlogic.gdx.scenes.scene2d.Actor;
+import com.badlogic.gdx.scenes.scene2d.InputEvent;
+import com.badlogic.gdx.scenes.scene2d.InputListener;
+import com.badlogic.gdx.scenes.scene2d.Stage;
+import com.badlogic.gdx.scenes.scene2d.actions.Actions;
+import com.badlogic.gdx.scenes.scene2d.ui.Button;
+import com.badlogic.gdx.scenes.scene2d.ui.Label;
+import com.badlogic.gdx.scenes.scene2d.ui.ScrollPane;
+import com.badlogic.gdx.scenes.scene2d.ui.Skin;
+import com.badlogic.gdx.scenes.scene2d.ui.Table;
+import com.badlogic.gdx.scenes.scene2d.ui.TextButton;
+import com.badlogic.gdx.scenes.scene2d.ui.Window;
+import com.badlogic.gdx.scenes.scene2d.utils.ChangeListener;
+import com.badlogic.gdx.utils.Align;
+import com.kotcrab.vis.ui.VisUI;
+import com.kotcrab.vis.ui.widget.VisTextField;
+import com.kotcrab.vis.ui.widget.VisWindow;
+import java.util.EnumMap;
+import life.ctrl.ui.PinuxWindowManager.App;
+
+/**
+ * Native-resolution windows using actual VisUI windows (not manually painted fake
+ * rectangles). Layout and resizing belong to Scene2D. App state is simulated and
+ * can never touch the host computer's filesystem or execute host commands.
+ *
+ * The architecture follows familiar KDE-style desktop patterns: one window per
+ * application, z-order on focus, a task switcher/dock and independent contents.
+ */
+final class PinuxNativeWindows {
+  private static final Color PRIMARY = Color.valueOf("e8eaf5");
+  private static final Color MUTED = Color.valueOf("a9b5cd");
+  private static final Color ACCENT = Color.valueOf("b8acff");
+  // Archcraft bspwm/OneDark chroma, adapted rather than copying Linux UI files.
+  private static final Color TERM_FG = Color.valueOf("ABB2BF");
+  private static final Color TERM_MUTED = Color.valueOf("7F8998");
+  private static final Color TERM_BLUE = Color.valueOf("5294E2");
+  private static final Color TERM_GREEN = Color.valueOf("98C379");
+
+  private final Stage stage;
+  private final Skin skin;
+  private final PinuxAstra shell;
+  private final EnumMap<App, VisWindow> windows = new EnumMap<>(App.class);
+  private final EnumMap<App, Boolean> maximized = new EnumMap<>(App.class);
+  private final EnumMap<App, float[]> restored = new EnumMap<>(App.class);
+  private final Window.WindowStyle windowStyle;
+  private final Window.WindowStyle terminalWindowStyle;
+  private VisTextField terminalInput;
+  private AstraCodeApp codeApp;
+  private Label terminalOutput;
+  private float scale = 1;
+  private int sequence;
+
+  PinuxNativeWindows(Stage stage, Skin skin, PinuxAstra shell) {
+    this.stage = stage;
+    this.skin = skin;
+    this.shell = shell;
+    if (!VisUI.isLoaded()) VisUI.load();
+    windowStyle = new Window.WindowStyle(
+        skin.getFont("ui-font"), PRIMARY, skin.getDrawable("window-bg"));
+    terminalWindowStyle = new Window.WindowStyle(
+        skin.getFont("ui-font"), TERM_FG, skin.getDrawable("term-frame"));
+  }
+
+  private Label text(String value, boolean secondary) {
+    Label result = new Label(value, new Label.LabelStyle(
+        skin.getFont(secondary ? "small-font" : "ui-font"), secondary ? MUTED : PRIMARY));
+    result.setAlignment(Align.left);
+    return result;
+  }
+
+  private void heading(Table table, String overline, String title, String subtitle) {
+    Label over = text(overline, true);
+    over.setColor(ACCENT);
+    table.add(over).left().padBottom(9);
+    table.row();
+    table.add(text(title, false)).left().padBottom(5);
+    table.row();
+    table.add(text(subtitle, true)).left().padBottom(22);
+    table.row();
+  }
+
+  private TextButton action(String text, Runnable run) {
+    TextButton.TextButtonStyle style = new TextButton.TextButtonStyle();
+    style.font = skin.getFont("small-font");
+    style.fontColor = PRIMARY;
+    style.overFontColor = Color.WHITE;
+    style.up = skin.getDrawable("button-bg");
+    style.over = skin.getDrawable("hover-bg");
+    style.down = skin.getDrawable("hover-bg");
+    TextButton button = new TextButton(text, style);
+    button.addListener(new ChangeListener() {
+      @Override public void changed(ChangeEvent event, Actor actor) { run.run(); }
+    });
+    return button;
+  }
+
+  private TextButton chrome(String glyph, Runnable run, boolean danger, boolean terminal) {
+    TextButton.TextButtonStyle style = new TextButton.TextButtonStyle();
+    style.font = skin.getFont("small-font");
+    style.fontColor = terminal ? TERM_MUTED
+        : danger ? Color.valueOf("e6bac4") : Color.valueOf("acb9ce");
+    style.overFontColor = Color.WHITE;
+    style.up = skin.getDrawable(terminal ? "term-title-button" : "title-button");
+    style.over = skin.getDrawable(terminal
+        ? danger ? "term-title-close" : "term-title-hover"
+        : danger ? "title-close-hover" : "title-button-hover");
+    style.down = style.over;
+    TextButton b = new TextButton(glyph, style);
+    b.addListener(new ChangeListener() {
+      @Override public void changed(ChangeEvent event, Actor actor) { run.run(); }
+    });
+    return b;
+  }
+
+  private VisWindow make(App app, String title, int width, int height, int x, int y) {
+    boolean terminal = app == App.TERMINAL;
+    VisWindow window = new VisWindow(title, terminal ? terminalWindowStyle : windowStyle);
+    window.setMovable(true);
+    window.setResizable(true);
+    window.setResizeBorder(12);
+    window.setKeepWithinStage(true);
+    window.padTop(terminal ? 41 : 44);
+    window.padLeft(terminal ? 10 : 19);
+    window.padRight(terminal ? 10 : 19);
+    window.padBottom(terminal ? 10 : 18);
+    window.getTitleLabel().setColor(terminal ? TERM_FG : PRIMARY);
+    window.getTitleLabel().setAlignment(Align.left);
+    window.getTitleTable().setBackground(skin.getDrawable(
+        terminal ? "term-header" : "window-header"));
+    window.getTitleTable().add().expandX();
+    window.getTitleTable().add(chrome("—", () -> minimize(app), false, terminal))
+        .width(terminal ? 30 : 33).height(25).padRight(5);
+    window.getTitleTable().add(chrome("[]", () -> toggleMaximize(app), false, terminal))
+        .width(terminal ? 30 : 33).height(25).padRight(5);
+    window.getTitleTable().add(chrome("×", () -> close(app), true, terminal))
+        .width(terminal ? 30 : 33).height(25).padRight(5);
+    window.setBounds(x, y, width, height);
+    // Explicit resize capture fixes a libGDX/VisWindow corner hit-test conflict
+    // when the content Table fills the body. The rest of the window stays native.
+    window.addCaptureListener(new InputListener() {
+      float startStageX, startStageY, initialX, initialY, initialW, initialH;
+      boolean resizing;
+
+      @Override public boolean touchDown(InputEvent e, float localX, float localY,
+                                         int pointer, int button) {
+        if (button != Input.Buttons.LEFT || localX < window.getWidth() - 24 || localY > 24)
+          return false;
+        resizing = true;
+        startStageX = e.getStageX();
+        startStageY = e.getStageY();
+        initialX = window.getX();
+        initialY = window.getY();
+        initialW = window.getWidth();
+        initialH = window.getHeight();
+        e.stop();
+        return true;
+      }
+
+      @Override public void touchDragged(InputEvent e, float localX, float localY, int pointer) {
+        if (!resizing) return;
+        float dx = e.getStageX() - startStageX;
+        float dy = e.getStageY() - startStageY;
+        float newW = Math.max(app == App.CODE ? 800 : 460,
+            Math.min(stage.getWidth() - initialX - 10, initialW + dx));
+        float desiredY = Math.max(95, initialY + dy);
+        float newH = Math.max(app == App.CODE ? 470 : 300,
+            initialH + initialY - desiredY);
+        window.setBounds(initialX, desiredY, newW, newH);
+        window.invalidateHierarchy();
+      }
+
+      @Override public void touchUp(InputEvent e, float localX, float localY,
+                                    int pointer, int button) {
+        resizing = false;
+      }
+    });
+    windows.put(app, window);
+    maximized.put(app, false);
+    return window;
+  }
+
+  private VisWindow create(App app) {
+    int offset = sequence++ % 4;
+    int x = 195 + offset * 30, y = 122 + offset * 14;
+    switch (app) {
+      case CODE -> {
+        // All gameplay panels are native Scene2D actors; no PixelCanvas fallback.
+        int width = Math.max(800, Math.min(1180, (int)stage.getWidth() - 80));
+        int height = Math.max(470, Math.min(720, (int)stage.getHeight() - 112));
+        VisWindow w = make(app, "Astra Code", width, height, 50,
+            Math.max(45, ((int)stage.getHeight() - height) / 2));
+        codeApp = new AstraCodeApp(shell.game(), shell.life(), skin);
+        w.add(codeApp.view()).grow().minWidth(0).minHeight(0);
+        return w;
+      }
+      case TERMINAL -> {
+        // Archcraft/OneDark: a quiet, flat kitty-style console with a real
+        // Scene2D text field. Only this application receives the new skin.
+        VisWindow w = make(app, "Terminal", 838, 537, 195, 130);
+        Table surface = new Table();
+        surface.top().left();
+        surface.setBackground(skin.getDrawable("term-surface"));
+
+        // A single quiet tab strip, as in Archcraft's terminal layouts.
+        Table toolbar = new Table();
+        toolbar.left().padLeft(15).padRight(18);
+        toolbar.setBackground(skin.getDrawable("term-toolbar"));
+        Table shellTab = new Table();
+        shellTab.setBackground(skin.getDrawable("term-tab"));
+        Label dot = text("●", true);
+        dot.setColor(TERM_GREEN);
+        shellTab.add(dot).padLeft(14).padRight(9);
+        Label activeSession = text("shell  /  dev@astra", true);
+        activeSession.setColor(TERM_FG);
+        shellTab.add(activeSession).padRight(15);
+        toolbar.add(shellTab).height(30).left();
+        toolbar.add().expandX();
+        Label workingDirectory = text("~ / projects", true);
+        workingDirectory.setColor(TERM_MUTED);
+        toolbar.add(workingDirectory).padRight(14);
+        Label indicator = text("●", true);
+        indicator.setColor(TERM_GREEN);
+        toolbar.add(indicator);
+        surface.add(toolbar).height(44).growX();
+        surface.row();
+
+        terminalOutput = text(shell.terminalHistory(), false);
+        terminalOutput.setStyle(new Label.LabelStyle(skin.getFont("small-font"), TERM_FG));
+        terminalOutput.setWrap(true);
+        terminalOutput.setAlignment(Align.topLeft);
+        ScrollPane.ScrollPaneStyle scrollStyle = new ScrollPane.ScrollPaneStyle();
+        ScrollPane scroll = new ScrollPane(terminalOutput, scrollStyle);
+        scroll.setFadeScrollBars(true);
+        scroll.setOverscroll(false, false);
+        scroll.setScrollingDisabled(true, false);
+        surface.add(scroll).grow().padLeft(26).padRight(23).padTop(12).padBottom(16);
+        surface.row();
+
+        Table prompt = new Table();
+        prompt.left().padLeft(18).padRight(11);
+        prompt.setBackground(skin.getDrawable("term-prompt"));
+        Label user = text("dev", true);
+        user.setColor(TERM_GREEN);
+        prompt.add(user);
+        Label atHost = text("@astra", true);
+        atHost.setColor(TERM_BLUE);
+        prompt.add(atHost);
+        Label directory = text("  ~  >", true);
+        directory.setColor(TERM_FG);
+        prompt.add(directory).padRight(13);
+
+        VisTextField.VisTextFieldStyle inputStyle = new VisTextField.VisTextFieldStyle();
+        inputStyle.font = skin.getFont("small-font");
+        inputStyle.fontColor = TERM_FG;
+        inputStyle.messageFontColor = TERM_MUTED;
+        inputStyle.cursor = skin.newDrawable("term-title-button", TERM_BLUE);
+        inputStyle.selection = skin.newDrawable("term-title-hover", TERM_BLUE);
+        terminalInput = new VisTextField("", inputStyle);
+        terminalInput.setMessageText("Type a command...");
+        terminalInput.setEnterKeyFocusTraversal(false);
+        terminalInput.setTextFieldListener((field, ch) -> {
+          if (ch == '\r' || ch == '\n') {
+            terminalOutput.setText(shell.terminalSubmit(field.getText()));
+            field.setText("");
+            scroll.layout();
+            scroll.setScrollPercentY(1);
+          }
+        });
+        prompt.add(terminalInput).growX().height(37).padRight(8);
+        surface.add(prompt).height(48).growX().padLeft(22).padRight(22).padBottom(20);
+        w.add(surface).grow();
+        return w;
+      }
+      case FILES -> {
+        VisWindow w = make(app, "Files", 705, 505, 668, 142);
+        Table content = new Table();
+        content.setBackground(skin.getDrawable("pane-bg"));
+        content.top().left().pad(21);
+        heading(content, "FILES   /   HOME", "Your workspace", "/home/dev/projects");
+        for (String entry : new String[] {"▸   Projects", "▸   src", "◇   main.bs", "▤   README.md", "▸   .git"}) {
+          content.add(text(entry, false)).height(44).left().growX();
+          content.row();
+        }
+        content.add(action("OPEN IN ASTRA CODE", () -> shell.openApp(App.CODE)))
+            .height(44).width(260).left().padTop(12);
+        w.add(content).grow();
+        return w;
+      }
+      case MAIL -> {
+        VisWindow w = make(app, "TaskMail", 735, 518, 420, 142);
+        Table inbox = new Table();
+        inbox.setBackground(skin.getDrawable("pane-bg"));
+        inbox.top().left().pad(22);
+        heading(inbox, "INBOX   /   AVAILABLE CONTRACTS", "Find your next project", "Client requests and freelance jobs");
+        String[] names = shell.offerSummaries();
+        for (int i = 0; i < Math.min(4, names.length); i++) {
+          inbox.add(text("●   " + names[i], false)).left().height(42).growX();
+          inbox.row();
+        }
+        inbox.add(action("VIEW ALL CONTRACTS", shell::openJobBoard))
+            .width(270).height(46).left().padTop(14);
+        w.add(inbox).grow();
+        return w;
+      }
+      case SETTINGS -> {
+        VisWindow w = make(app, "Settings", 635, 455, 594, 160);
+        Table pane = new Table();
+        pane.setBackground(skin.getDrawable("pane-bg"));
+        pane.top().left().pad(23);
+        heading(pane, "SYSTEM   /   PERSONALIZATION", "Make it yours", "Display and accessibility");
+        pane.add(text("Appearance", false)).left().padBottom(14);
+        pane.row();
+        pane.add(action("SWITCH DESKTOP THEME", shell::toggleTheme))
+            .left().width(280).height(45).padBottom(24);
+        pane.row();
+        pane.add(text("Motion", false)).left().padBottom(14);
+        pane.row();
+        pane.add(action("TOGGLE ANIMATIONS", shell::toggleMotion))
+            .left().width(280).height(45);
+        w.add(pane).grow();
+        return w;
+      }
+      default -> throw new IllegalArgumentException("Native window not implemented for " + app);
+    }
+  }
+
+  void open(App app) {
+    VisWindow w = windows.get(app);
+    if (w == null) w = create(app);
+    if (w.getStage() == null) stage.addActor(w);
+    w.setVisible(true);
+    if (app == App.CODE && codeApp != null) codeApp.invalidate();
+    if (app != App.TERMINAL) stage.setKeyboardFocus(null);
+    w.setTouchable(com.badlogic.gdx.scenes.scene2d.Touchable.enabled);
+    w.toFront();
+    w.clearActions();
+    w.getColor().a = 0f;
+    w.addAction(Actions.fadeIn(.16f));
+    if (app == App.TERMINAL && terminalInput != null) {
+      terminalOutput.setText(shell.terminalHistory());
+      stage.setKeyboardFocus(terminalInput);
+    }
+  }
+
+  void close(App app) {
+    VisWindow w = windows.get(app);
+    if (w == null) return;
+    stage.unfocus(w);
+    w.clearActions();
+    w.setTouchable(com.badlogic.gdx.scenes.scene2d.Touchable.disabled);
+    w.addAction(Actions.sequence(Actions.fadeOut(.12f), Actions.visible(false)));
+  }
+
+  void minimize(App app) {
+    VisWindow w = windows.get(app);
+    if (w == null) return;
+    w.setVisible(false);
+    stage.unfocus(w);
+  }
+
+  void closeFront() {
+    Actor top = front();
+    for (var entry : windows.entrySet())
+      if (entry.getValue() == top) { close(entry.getKey()); return; }
+  }
+
+  Actor front() {
+    Actor result = null;
+    int index = -1;
+    for (var e : windows.entrySet()) {
+      VisWindow w = e.getValue();
+      if (w.getStage() == null || !w.isVisible()) continue;
+      int i = stage.getRoot().getChildren().indexOf(w, true);
+      if (i > index) { index = i; result = w; }
+    }
+    return result;
+  }
+
+  boolean hasOpen() { return front() != null; }
+
+  boolean isFrontCode() { return front() != null && front() == windows.get(App.CODE); }
+
+  void tick() { if (codeApp != null && isVisible(App.CODE)) codeApp.tick(); }
+
+  void cycleFocus() {
+    Actor current = front();
+    VisWindow candidate = null;
+    int lowest = Integer.MAX_VALUE;
+    for (VisWindow w : windows.values()) {
+      if (w.getStage() != null && w.isVisible() && w != current) {
+        int index = stage.getRoot().getChildren().indexOf(w, true);
+        if (index < lowest) { lowest = index; candidate = w; }
+      }
+    }
+    if (candidate != null) candidate.toFront();
+  }
+
+  boolean isVisible(App app) {
+    VisWindow w = windows.get(app);
+    return w != null && w.isVisible();
+  }
+
+  void toggleMaximize(App app) {
+    VisWindow w = windows.get(app);
+    if (w == null) return;
+    boolean isMax = maximized.getOrDefault(app, false);
+    if (!isMax) {
+      restored.put(app, new float[] {w.getX(), w.getY(), w.getWidth(), w.getHeight()});
+      float h = stage.getHeight(), width = stage.getWidth();
+      w.setBounds(24, 102, width - 48, h - 174);
+    } else {
+      float[] p = restored.get(app);
+      if (p != null) w.setBounds(p[0], p[1], p[2], p[3]);
+    }
+    maximized.put(app, !isMax);
+    w.invalidateHierarchy();
+  }
+
+  void resize(int width, int height) {
+    for (VisWindow w : windows.values()) {
+      w.setPosition(
+          Math.max(2, Math.min(w.getX(), width - w.getWidth() - 8)),
+          Math.max(95, Math.min(w.getY(), height - w.getHeight() - 52)));
+    }
+  }
+
+  void reset() {
+    for (App app : windows.keySet()) {
+      VisWindow w = windows.get(app);
+      w.clearActions();
+      w.setVisible(false);
+      w.setColor(1, 1, 1, 1);
+    }
+  }
+}
+END FILE: core/src/main/java/life/ctrl/ui/PinuxNativeWindows.java
+
+======================================
+FILE: core/src/main/java/life/ctrl/ui/PinuxWallpaper.java
+======================================
+package life.ctrl.ui;
+
+import com.badlogic.gdx.graphics.Pixmap;
+import com.badlogic.gdx.graphics.Texture;
+import com.badlogic.gdx.graphics.g2d.SpriteBatch;
+import java.util.Random;
+
+/**
+ * A self-contained, deterministic Pinux desktop wallpaper. Native libGDX texture,
+ * generated once on the rendering thread; no downloaded art or web view.
+ *
+ * 960x540 source is deliberately 2x the logical 480x270 game canvas so silhouettes
+ * and light gradients survive high-DPI scaling while keeping the image inexpensive.
+ */
+public final class PinuxWallpaper {
+  private static final int W = 960, H = 540;
+  private Texture city;
+  private final Random random = new Random(0xA57A21);
+
+  public Texture texture() {
+    if (city == null) create();
+    return city;
+  }
+
+  public void draw(SpriteBatch batch, boolean duskTheme) {
+    if (city == null) create();
+    batch.setColor(1f, duskTheme ? .89f : 1f, duskTheme ? .79f : 1f, 1f);
+    batch.draw(city, 0, 0, 480, 270);
+    batch.setColor(1f, 1f, 1f, 1f);
+  }
+
+  private void create() {
+    Pixmap p = new Pixmap(W, H, Pixmap.Format.RGBA8888);
+    paintSky(p);
+    paintClouds(p);
+    paintSun(p);
+    // Quiet skyline kept to the lower half: room for icons and application windows.
+    // Three intentionally sparse parallax layers instead of a wall of identical towers.
+    paintCity(p, 410, 33, 31, 16, 0x67436e, 0x533862, .17f);
+    paintCity(p, 469, 47, 63, 22, 0x332f59, 0x252742, .16f);
+    paintCity(p, 513, 68, 49, 16, 0x1b2640, 0x171e35, .13f);
+    paintForeground(p);
+    city = new Texture(p);
+    city.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
+    p.dispose();
+  }
+
+  private void paintSky(Pixmap p) {
+    final float[][] stops = {
+      {0f, 12, 19, 49},
+      {.26f, 54, 37, 89},
+      {.49f, 117, 66, 136},
+      {.63f, 215, 105, 146},
+      {.76f, 173, 86, 137},
+      {1f, 35, 39, 79}
+    };
+    for (int y = 0; y < H; y++) {
+      float t = y / (float)(H - 1);
+      int band = 0;
+      while (band < stops.length - 2 && t > stops[band + 1][0]) band++;
+      float[] a = stops[band], b = stops[band + 1];
+      float v = Math.max(0, Math.min(1, (t - a[0]) / (b[0] - a[0])));
+      v = v * v * (3 - 2 * v);
+      for (int x = 0; x < W; x++) {
+        float dist = (float) Math.sqrt(
+            Math.pow((x - 730) / 320f, 2) + Math.pow((y - 288) / 155f, 2));
+        float glow = Math.max(0, 1f - dist);
+        glow = glow * glow * .24f;
+        float grain = (((x * 17 + y * 29) % 19) - 9) * .095f;
+        int r = (int) (mix(a[1], b[1], v) * (1 - glow) + 250 * glow + grain);
+        int g = (int) (mix(a[2], b[2], v) * (1 - glow) + 153 * glow + grain);
+        int blue = (int) (mix(a[3], b[3], v) * (1 - glow) + 150 * glow + grain);
+        p.drawPixel(x, y, rgba(r, g, blue, 255));
+      }
+    }
+  }
+
+  private void paintClouds(Pixmap p) {
+    // Painterly wisps (broad, translucent and slightly curved), never random scanlines.
+    for (int i = 0; i < 8; i++) {
+      int centerX = 120 + random.nextInt(800);
+      int centerY = 48 + random.nextInt(210);
+      int span = 65 + random.nextInt(145);
+      int tint = centerY > 145 ? 0xdf83ab : 0x66509b;
+      int rr = (tint >> 16) & 255, gg = (tint >> 8) & 255, bb = tint & 255;
+      for (int dx = -span; dx <= span; dx++) {
+        float along = Math.abs(dx) / (float)span;
+        float edge = Math.max(0f, 1f - along * along);
+        int y0 = centerY + (int)(3 * Math.sin(dx / 42.0 + i));
+        int x = centerX + dx;
+        if (x < 0 || x >= W) continue;
+        for (int dy = -3; dy <= 3; dy++) {
+          int y = y0 + dy;
+          if (y < 0 || y >= H) continue;
+          float falloff = (1f - Math.abs(dy) / 4f) * edge;
+          float alpha = falloff * .12f;
+          p.drawPixel(x, y, blend(p.getPixel(x, y), rgba(rr, gg, bb, 255), alpha));
+        }
+      }
+    }
+  }
+
+  private void paintSun(Pixmap p) {
+    int cx = 745, cy = 311, radius = 46;
+    for (int y = cy - radius; y <= cy + radius; y++) {
+      for (int x = cx - radius; x <= cx + radius; x++) {
+        if (x < 0 || y < 0 || x >= W || y >= H) continue;
+        float dist = (float)Math.hypot(x - cx, y - cy);
+        if (dist >= radius) continue;
+        float t = (y - (cy - radius)) / (radius * 2f);
+        int r = 255, g = (int)mix(200, 132, t), b = (int)mix(182, 171, t);
+        // Continuous glowing disk: deliberately avoid dark scanlines that read as bugs.
+        float rim = Math.min(1f, (radius - dist) / 3.5f);
+        p.drawPixel(x, y, blend(p.getPixel(x, y), rgba(r, g, b, 255), rim * .86f));
+      }
+    }
+  }
+
+  private void paintCity(Pixmap p, int horizon, int minWidth, int maxHeight, int variance,
+                         int topColor, int bottomColor, float windows) {
+    int x = -24;
+    while (x < W) {
+      int width = minWidth + 9 + random.nextInt(minWidth + 25);
+      int roof = horizon - (10 + random.nextInt(maxHeight) + random.nextInt(variance));
+      // Leave a glowing pocket around the setting sun.
+      if (x < 810 && x + width > 665 && horizon < 500) roof += 19;
+      roof = Math.max(230, Math.min(horizon - 12, roof));
+      int r1 = (topColor >>> 16) & 255, g1 = (topColor >>> 8) & 255, b1 = topColor & 255;
+      int r2 = (bottomColor >>> 16) & 255, g2 = (bottomColor >>> 8) & 255, b2 = bottomColor & 255;
+      int colorRoof = rgba(r1, g1, b1, 255);
+      // Small architectural variations: setback roofs, chimneys, narrow towers.
+      int type = random.nextInt(5);
+      p.setColor(colorRoof);
+      if (type == 0) {
+        p.fillRectangle(x + 7, roof - 7, Math.max(8, width - 14), 7);
+      } else if (type == 1) {
+        p.fillRectangle(x + width / 2, roof - 12, 2, 12);
+        p.fillRectangle(x + width / 2 - 2, roof - 2, 6, 2);
+      } else if (type == 2) {
+        p.fillRectangle(x + 5, roof - 4, Math.max(9, width / 3), 4);
+      }
+      for (int yy = roof; yy <= H - 30; yy++) {
+        float t = Math.max(0f, Math.min(1f, (yy - roof) / (float)(H - roof)));
+        // Slightly lighter left façade gives buildings actual depth.
+        int col = rgba((int)mix(r1, r2, t), (int)mix(g1, g2, t),
+            (int)mix(b1, b2, t), 255);
+        p.setColor(col);
+        p.fillRectangle(x, yy, width, 1);
+      }
+      p.setColor(rgba(Math.min(255, r1 + 11), Math.min(255, g1 + 7),
+          Math.min(255, b1 + 12), 255));
+      p.fillRectangle(x, roof + 2, 2, H - roof - 35);
+      int windowStep = minWidth >= 65 ? 14 : minWidth >= 47 ? 12 : 10;
+      for (int wy = roof + 13; wy < H - 34; wy += 14 + random.nextInt(4)) {
+        for (int wx = x + 9; wx < x + width - 6; wx += windowStep) {
+          if (wx < 1 || wx + 2 >= W || random.nextFloat() > windows) continue;
+          int col = random.nextBoolean()
+              ? rgba(242, 165, 152, 255) : rgba(178, 135, 192, 255);
+          p.setColor(col);
+          p.fillRectangle(wx, wy, 2, 4);
+        }
+      }
+      x += width + 3 + random.nextInt(10);
+    }
+  }
+
+  private void paintForeground(Pixmap p) {
+    // Dark architectural framing and layered near-field foliage. Visible only in
+    // the peripheral wallpaper so it does not compete with application windows.
+    p.setColor(rgba(13, 20, 39, 255));
+    p.fillRectangle(0, 480, W, 60);
+    p.setColor(rgba(79, 62, 102, 255));
+    p.fillRectangle(0, 480, W, 3);
+    for (int i = 0; i < 18; i++) {
+      int x = i * 58;
+      int y = 482 + random.nextInt(27);
+      p.setColor(rgba(28 + i % 3 * 2, 28, 51, 255));
+      p.fillRectangle(x, y, 1 + random.nextInt(3), H - y);
+    }
+    p.setColor(rgba(17, 21, 42, 255));
+    p.fillRectangle(0, 0, 17, H);
+    p.fillRectangle(W - 18, 0, 18, H);
+
+    // Keep the sky uncluttered: no cartoon tree blobs in the upper corners.
+    p.setColor(rgba(15, 20, 39, 255));
+    p.fillRectangle(0, 475, W, 9);
+  }
+
+  private void drawBranch(Pixmap p, int x, int y, int length, int direction, int depth) {
+    int sign = direction == 0 ? 1 : -1;
+    p.setColor(rgba(19, 20, 40, 255));
+    for (int i = 0; i < length; i++) {
+      int xx = x + sign * i / 3;
+      int yy = y - i;
+      if (xx < 18 || xx >= W - 18 || yy < 15) break;
+      p.fillRectangle(xx, yy, Math.max(1, 6 - i / 33), 3);
+    }
+    for (int i = 0; i < 11 + depth; i++) {
+      int bx = x + sign * (12 + random.nextInt(85));
+      int by = y - 20 - random.nextInt(length - 30);
+      p.setColor(rgba(22 + i % 3 * 6, 24, 49 + i % 3 * 6, 255));
+      p.fillCircle(bx, by, 5 + random.nextInt(12));
+    }
+  }
+
+  private static float mix(float a, float b, float t) { return a + (b - a) * t; }
+
+  private static int rgba(int r, int g, int b, int a) {
+    return (clamp(r) << 24) | (clamp(g) << 16) | (clamp(b) << 8) | clamp(a);
+  }
+
+  private static int clamp(int v) { return Math.max(0, Math.min(255, v)); }
+
+  private static int blend(int base, int overlay, float alpha) {
+    float o = Math.max(0, Math.min(1, alpha));
+    return rgba(
+        (int)mix((base >>> 24) & 255, (overlay >>> 24) & 255, o),
+        (int)mix((base >>> 16) & 255, (overlay >>> 16) & 255, o),
+        (int)mix((base >>> 8) & 255, (overlay >>> 8) & 255, o), 255);
+  }
+
+  public void dispose() {
+    if (city != null) {
+      city.dispose();
+      city = null;
+    }
+  }
+}
+END FILE: core/src/main/java/life/ctrl/ui/PinuxWallpaper.java
+
+======================================
+FILE: core/src/main/java/life/ctrl/ui/PinuxWindowManager.java
+======================================
+package life.ctrl.ui;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.EnumMap;
+import java.util.List;
+import life.ctrl.render.PixelCanvas;
+
+/**
+ * Windowing rules for the fictional Pinux Astra desktop. Coordinates use the
+ * 480x270 logical canvas, not the host OS pixel coordinates.
+ */
+public final class PinuxWindowManager {
+  public enum App { CODE, TERMINAL, FILES, MAIL, SETTINGS }
+  public static final int TOP = 17, BOTTOM = 250;
+
+  public static final class Window {
+    public final App app;
+    public final String title;
+    public int x, y, width, height;
+    public int restoreX, restoreY, restoreWidth, restoreHeight;
+    public boolean visible, minimized, maximized;
+    public float animation;
+    private Window(App app, String title, int x, int y, int width, int height) {
+      this.app = app;
+      this.title = title;
+      this.x = x; this.y = y; this.width = width; this.height = height;
+      restoreX = x; restoreY = y; restoreWidth = width; restoreHeight = height;
+    }
+    public int right() { return x + width; }
+    public int bottom() { return y + height; }
+    public int contentY() { return y + 20; }
+    public int contentHeight() { return height - 23; }
+  }
+
+  @FunctionalInterface
+  public interface ContentPainter { void paint(Window window, boolean active); }
+
+  private final EnumMap<App, Window> windows = new EnumMap<>(App.class);
+  private final ArrayList<Window> zOrder = new ArrayList<>();
+  private Window dragging, resizing;
+  private int grabX, grabY, dragStartX, dragStartY;
+  private int resizeWidth, resizeHeight;
+  private float time;
+  private long lastClickAt;
+  private App lastClickApp;
+  private boolean moved;
+  private int hoverX = -1, hoverY = -1;
+  private static final String EDGE = "4e7087", TEXT = "dceaf4", ACCENT = "8dcce0";
+
+  public PinuxWindowManager() {
+    add(App.CODE, "Astra Code  |  main.bs", 28, 27, 420, 202);
+    add(App.TERMINAL, "Terminal  |  dev@astra", 99, 40, 353, 181);
+    add(App.FILES, "Files  |  /home/dev", 49, 34, 370, 193);
+    add(App.MAIL, "TaskMail  |  inbox", 74, 35, 352, 194);
+    add(App.SETTINGS, "Settings  |  Appearance", 115, 48, 296, 176);
+  }
+
+  private void add(App app, String title, int x, int y, int w, int h) {
+    windows.put(app, new Window(app, title, x, y, w, h));
+  }
+
+  public Window get(App app) { return windows.get(app); }
+  public int openCount() { return (int) zOrder.stream().filter(w -> !w.minimized && w.visible).count(); }
+
+  public Window front() {
+    for (int i = zOrder.size() - 1; i >= 0; i--) {
+      Window w = zOrder.get(i);
+      if (w.visible && !w.minimized) return w;
+    }
+    return null;
+  }
+
+  public boolean isFront(App app) { Window w = front(); return w != null && w.app == app; }
+  public boolean isMaximizedCode() {
+    Window w = front();
+    return w != null && w.app == App.CODE && w.maximized;
+  }
+
+  public void open(App app) {
+    Window w = get(app);
+    if (!w.visible) {
+      w.animation = 0;
+      w.visible = true;
+    }
+    w.minimized = false;
+    focus(app);
+  }
+
+  public void focus(App app) {
+    Window w = get(app);
+    if (w == null || !w.visible) return;
+    w.minimized = false;
+    zOrder.remove(w);
+    zOrder.add(w);
+  }
+
+  public void minimize(App app) {
+    Window w = get(app);
+    if (w == null) return;
+    w.minimized = true;
+    if (dragging == w) dragging = null;
+    if (resizing == w) resizing = null;
+  }
+
+  public void close(App app) {
+    Window w = get(app);
+    if (w == null) return;
+    w.visible = false;
+    w.minimized = false;
+    // Let the window shrink away instead of disappearing in a single frame.
+    if (dragging == w) dragging = null;
+    if (resizing == w) resizing = null;
+  }
+
+  public void closeFront() { Window w = front(); if (w != null) close(w.app); }
+
+  public void toggleMaximize(App app) {
+    Window w = get(app);
+    if (w == null) return;
+    if (!w.maximized) {
+      w.restoreX = w.x; w.restoreY = w.y;
+      w.restoreWidth = w.width; w.restoreHeight = w.height;
+      w.x = 10; w.y = TOP + 1; w.width = 460; w.height = BOTTOM - TOP - 1;
+      w.maximized = true;
+    } else {
+      w.x = w.restoreX; w.y = w.restoreY;
+      w.width = w.restoreWidth; w.height = w.restoreHeight;
+      w.maximized = false;
+      clamp(w);
+    }
+  }
+
+  /** Handles window caption, system buttons, focus and dragging. */
+  public boolean pointerDown(int x, int y) {
+    if (x < 0 || x >= PixelCanvas.W || y < TOP || y >= BOTTOM) return false;
+    for (int i = zOrder.size() - 1; i >= 0; i--) {
+      Window w = zOrder.get(i);
+      if (!w.visible || w.minimized || !inside(w, x, y)) continue;
+      boolean wasFront = front() == w;
+      focus(w.app);
+      if (!w.maximized && x >= w.right() - 10 && y >= w.bottom() - 10) {
+        resizing = w;
+        dragStartX = x; dragStartY = y;
+        resizeWidth = w.width; resizeHeight = w.height;
+        return true;
+      }
+      if (y < w.y + 19) {
+        // Three caption buttons: minimize, maximize and close.
+        if (x >= w.right() - 15) { close(w.app); return true; }
+        if (x >= w.right() - 30) { toggleMaximize(w.app); return true; }
+        if (x >= w.right() - 45) { minimize(w.app); return true; }
+        long now = System.nanoTime();
+        if (lastClickApp == w.app && now - lastClickAt < 350_000_000L) {
+          toggleMaximize(w.app);
+          lastClickAt = 0;
+          return true;
+        }
+        lastClickAt = now;
+        lastClickApp = w.app;
+        dragging = w;
+        moved = false;
+        grabX = x - w.x; grabY = y - w.y;
+        dragStartX = x; dragStartY = y;
+        return true;
+      }
+      // A lower window consumes the first click to focus it, preventing click-through.
+      return !wasFront;
+    }
+    return false;
+  }
+
+  public boolean pointerDragged(int x, int y) {
+    if (resizing != null) {
+      Window w = resizing;
+      w.width = Math.max(210, Math.min(PixelCanvas.W - w.x, resizeWidth + x - dragStartX));
+      w.height = Math.max(125, Math.min(BOTTOM - w.y, resizeHeight + y - dragStartY));
+      w.restoreWidth = w.width; w.restoreHeight = w.height;
+      return true;
+    }
+    if (dragging == null) return false;
+    Window w = dragging;
+    if (Math.abs(x - dragStartX) + Math.abs(y - dragStartY) > 3) moved = true;
+    if (!moved) return true;
+    if (w.maximized) {
+      toggleMaximize(w.app);
+      grabX = Math.min(w.width - 30, Math.max(18, grabX));
+      grabY = 9;
+    }
+    w.x = x - grabX; w.y = y - grabY;
+    clamp(w);
+    return true;
+  }
+
+  public boolean pointerUp(int x, int y) {
+    if (resizing != null) {
+      resizing = null;
+      return true;
+    }
+    if (dragging == null) return false;
+    Window w = dragging;
+    dragging = null;
+    if (moved && y <= TOP + 4 && !w.maximized) toggleMaximize(w.app);
+    else if (moved && x <= 3 && !w.maximized) snap(w, true);
+    else if (moved && x >= PixelCanvas.W - 4 && !w.maximized) snap(w, false);
+    if (moved) lastClickAt = 0; // Dragging must not count as a double-click.
+    moved = false;
+    return true;
+  }
+
+  public void cancelDrag() { dragging = null; resizing = null; moved = false; }
+
+  private static void snap(Window w, boolean left) {
+    w.restoreX = w.x; w.restoreY = w.y;
+    w.restoreWidth = w.width; w.restoreHeight = w.height;
+    w.x = left ? 2 : 242; w.y = TOP + 1;
+    w.width = 236; w.height = BOTTOM - TOP - 2;
+  }
+
+  public void pointerMove(int x, int y) { hoverX = x; hoverY = y; }
+
+  private static boolean inside(Window w, int x, int y) {
+    return x >= w.x && x < w.right() && y >= w.y && y < w.bottom();
+  }
+
+  private static void clamp(Window w) {
+    w.x = Math.max(0, Math.min(PixelCanvas.W - w.width, w.x));
+    w.y = Math.max(TOP + 1, Math.min(BOTTOM - w.height, w.y));
+  }
+
+  public void tick(float delta) {
+    time += delta;
+    for (Window w : windows.values()) {
+      float target = w.visible && !w.minimized ? 1 : 0;
+      float speed = Math.min(1, delta * 13);
+      w.animation += (target - w.animation) * speed;
+      if (Math.abs(w.animation - target) < .008f) w.animation = target;
+    }
+    zOrder.removeIf(w -> !w.visible && w.animation == 0);
+  }
+
+  public void draw(PixelCanvas c, ContentPainter painter) {
+    for (Window w : zOrder) {
+      if (w.animation < .03f) continue;
+      if (isMaximizedCode() && w.app != App.CODE) continue; // completely covered
+      boolean active = front() == w;
+      if (isMaximizedCode() && w.app == App.CODE) {
+        // Legacy Workbench screens are drawn at the native 480x270 layout.
+        painter.paint(w, true);
+        drawCaption(c, w, true);
+        continue;
+      }
+      float p = w.animation * w.animation * (3 - 2 * w.animation);
+      int inset = Math.round((1 - p) * 13);
+      int xx = w.x + inset, yy = w.y + inset;
+      int ww = w.width - inset * 2, hh = w.height - inset * 2;
+      if (ww < 50 || hh < 30) continue;
+      c.rect(xx + 3, yy + 4, ww, hh, "020912a0");
+      c.rect(xx, yy, ww, hh, active ? EDGE : "344a5e");
+      c.rect(xx + 1, yy + 1, ww - 2, hh - 2, "0e1d2d");
+      c.rect(xx + 1, yy + 1, ww - 2, 18, active ? "244359" : "1b2f41");
+      if (w.animation > .94f) {
+        c.clip(w.x + 2, w.y + 20, w.width - 4, w.height - 22);
+        painter.paint(w, active && w.visible && !w.minimized);
+        c.unclip();
+        drawCaption(c, w, active);
+      }
+    }
+  }
+
+  private void drawCaption(PixelCanvas c, Window w, boolean active) {
+    int y = w.y;
+    c.rect(w.x, y, w.width, 18, active ? "25475e" : "1b3042");
+    c.rect(w.x, y + 17, w.width, 1, active ? "5591a9" : "334a5c");
+    c.fitted("◆  " + w.title, w.x + 8, y + 4, w.width - 65,
+        active ? TEXT : "9eb3c0", true);
+    int start = w.right() - 43;
+    if (!w.maximized) {
+      c.rect(w.right() - 7, w.bottom() - 4, 5, 1, "6695a8");
+      c.rect(w.right() - 4, w.bottom() - 7, 1, 5, "6695a8");
+    }
+    for (int i = 0; i < 3; i++) {
+      int x = start + i * 15;
+      boolean hovered = hoverY >= y + 2 && hoverY <= y + 16 &&
+          hoverX >= x && hoverX <= x + 12;
+      c.rect(x, y + 3, 12, 12, hovered ? (i == 2 ? "b6525d" : "4a7c92")
+          : i == 2 ? "704850" : "34576a");
+      c.small(i == 0 ? "_" : i == 1 ? "□" : "×", x + 3, y + 2,
+          i == 2 ? "ffd5d1" : ACCENT);
+    }
+  }
+
+  public void reset() {
+    zOrder.clear();
+    dragging = null;
+    resizing = null;
+    for (Window w : windows.values()) {
+      w.visible = false; w.minimized = false; w.maximized = false; w.animation = 0;
+      // Preserve each window's restored size/position across visits to the in-game PC.
+      w.x = w.restoreX; w.y = w.restoreY;
+      w.width = w.restoreWidth; w.height = w.restoreHeight;
+    }
+  }
+
+  public List<App> taskbar() {
+    return zOrder.stream().filter(w -> w.visible).map(w -> w.app).toList();
+  }
+
+  public void cycleFocus() {
+    if (zOrder.isEmpty()) return;
+    List<Window> candidates = zOrder.stream().filter(w -> w.visible).toList();
+    if (candidates.size() < 2) return;
+    Window next = candidates.get(Math.max(0, candidates.size() - 2));
+    focus(next.app);
+  }
+}
+END FILE: core/src/main/java/life/ctrl/ui/PinuxWindowManager.java
+
+======================================
+FILE: core/src/main/java/life/ctrl/ui/Workbench.java
+======================================
+package life.ctrl.ui;
+
+import java.util.*;
+import com.badlogic.gdx.Gdx;
+import life.ctrl.CtrlLife;
+import life.ctrl.CtrlLife.Mode;
+import life.ctrl.bytescript.ByteScript;
+import life.ctrl.content.LifeContent;
+import life.ctrl.model.*;
+import life.ctrl.render.PixelCanvas;
+
+/** An in-world workbench: contracts, experiments, revisions, portfolio and owned tools. */
+public final class Workbench {
+  private final CtrlLife game;
+  private final LifeScreens life;
+  private final PixelCanvas c;
+  private int boardPage;
+  private int portfolioPage;
+  private boolean rush;
+  private double[] inputs = {0};
+  private String labResult = "Нажми «Запустить»: увидишь ответ, эталон и число операций.";
+  private int baseline = -1, current = -1;
+  private double cachedInput = Double.NaN, previewValue;
+  private String cachedSource = "";
+  private String visualSource = "", visualJob = "";
+  private int visualTypedCount;
+  private float typewriterCarry;
+  private static final String TEXT = "efe4c6",
+      SOFT = "a7b5b6",
+      GOLD = "edbb71",
+      GREEN = "a5c19c",
+      RED = "e49a83";
+
+  public Workbench(CtrlLife game, LifeScreens life, PixelCanvas c) {
+    this.game = game;
+    this.life = life;
+    this.c = c;
+  }
+
+  private GameState s() {
+    return game.world().state;
+  }
+
+  private void button(String label, int x, int y, int w, Runnable f) {
+    button(label, x, y, w, true, f);
+  }
+
+  private void button(String label, int x, int y, int w, boolean enabled, Runnable f) {
+    game.uiButton(label, x, y, w, 22, enabled, f);
+  }
+
+  private void small(String label, int x, int y, int w, Runnable f) {
+    game.uiButton(label, x, y, w, 17, true, f);
+  }
+
+  private void page(int p) {
+    life.codePage = p;
+    game.resetSelection();
+  }
+
+  private void save() {
+    game.refreshState();
+  }
+
+  private void scene(String title, String text) {
+    life.scene(title, text, Mode.IDE);
+  }
+
+  private void frame(String title) {
+    c.rect(0, 0, 480, 270, "111e2bf2");
+    c.panel(12, 10, 456, 250);
+    c.rect(16, 14, 448, 38, "203441");
+    c.small("KEYCODE  /  " + Career.rank(s()).toUpperCase(Locale.ROOT), 26, 22, GREEN);
+    c.text(title, 26, 39, TEXT);
+    c.small(s().money + " ₽", 379, 23, GOLD);
+    c.rect(16, 254, 448, 2, "527b78");
+  }
+
+  private void home() {
+    button("К заказам", 28, 231, 206, () -> page(0));
+    button(
+        "Встать из-за ПК",
+        246,
+        231,
+        206,
+        () -> {
+          game.switchMode(Mode.WORLD);
+          save();
+        });
+  }
+
+  private void choose(LifeContent.Job j) {
+    if (!s().activeJob.isEmpty() && s().jobStage >= 2 && s().jobStage < 5) {
+      page(2);
+      scene(
+          "Текущий проект",
+          "Исходник сохранён. Закончи проект или отложи его через Git → «Отложить заказ». Денежного"
+              + " штрафа нет.");
+      return;
+    }
+    String reason = Career.blocked(s(), j);
+    if (!reason.isEmpty()) {
+      scene("Пока недоступно", reason);
+      return;
+    }
+    s().activeJob = j.id;
+    page(1);
+    rush = false;
+    life.report = null;
+  }
+
+  public void draw() {
+    if (life.codePage == 0) {
+      board();
+      return;
+    }
+    if (life.codePage == 7) {
+      career();
+      return;
+    }
+    if (life.codePage == 8) {
+      gear();
+      return;
+    }
+    if (life.codePage == 9) {
+      project();
+      return;
+    }
+    if (life.codePage == 11) {
+      portfolio();
+      return;
+    }
+    if (s().activeJob.isEmpty()) {
+      page(0);
+      board();
+      return;
+    }
+    var j = life.data.job(s().activeJob);
+    frame(j.title);
+    if (life.codePage == 1) {
+      brief(j);
+      return;
+    }
+    if (life.codePage == 3) {
+      patches(j);
+      return;
+    }
+    if (life.codePage == 4) {
+      preview(j);
+      return;
+    }
+    if (life.codePage == 5) {
+      lab(j);
+      return;
+    }
+    if (life.codePage == 6) {
+      history();
+      return;
+    }
+    if (life.codePage == 10) {
+      c.wrap(
+          "Отложить текущий заказ? Его исходник и локальные коммиты будут удалены. Денег и"
+              + " репутации ты не потеряешь.",
+          28,
+          83,
+          420,
+          TEXT);
+      button(
+          "Отложить",
+          28,
+          199,
+          206,
+          () -> {
+            Coding.abandon(s());
+            page(0);
+            save();
+          });
+      button("Сохранить проект", 246, 199, 206, () -> page(6));
+      return;
+    }
+    editor(j);
+  }
+
+  private void board() {
+    frame("Биржа заказов · день " + s().day());
+    c.small("СДАНО " + Career.paidCountToday(s()) + " / 3  ·  ОПЫТ " + s().codingXp, 28, 65, GOLD);
+    c.wrap(
+        s().completedOrders == 0
+            ? "Начни с кассы для «Ложки». Читай правило → код → тесты → оплата."
+            : "Баги, новые функции и быстрый код. Состав предложений меняется каждый день.",
+        28,
+        82,
+        420,
+        SOFT);
+    var offers = Career.offers(s(), life.data);
+    int pages = Math.max(1, (offers.size() + 2) / 3);
+    boardPage = Math.floorMod(boardPage, pages);
+    for (int row = 0; row < 3; row++) {
+      int index = boardPage * 3 + row;
+      if (index >= offers.size()) break;
+      var j = offers.get(index);
+      String lock = Career.blocked(s(), j);
+      button(
+          j.title + " · " + j.pay + " ₽", 28, 112 + row * 29, 424, lock.isEmpty(), () -> choose(j));
+    }
+    small(
+        "Лист " + (boardPage + 1) + "/" + pages,
+        28,
+        201,
+        90,
+        () -> {
+          boardPage++;
+          game.resetSelection();
+        });
+    small("Карьера", 125, 201, 100, () -> page(7));
+    small("Свой бот", 232, 201, 100, () -> page(9));
+    small("Железо", 339, 201, 113, () -> page(8));
+    button(
+        "Встать из-за ПК",
+        28,
+        226,
+        424,
+        () -> {
+          game.switchMode(Mode.WORLD);
+          save();
+        });
+  }
+
+  private void brief(LifeContent.Job j) {
+    c.small(j.client, 28, 66, GOLD);
+    if (!j.once && s().completedOrders > 0)
+      small(rush ? "Срочно: +25%" : "Обычный срок", 302, 61, 150, () -> rush = !rush);
+    c.wrap(j.brief, 28, 88, 420, TEXT);
+    c.small(
+        j.cost > 0
+            ? "Запуск: " + j.cost + " ₽ · работа " + Career.duration(s(), j) + " мин"
+            : rush
+                ? "Бонус, если сдашь за "
+                    + (Career.duration(s(), j) + 90)
+                    + " мин. Оплата: "
+                    + j.pay
+                    + " ₽ +25%."
+                : "Работа: " + Career.duration(s(), j) + " мин · оплата " + j.pay + " ₽",
+        28,
+        132,
+        SOFT);
+    if (j.kind.equals("feature"))
+      for (int i = 0; i < j.algorithms.length; i++) {
+        int choice = i;
+        button(j.algorithms[i], 28, 150 + i * 28, 424, () -> start(j, choice));
+      }
+    else {
+      button(
+          j.kind.equals("profile") ? "Открыть код и измерить нагрузку" : "Открыть исходник",
+          28,
+          150,
+          424,
+          () -> start(j, 0));
+      button("Прочитать сообщение клиента", 28, 180, 424, () -> scene(j.client, j.hint));
+      button("К заказам", 28, 226, 424, () -> page(0));
+    }
+  }
+
+  private void start(LifeContent.Job j, int choice) {
+    String result = Coding.accept(s(), j, choice, rush, true);
+    if (s().jobStage < 2 || !s().activeJob.equals(j.id)) {
+      scene("Проект", result);
+      return;
+    }
+    life.report = null;
+    page(2);
+    save();
+  }
+
+  /**
+   * The game-native code editor borrows the familiar VS Code layout while remaining
+   * a fictional application in Pinux Astra. The current ByteScript engine stays authoritative.
+   */
+  private void editor(LifeContent.Job j) {
+    c.rect(16, 53, 448, 197, "0a1725");
+    c.rect(16, 53, 28, 197, "182c3e");
+    c.rect(45, 53, 100, 197, "142538");
+    c.rect(145, 53, 319, 118, "0c1928");
+    c.rect(145, 172, 319, 55, "0b1723");
+    c.rect(145, 226, 319, 24, "20384b");
+    c.rect(144, 53, 1, 197, "38516a");
+    c.rect(145, 171, 319, 1, "38516a");
+    c.small("{}", 22, 70, GREEN);
+    c.small("[]", 22, 103, SOFT);
+    c.small(">", 25, 136, GOLD);
+    c.small("EXPLORER", 52, 63, SOFT);
+    c.small("▼  PROJECT", 51, 82, TEXT);
+    c.small("   ▼ src", 52, 104, SOFT);
+    c.small("     main.bs", 52, 121, GREEN);
+    c.small("   README.md", 52, 142, SOFT);
+    c.rect(51, 161, 88, 1, "355167");
+    c.small("ACTIVE JOB", 52, 171, SOFT);
+    c.fitted(j.id, 52, 189, 84, GOLD, true);
+    c.small("XP " + s().codingXp, 52, 210, SOFT);
+    c.rect(146, 54, 138, 23, "152b40");
+    c.rect(146, 76, 138, 1, "82d3e8");
+    c.small("◇ main.bs   ●", 156, 59, TEXT);
+    c.small("ByteScript  /  UTF-8", 334, 59, SOFT);
+    // Input commits progress immediately, while the visible text follows with a smooth typewriter trail.
+    if (!visualSource.equals(s().codeSource) || !visualJob.equals(s().activeJob)) {
+      visualSource = s().codeSource;
+      visualJob = s().activeJob;
+      visualTypedCount = 0;
+      typewriterCarry = 0;
+    }
+    int target = Math.min(s().typedCount, s().codeSource.length());
+    visualTypedCount = Math.min(visualTypedCount, target);
+    typewriterCarry += Math.min(.05f, Gdx.graphics.getDeltaTime()) * 95;
+    if (visualTypedCount < target) {
+      int reveal = Math.max(1, (int) typewriterCarry);
+      visualTypedCount = Math.min(target, visualTypedCount + reveal);
+      typewriterCarry = Math.max(0, typewriterCarry - reveal);
+    } else typewriterCarry = 0;
+    String visible = s().codeSource.substring(0, visualTypedCount);
+    String[] visibleLines = visible.split("\n", -1);
+    int firstLine = Math.max(0, visibleLines.length - 5);
+    c.clip(151, 80, 307, 80);
+    for (int i = firstLine; i < visibleLines.length; i++) {
+      int row = i - firstLine;
+      int y = 83 + row * 15;
+      String line = visibleLines[i];
+      if (i == visibleLines.length - 1) c.rect(153, y - 2, 301, 14, "172d4055");
+      c.small(String.valueOf(i + 1), 155, y, "58758b");
+      String codeColor = line.stripLeading().startsWith("fn ") ? "86cfe0" :
+          line.stripLeading().startsWith("return ") ? "c8a1e6" : GREEN;
+      c.fitted(line, 177, y, 275, codeColor, true);
+      if (i == visibleLines.length - 1 && (System.nanoTime() / 400_000_000L) % 2 == 0)
+        c.rect(177 + Math.min(273, c.smallWidth(line)), y - 1, 1, 11, "82d3e8");
+    }
+    c.unclip();
+    float progress = s().codeSource.isEmpty() ? 0f :
+        s().typedCount / (float) s().codeSource.length();
+    c.rect(153, 158, 299, 2, "263e53");
+    c.rect(153, 158, 299 * Math.min(1f, progress), 2, GREEN);
+    c.small("ПРОБЛЕМЫ   ВЫВОД   ТЕСТЫ", 153, 177, SOFT);
+    if (life.report == null) {
+      c.fitted(s().typedCount < s().codeSource.length()
+          ? "ВВОД: нажимай любые клавиши — исходник печатается."
+          : "Черновик готов. Запусти тесты.", 154, 191, 299, SOFT, true);
+      c.fitted("Символов: " + s().typedCount + "/" + s().codeSource.length()
+          + "   |   " + (s().rushJob ? "СРОЧНЫЙ ЗАКАЗ" : "main"), 154, 208, 299, GOLD, true);
+    } else {
+      c.fitted((life.report.passed() ? "PASS: " : "FAIL: ") + life.report.message(),
+          154, 191, 299, life.report.passed() ? GREEN : RED, true);
+      if (!life.report.passed() && s().typedCount >= s().codeSource.length())
+        c.fitted("Жми любые клавиши: начинается исправление.", 154, 208, 299, GOLD, true);
+      else if (!life.report.cases().isEmpty())
+        c.fitted(life.report.cases().get(0), 154, 208, 299, SOFT, true);
+    }
+    small("Тесты", 151, 229, 65, () -> {
+      life.report = Coding.test(s(), j);
+      save();
+    });
+    small(life.report != null && life.report.passed() ? "Превью" : "Отладка", 221, 229, 84, () -> {
+      if (s().typedCount < s().codeSource.length()) {
+        life.report = Coding.test(s(), j);
+      } else if (life.report != null && life.report.passed()) {
+        page(4);
+        life.previewInput = j.id.equals("discount") ? 500 : j.seed[j.seed.length - 1];
+      } else page(3);
+    });
+    small("Lab", 310, 229, 67, () -> openLab(j));
+    small("Git", 382, 229, 75, () -> page(6));
+  }
+
+  private void patches(LifeContent.Job j) {
+    c.small("CODE REVIEW · ВЫБЕРИ ИЗМЕНЕНИЕ", 28, 66, GOLD);
+    c.wrap(
+        s().codeSource.contains("prce")
+            ? "Имя prce не объявлено. В аргументах есть price и count. Что должно участвовать в"
+                + " произведении?"
+            : j.hint,
+        28,
+        88,
+        420,
+        TEXT);
+    for (int i = 0; i < j.patches.length; i++) {
+      int choice = i;
+      button(
+          j.patches[i],
+          28,
+          150 + i * 28,
+          424,
+          () -> {
+            Coding.repair(s(), j, choice, true);
+            life.report = null;
+            page(2);
+            save();
+          });
+    }
+  }
+
+  private void preview(LifeContent.Job j) {
+    c.small("ПРЕДПРОСМОТР · РЕЗУЛЬТАТ ТВОЕГО КОДА", 28, 67, GOLD);
+    c.wrap(
+        j.id.equals("total")
+            ? "Цена блюда 30 ₽. Меняй количество: касса считает твоей функцией."
+            : "Меняй "
+                + j.function
+                + " / "
+                + ByteScript.compile(j.source).parameters().get(j.seed.length - 1)
+                + ". Остальные аргументы — из первого теста клиента.",
+        28,
+        91,
+        420,
+        TEXT);
+    if (!s().programPreviewed
+        || cachedInput != life.previewInput
+        || !cachedSource.equals(s().codeSource)) {
+      previewValue = Coding.preview(s(), j, life.previewInput);
+      cachedSource = s().codeSource;
+      cachedInput = life.previewInput;
+    }
+    double value = previewValue;
+    c.text(
+        "Ввод " + Coding.format(life.previewInput) + " → " + Coding.format(value), 28, 134, GREEN);
+    button("−", 28, 164, 70, () -> life.previewInput = Math.max(-10000, life.previewInput - 1));
+    button("+", 110, 164, 70, () -> life.previewInput = Math.min(10000, life.previewInput + 1));
+    c.small(
+        "Работа " + Career.duration(s(), j) + " мин · бонус " + Career.bonus(s(), j) + " ₽",
+        195,
+        170,
+        SOFT);
+    button(
+        j.once
+            ? "Запустить этап · −" + j.cost + " ₽"
+            : "Сдать клиенту · " + (j.pay + Career.bonus(s(), j)) + " ₽",
+        28,
+        199,
+        424,
+        s().jobStage != 5,
+        () -> {
+          String result = Coding.deliver(s(), j);
+          game.successCue();
+          life.scene(s().jobStage == 5 ? "Работа принята" : "Проект сохранён", result, Mode.WORLD);
+        });
+    button("Вернуться к коду", 28, 229, 424, () -> page(2));
+  }
+
+  private static String clock(int minute) {
+    int v = Math.floorMod(minute, 1440);
+    return "%02d:%02d".formatted(v / 60, v % 60);
+  }
+
+  private void openLab(LifeContent.Job j) {
+    inputs = j.seed.clone();
+    labResult = "Меняй входы: ноль, граница, отрицательное число. Потом запускай.";
+    measure(j);
+    page(5);
+  }
+
+  private int operations(String source, LifeContent.Job j) {
+    try {
+      var p = ByteScript.compile(source);
+      int max = 0;
+      for (var t : j.tests) max = Math.max(max, p.operations(t.args));
+      return max;
+    } catch (RuntimeException e) {
+      return -1;
+    }
+  }
+
+  private void measure(LifeContent.Job j) {
+    baseline =
+        operations(s().revisions.isEmpty() ? s().codeSource : s().revisions.get(0).source, j);
+    current = operations(s().codeSource, j);
+  }
+
+  private void lab(LifeContent.Job j) {
+    c.small("ЛАБОРАТОРИЯ / ПРОФИЛИРОВЩИК", 28, 64, GOLD);
+    var params = ByteScript.compile(j.source).parameters();
+    for (int i = 0; i < inputs.length; i++) {
+      int at = i, y = 86 + i * 27;
+      c.text(params.get(i) + " = " + Coding.format(inputs[i]), 28, y, TEXT);
+      small("−10", 228, y - 2, 50, () -> inputs[at] = Math.max(-10000, inputs[at] - 10));
+      small("−1", 284, y - 2, 50, () -> inputs[at] = Math.max(-10000, inputs[at] - 1));
+      small("+1", 340, y - 2, 50, () -> inputs[at] = Math.min(10000, inputs[at] + 1));
+      small("+10", 396, y - 2, 56, () -> inputs[at] = Math.min(10000, inputs[at] + 10));
+    }
+    c.small(
+        "Операции на тестах: было "
+            + (baseline < 0 ? "—" : baseline)
+            + " → сейчас "
+            + (current < 0 ? "ошибка кода" : current)
+            + (j.operationBudget > 0 ? " / лимит " + j.operationBudget : ""),
+        28,
+        145,
+        SOFT);
+    c.rect(28, 160, 180, 3, "344652");
+    c.rect(
+        28,
+        160,
+        Math.max(2, 180f * Math.max(0, current) / Math.max(1, Math.max(baseline, current))),
+        3,
+        current >= 0 && (j.operationBudget == 0 || current <= j.operationBudget) ? GREEN : RED);
+    c.small(
+        j.once
+            ? "Свой проект · без премии за тесты"
+            : "Свои случаи: " + Math.min(2, s().customCases.size()) + " / 2 · бонус 100 ₽",
+        225,
+        156,
+        GOLD);
+    c.wrap(labResult, 28, 176, 424, TEXT);
+    button(
+        "Запустить",
+        28,
+        226,
+        132,
+        () -> {
+          labResult = Coding.probe(s(), j, inputs.clone());
+          measure(j);
+          save();
+        });
+    button("Подсказка", 168, 226, 132, () -> scene("Заметка по расследованию", j.hint));
+    button("К исходнику", 308, 226, 144, () -> page(2));
+  }
+
+  private void history() {
+    c.small("GIT · ВЫБОР ВЕРСИИ = ОТКАТ", 28, 64, GOLD);
+    small(
+        "Коммит",
+        260,
+        59,
+        90,
+        () -> {
+          String msg = Coding.commit(s());
+          save();
+          scene("Git", msg);
+        });
+    small("Отложить", 358, 59, 94, () -> page(10));
+    for (int i = 0; i < s().revisions.size(); i++) {
+      int at = i;
+      var rev = s().revisions.get(i);
+      String expr = rev.source.replace('\n', ' ').replaceAll(".*return ", "");
+      if (expr.length() > 27) expr = expr.substring(0, 27) + "…";
+      small(
+          rev.label + " · " + expr,
+          28,
+          83 + i * 18,
+          424,
+          () -> {
+            String msg = Coding.restore(s(), at);
+            life.report = null;
+            save();
+            scene("Git / checkout", msg);
+          });
+    }
+    button("Назад к исходнику", 28, 231, 424, () -> page(2));
+  }
+
+  private void career() {
+    frame("Портфолио / карьера");
+    c.text(Career.rank(s()) + " · " + s().codingXp + " опыта", 28, 69, GOLD);
+    c.wrap(
+        Career.tier(s()) == 0
+            ? "При 3 опыте откроется расследование багов. Выполнено заказов: " + s().completedOrders
+            : Career.tier(s()) == 1
+                ? "При 8 опыте откроются задачи на производительность."
+                : "Доступны все виды задач. Клиентские заказы: максимум три в день.",
+        28,
+        94,
+        420,
+        SOFT);
+    c.small("ПОСЛЕДНЕЕ СООБЩЕНИЕ", 28, 140, GREEN);
+    c.wrap(
+        s().lastClientMessage.isEmpty()
+            ? "Первый клиент ждёт кассу. После релиза здесь останется его отзыв."
+            : s().lastClientMessage,
+        28,
+        159,
+        420,
+        TEXT);
+    small("Готовые проекты: " + s().shipped.size(), 28, 205, 424, () -> page(11));
+    home();
+  }
+
+  private void portfolio() {
+    frame("Портфолио / выпущенные проекты");
+    var jobs = Arrays.stream(life.data.jobs).filter(j -> s().shipped.contains(j.id)).toList();
+    int pages = Math.max(1, (jobs.size() + 4) / 5);
+    portfolioPage = Math.floorMod(portfolioPage, pages);
+    c.small("Выбери проект: прочитаешь отзыв после запуска.", 28, 65, SOFT);
+    if (jobs.isEmpty())
+      c.wrap("Здесь появится твоя первая работа. Начни с кассы для «Ложки».", 28, 100, 420, TEXT);
+    for (int row = 0; row < 5; row++) {
+      int at = portfolioPage * 5 + row;
+      if (at >= jobs.size()) break;
+      var j = jobs.get(at);
+      button(j.title, 28, 88 + row * 25, 424, () -> scene(j.client, j.feedback));
+    }
+    small(
+        "Лист " + (portfolioPage + 1) + "/" + pages,
+        28,
+        222,
+        140,
+        () -> {
+          portfolioPage++;
+          game.resetSelection();
+        });
+    small("К карьере", 182, 222, 270, () -> page(7));
+  }
+
+  private void gear() {
+    frame("Мастерская / рабочее место");
+    int y = 68;
+    for (var g : Career.GEAR) {
+      c.text(g.title(), 28, y, GOLD);
+      c.wrap(g.description(), 28, y + 21, 285, SOFT);
+      button(
+          s().upgrades.contains(g.id()) ? "Установлено" : g.price() + " ₽",
+          335,
+          y + 20,
+          117,
+          !s().upgrades.contains(g.id()),
+          () -> scene("Рабочее место", Career.buy(s(), g.id())));
+      y += 74;
+    }
+    home();
+  }
+
+  private void project() {
+    frame("Свой проект / районный бот");
+    int stage = Career.projectStage(s());
+    c.small("ОБЪЯВЛЕНИЯ → НАПОМИНАНИЯ → ЗАПУСК", 28, 65, GOLD);
+    for (int i = 0; i < 3; i++) c.rect(28 + i * 142, 85, 132, 4, i < stage ? GREEN : "425663");
+    if (stage == 3) {
+      c.wrap(
+          "Бот работает. Жители поддерживают его: +160 ₽ за новый игровой день. Поступления видны в"
+              + " бюджете. Все три этапа сохранены в портфолио.",
+          28,
+          111,
+          420,
+          TEXT);
+      c.small("Твой первый продукт живёт за пределами редактора.", 28, 190, GREEN);
+    } else {
+      var j = life.data.job(List.of("board", "remind", "support").get(stage));
+      c.text(j.title, 28, 108, TEXT);
+      c.wrap(
+          "Нужны код, тесты и "
+              + j.cost
+              + " ₽ на запуск этапа. Всего три этапа; после запуска — 160 ₽ в день. Можно делать"
+              + " между клиентскими заказами.",
+          28,
+          134,
+          420,
+          SOFT);
+      button(
+          "Взяться за этап · " + Career.duration(s(), j) + " мин", 28, 191, 424, () -> choose(j));
+    }
+    home();
+  }
+}
+END FILE: core/src/main/java/life/ctrl/ui/Workbench.java
+
+======================================
+FILE: core/src/main/java/life/ctrl/render/PixelCanvas.java
+======================================
+package life.ctrl.render;
+
+import com.badlogic.gdx.*;
+import com.badlogic.gdx.graphics.*;
+import com.badlogic.gdx.graphics.g2d.*;
+import com.badlogic.gdx.graphics.glutils.FrameBuffer;
+import com.badlogic.gdx.utils.Disposable;
+import java.util.*;
+
+/** Stable 480×270 layout with a native-resolution framebuffer and high-density assets. */
+public final class PixelCanvas implements Disposable {
+  public static final int W = 480, H = 270;
+  public final SpriteBatch batch = new SpriteBatch();
+  private final OrthographicCamera camera = new OrthographicCamera();
+  private FrameBuffer frame;
+  private int density;
+  private final ArrayDeque<com.badlogic.gdx.math.Rectangle> clips = new ArrayDeque<>();
+  private final Set<String> highDensity = new HashSet<>();
+  private final Map<String, Color> colors = new HashMap<>();
+
+  private Color color(String hex) {
+    return colors.computeIfAbsent(hex, Color::valueOf);
+  }
+
+  public float smallWidth(String text) {
+    layout.setText(small, text);
+    return layout.width;
+  }
+
+  private final Map<String, Texture> textures = new HashMap<>();
+  private final Map<String, Texture> roundedMasks = new HashMap<>();
+  private final Map<String, TextureRegion[][]> actors = new HashMap<>();
+  private final Texture white;
+  public final BitmapFont font, small, title;
+  private final GlyphLayout layout = new GlyphLayout();
+  public int scale = 1, offsetX, offsetY;
+
+  public PixelCanvas() {
+    Pixmap p = new Pixmap(1, 1, Pixmap.Format.RGBA8888);
+    p.setColor(Color.WHITE);
+    p.fill();
+    white = new Texture(p);
+    p.dispose();
+    font = new BitmapFont(Gdx.files.internal("fonts/hd/ui.fnt"));
+    small = new BitmapFont(Gdx.files.internal("fonts/hd/small.fnt"));
+    title = new BitmapFont(Gdx.files.internal("fonts/hd/title.fnt"));
+    for (BitmapFont f : new BitmapFont[] {font, small, title}) {
+      f.getData().setScale(.25f);
+      f.setUseIntegerPositions(false);
+      f.getRegion()
+          .getTexture()
+          .setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
+    }
+    camera.setToOrtho(false, W, H);
+  }
+
+  public void preload() {
+    for (String n :
+        new String[] {
+          "desk_ssd", "chair_upgrade", "light_amber", "light_monitor", "light_window", "shadow"
+        }) texture(n);
+    for (String n :
+        new String[] {
+          "room",
+          "stair",
+          "street",
+          "desk",
+          "bed",
+          "wardrobe",
+          "kitchen",
+          "plant",
+          "boxes",
+          "bench",
+          "tree",
+          "lamp",
+          "mailbox",
+          "notice",
+          "letter",
+          "boxes_open",
+          "plant_watered",
+          "mailbox_signed",
+          "portrait_hero",
+          "portrait_mira",
+          "portrait_arkady",
+          "portrait_lev",
+          "portrait_note",
+          "glow_warm",
+          "glow_cool",
+          "hero",
+          "hero_1",
+          "hero_2",
+          "mira",
+          "arkady",
+          "lev"
+        }) texture(n);
+    for (String n :
+        new String[] {
+          "cafe",
+          "diner",
+          "workshop",
+          "park",
+          "counter",
+          "table",
+          "fridge",
+          "crt_spare",
+          "bookcase",
+          "portrait_asya",
+          "portrait_nika",
+          "portrait_tamara",
+          "asya",
+          "nika",
+          "tamara"
+        }) texture(n);
+    for (String n :
+        new String[] {
+          "hero", "hero_1", "hero_2", "mira", "arkady", "lev", "asya", "nika", "tamara"
+        }) {
+      Texture t = texture(n);
+      int d = highDensity.contains(n) ? 2 : 1;
+      actors.put(n, TextureRegion.split(t, 16 * d, 24 * d));
+    }
+  }
+
+  public Texture texture(String name) {
+    return textures.computeIfAbsent(
+        name,
+        n -> {
+          var hd = Gdx.files.internal("art/hd/" + n + ".png");
+          if (hd.exists()) highDensity.add(n);
+          Texture t = new Texture(hd.exists() ? hd : Gdx.files.internal("art/" + n + ".png"));
+          var filter =
+              n.startsWith("light_") || n.equals("shadow")
+                  ? Texture.TextureFilter.Linear
+                  : Texture.TextureFilter.Nearest;
+          t.setFilter(filter, filter);
+          return t;
+        });
+  }
+
+  public void begin() {
+    int target =
+        Math.max(
+            1,
+            Math.min(
+                Gdx.graphics.getBackBufferWidth() / W, Gdx.graphics.getBackBufferHeight() / H));
+    if (frame == null || target != density) {
+      if (frame != null) frame.dispose();
+      density = target;
+      frame = new FrameBuffer(Pixmap.Format.RGBA8888, W * density, H * density, false);
+      frame
+          .getColorBufferTexture()
+          .setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
+    }
+    clips.clear();
+    frame.begin();
+    Gdx.gl.glDisable(GL20.GL_SCISSOR_TEST);
+    Gdx.gl.glClearColor(.075f, .1f, .14f, 1);
+    Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
+    batch.setProjectionMatrix(camera.combined);
+    batch.begin();
+    batch.setColor(Color.WHITE);
+  }
+
+  public void end() {
+    if (!clips.isEmpty()) throw new IllegalStateException("Unbalanced render clips");
+    batch.end();
+    frame.end();
+    int w = Gdx.graphics.getWidth(), h = Gdx.graphics.getHeight();
+    scale = Math.max(1, Math.min(w / W, h / H));
+    offsetX = (w - W * scale) / 2;
+    offsetY = (h - H * scale) / 2;
+    Gdx.gl.glViewport(0, 0, Gdx.graphics.getBackBufferWidth(), Gdx.graphics.getBackBufferHeight());
+    Gdx.gl.glClearColor(.045f, .06f, .085f, 1);
+    Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
+    camera.setToOrtho(false, w, h);
+    batch.setProjectionMatrix(camera.combined);
+    batch.begin();
+    batch.setColor(Color.WHITE);
+    batch.draw(frame.getColorBufferTexture(), offsetX, offsetY, W * scale, H * scale, 0, 0, 1, 1);
+    batch.end();
+    camera.setToOrtho(false, W, H);
+  }
+
+  public float artWidth(String name) {
+    Texture t = texture(name);
+    return t.getWidth() / (highDensity.contains(name) ? 2f : 1f);
+  }
+
+  public float artHeight(String name) {
+    Texture t = texture(name);
+    return t.getHeight() / (highDensity.contains(name) ? 2f : 1f);
+  }
+
+  /** Nested framebuffer scissor; every layer is intersected with its parent. */
+  public void clip(float x, float y, float w, float h) {
+    batch.flush();
+    float x0 = Math.max(0, x),
+        y0 = Math.max(0, y),
+        x1 = Math.min(W, x + w),
+        y1 = Math.min(H, y + h);
+    if (!clips.isEmpty()) {
+      var p = clips.peek();
+      x0 = Math.max(x0, p.x);
+      y0 = Math.max(y0, p.y);
+      x1 = Math.min(x1, p.x + p.width);
+      y1 = Math.min(y1, p.y + p.height);
+    }
+    clips.push(
+        new com.badlogic.gdx.math.Rectangle(x0, y0, Math.max(0, x1 - x0), Math.max(0, y1 - y0)));
+    applyClip();
+  }
+
+  private void applyClip() {
+    if (clips.isEmpty()) {
+      Gdx.gl.glDisable(GL20.GL_SCISSOR_TEST);
+      return;
+    }
+    var p = clips.peek();
+    int x0 = (int) Math.ceil(p.x * density), y0 = (int) Math.ceil(p.y * density);
+    int x1 = (int) Math.floor((p.x + p.width) * density),
+        y1 = (int) Math.floor((p.y + p.height) * density);
+    Gdx.gl.glEnable(GL20.GL_SCISSOR_TEST);
+    Gdx.gl.glScissor(x0, H * density - y1, Math.max(0, x1 - x0), Math.max(0, y1 - y0));
+  }
+
+  public void unclip() {
+    batch.flush();
+    if (clips.isEmpty()) throw new IllegalStateException("Missing render clip");
+    clips.pop();
+    applyClip();
+  }
+
+  public void fitted(String text, float x, float y, float width, String color, boolean compact) {
+    BitmapFont f = compact ? small : font;
+    layout.setText(f, text);
+    if (layout.width > width) {
+      int end = text.length();
+      do {
+        end--;
+        layout.setText(f, text.substring(0, end) + "…");
+      } while (end > 0 && layout.width > width);
+      text = text.substring(0, end) + "…";
+    }
+    clip(x, y - 1, width, compact ? 13 : 16);
+    if (compact) small(text, x, y, color);
+    else text(text, x, y, color);
+    unclip();
+  }
+
+  public void glow(String name, float x, float y, float strength) {
+    batch.setColor(1, 1, 1, Math.max(0, Math.min(1, strength)));
+    art(name, x, y);
+    batch.setColor(Color.WHITE);
+  }
+
+  public void rect(float x, float y, float w, float h, Color color) {
+    batch.setColor(color);
+    batch.draw(white, x, H - y - h, w, h);
+    batch.setColor(Color.WHITE);
+  }
+
+  public void rect(float x, float y, float w, float h, String color) {
+    rect(x, y, w, h, color(color));
+  }
+
+  /**
+   * Smooth high-density rounded panels. A cached three-times-resolution signed-
+   * distance mask avoids the chunky stepped corners of the low-res prototype.
+   * The mask is white and can be tinted to any colour by the SpriteBatch.
+   */
+  public void roundRect(float x, float y, float w, float h, int radius, String hex) {
+    int r = Math.max(0, Math.min(radius, (int)Math.min(w, h) / 2));
+    if (r == 0 || w < 1 || h < 1) { rect(x, y, w, h, hex); return; }
+    int pw = Math.max(2, Math.round(w * 3)), ph = Math.max(2, Math.round(h * 3));
+    String key = pw + ":" + ph + ":" + r;
+    Texture mask = roundedMasks.get(key);
+    if (mask == null) {
+      Pixmap p = new Pixmap(pw, ph, Pixmap.Format.RGBA8888);
+      float radiusPx = r * 3f;
+      float bx = pw / 2f - radiusPx;
+      float by = ph / 2f - radiusPx;
+      for (int py = 0; py < ph; py++) {
+        float qy = Math.abs(py + .5f - ph / 2f) - by;
+        for (int px = 0; px < pw; px++) {
+          float qx = Math.abs(px + .5f - pw / 2f) - bx;
+          float ax = Math.max(0, qx), ay = Math.max(0, qy);
+          float distance = (float)Math.sqrt(ax * ax + ay * ay)
+              + Math.min(0, Math.max(qx, qy)) - radiusPx;
+          int alpha = Math.round(Math.max(0, Math.min(1, .5f - distance)) * 255);
+          p.drawPixel(px, py, 0xffffff00 | alpha);
+        }
+      }
+      mask = new Texture(p);
+      mask.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
+      p.dispose();
+      roundedMasks.put(key, mask);
+    }
+    batch.setColor(color(hex));
+    batch.draw(mask, x, H - y - h, w, h);
+    batch.setColor(Color.WHITE);
+  }
+
+  public void panel(int x, int y, int w, int h) {
+    rect(x + 1, y + 2, w, h, "07141cc0");
+    rect(x, y, w, h, "526b70");
+    rect(x + .5f, y + .5f, w - 1, h - 1, "172e3bf9");
+    rect(x + 1, y + 1, w - 2, .5f, "829b9160");
+  }
+
+  public void art(String name, float x, float y) {
+    Texture t = texture(name);
+    batch.draw(
+        t, Math.round(x), H - Math.round(y) - artHeight(name), artWidth(name), artHeight(name));
+  }
+
+  public void scaledArt(String name, float x, float y, float width, float height) {
+    batch.draw(texture(name), Math.round(x), H - Math.round(y) - height, width, height);
+  }
+
+  public void actor(String name, int dir, int animation, float x, float feetY, int outfit) {
+    if (name.equals("hero") && outfit > 0) name = "hero_" + outfit;
+    batch.draw(actors.get(name)[dir][animation], Math.round(x) - 8, H - Math.round(feetY), 16, 24);
+    batch.setColor(Color.WHITE);
+  }
+
+  public void text(String text, float x, float y, Color color) {
+    font.setColor(color);
+    font.draw(batch, text, Math.round(x), H - Math.round(y));
+  }
+
+  public void text(String text, float x, float y, String color) {
+    text(text, x, y, color(color));
+  }
+
+  public void small(String text, float x, float y, String color) {
+    small.setColor(color(color));
+    small.draw(batch, text, Math.round(x), H - Math.round(y));
+  }
+
+  public void title(String text, float x, float y, String color) {
+    title.setColor(color(color));
+    title.draw(batch, text, Math.round(x), H - Math.round(y));
+  }
+
+  public void wrap(String text, float x, float y, float width, String color) {
+    wrap(text, x, y, width, H - y - 8, color);
+  }
+
+  public void wrap(String text, float x, float y, float width, float height, String color) {
+    clip(x, y - 1, Math.min(width, W - x - 12), height);
+    font.setColor(color(color));
+    font.draw(batch, text, x, H - y, width, com.badlogic.gdx.utils.Align.left, true);
+    unclip();
+  }
+
+  public float width(String text) {
+    layout.setText(font, text);
+    return layout.width;
+  }
+
+  public void center(String text, float y, String color) {
+    text(text, Math.round((W - width(text)) / 2), y, color);
+  }
+
+  public float logicalX(int x) {
+    return (x - offsetX) / (float) scale;
+  }
+
+  public float logicalY(int y) {
+    return (y - offsetY) / (float) scale;
+  }
+
+  public float mouseX() {
+    return logicalX(Gdx.input.getX());
+  }
+
+  public float mouseY() {
+    return logicalY(Gdx.input.getY());
+  }
+
+  public void screenshot(String path) {
+    Pixmap pix =
+        Pixmap.createFromFrameBuffer(
+            0, 0, Gdx.graphics.getBackBufferWidth(), Gdx.graphics.getBackBufferHeight());
+    PixmapIO.writePNG(Gdx.files.absolute(path), pix, -1, true);
+    pix.dispose();
+  }
+
+  public void dispose() {
+    font.dispose();
+    small.dispose();
+    title.dispose();
+    textures.values().forEach(Texture::dispose);
+    roundedMasks.values().forEach(Texture::dispose);
+    white.dispose();
+    if (frame != null) frame.dispose();
+    batch.dispose();
+  }
+}
+END FILE: core/src/main/java/life/ctrl/render/PixelCanvas.java
+
+======================================
+FILE: docs/PINUX_ARCHCRAFT_REBUILD.md
+======================================
+# Pinux Astra: Archcraft-quality UI rebuild (decision record)
+
+Status: **NOT APPROVED / PROTOTYPE ONLY**. The existence of passing Java or smoke tests does not mean the interface is visually acceptable. This document is a quality contract for the \`ctrl-life\` branch, not a claim that the design is finished.
+
+## Evidence: failures of the previous UI
+
+Review the real screenshots saved by \`.github/workflows/pinux-desktop-preview.yml\` rather than concept art.
+
+1. The 480x270 \`PixelCanvas\` workbench becomes a **three-times enlarged** older-game UI inside a crisp desktop. The hybrid must end. All Pinux applications, including jobs, ByteScript and Astra Code, need to render through one resolution-independent UI layer.
+2. A library such as VisUI solves pointer handling, drag and resize, **not** visual design. Unmodified colours, procedural symbols and generic labels do not resemble Archcraft.
+3. The generated city-and-sunset wallpaper dominates the composition and reads as a cartoon. Professional Archcraft "rices" use restrained, carefully composed background art.
+4. Earlier desktop shortcuts were 120x113, the topbar was 52 high, the dock 415x80; Archcraft Openbox's Polybar can be as compact as 26 high. Those proportions were wrong.
+5. Tiny bitmap glyphs scaled at runtime look soft; the terminal had no distinctive monospace typeface. Rendering in a native-resolution \`Stage\` is necessary but not sufficient.
+
+## Technical decision
+
+**Keep Java 21 and libGDX for the native game. Keep Scene2D's Stage and input handling for the OS. Replace the entire Pinux presentation, including the legacy workbench, with one coherent native-resolution design system.**
+
+Do not migrate to Java Swing, JavaFX, Compose Desktop or a separate browser window. All of those create an additional window/runtime or require fragile off-screen compositing. Dear ImGui Java supports docking and makes sense for an editor, but its programmer-tool defaults still need a full design system and make the OS shell harder to style. A blind framework swap would repeat the same failure.
+
+A future Dear ImGui proof-of-concept is acceptable only **inside the existing LWJGL3 window**, and only if it beats Scene2D in verified code-editing behavior and visual quality. It is not an excuse to ship default ImGui styling.
+
+## Archcraft reference, precise design sources
+
+- https://wiki.archcraft.io/docs/window-managers/stacking-wm/openbox/
+- https://github.com/archcraft-os/archcraft-openbox/tree/main/files/themes
+- https://github.com/archcraft-os/archcraft-bspwm/tree/main/files/themes/onedark
+- \`files/themes/onedark/polybar/colors.ini\` and \`rofi/shared/colors.rasi\` define OneDark's actual palette.
+- \`files/themes/*/polybar/config.ini\` gives panel density and hierarchy.
+- \`files/themes/*/rofi/launcher.rasi\` gives an actionable launcher composition.
+
+Archcraft's upstream package repos include GPLv3 content. **Use screenshots and style measurements as reference, do not copy GPL implementation/assets into the existing MIT game.** Keep notices for every imported asset with a compatible licence.
+
+## Design tokens (first pass, subject to visual verification)
+
+| Token | Value |
+| --- | --- |
+| OS background | #1E2128 |
+| Raised surface | #292D37 |
+| Chrome/window title | #292D37 |
+| Primary text | #DBE0E8 |
+| Muted text | #8E9BAD |
+| Blue selection | #5294E2 |
+| Success | #98C379 |
+| Error | #E06B74 |
+| Divider | #3D4350 |
+| Top bar | 28–30 px @ 1440x810 |
+| Desktop shortcut area | icon + label, no full-time coloured card |
+| Bottom dock | 40–50 px high total, NOT 80+ |
+| Window gap | 12–16 px |
+| Title bar | 32–38 px, flat and simple |
+| Body text | 13–15 px (system sans) |
+| Console text | 13–15 px (real monospaced font) |
+| UI font | Inter (OFL-1.1, with complete Cyrillic support) |
+| Terminal/editor font | JetBrains Mono (OFL-1.1) |
+| UI icons | Lucide (ISC; comply with the accompanying notices) |
+
+Use libGDX FreeType to generate properly hinted font bitmaps for each pixel size; avoid stretching one texture atlas for multiple UI sizes. If using SDF fonts, test small-size legibility. Convert selected SVG icons to antialiased PNG atlases **at build time**; bundle them with the game, never require network access at runtime.
+
+## Required architecture
+
+\`\`\`
+CtrlLife (libGDX native window)
+├─ PixelCanvas — world, movement, sprites and scenery only
+└─ PinuxStage — all PC UI at window pixel resolution
+   ├─ Wallpaper + theme
+   ├─ Polybar (workspaces, active window, system/game indicators)
+   ├─ Rofi-style launcher (real search/filter/keyboard selection)
+   ├─ WindowManager (drag, resize, max/min/restore, focus, snap)
+   ├─ AstraCodeView — Explorer, tabs, editor, tests, diagnostics
+   ├─ TerminalView — terminal model, history, input, scroll
+   ├─ FilesView — game virtual file system
+   ├─ MailView — real existing career/job offers
+   └─ SettingsView — working theme and accessibility controls
+
+ComputerViewModel — adapted from existing Career/Coding/GameState
+VirtualFS and TerminalModel — **game sandbox only**
+\`\`\`
+
+No UI markup or model for the PC should directly call host shell/filesystem operations. Preserve ByteScript and gameplay logic. The biggest migration is to replace \`workbench.draw()\` on the low-res canvas with a native-resolution AstraCodeView, while preserving the existing game-state controller.
+
+## Milestones, one at a time
+
+1. **Design system + shell:** consistent fonts, icons, wallpaper, 30 px Polybar, 40 px dock, keyboard launcher. Remove oversized desktop cards. Screenshot desktop and launcher.
+2. **Window chrome:** consistent titlebar, correct focus/drag/resize/max/min, scale at 720p/810p/1080p; verify title text and content do not clip.
+3. **Terminal:** actual monospace font, selection and cursor, history, copy/paste within game sandbox, scrolling, run \`help\` and \`ls\`.
+4. **Astra Code:** remove old 480x270 workbench UI. Reimplement functional project panel/editor/tests in Scene2D with underlying ByteScript logic unchanged.
+5. **Files, TaskMail, Settings:** each uses shared components and real game models, not placeholder content. Full navigation/input tests.
+6. **Packaging:** build complete Windows x64 ZIP including Temurin 21 runtime and licensed assets; clean machine launch without installed Java; link directly to playable build.
+
+### Mandatory acceptance gates
+
+For EVERY stage:
+- Run real \`:core:test\` and \`:lwjgl3:guiSmoke\` on Xvfb.
+- Save and **inspect** actual full-resolution PNG screenshots: desktop, focused window, other window, resizing, launcher. Never call an image-generation concept a screenshot.
+- Check 1280x720, 1440x810, and 1920x1080 for clipping, legibility and collisions. Include visible hover, active, disabled and focus cases.
+- Test mouse input, keyboard focus, ESC, minimize/restore, app open/close, resize, and Alt+Tab (or documented equivalent).
+- Address visible defects and rerun before considering the stage complete.
+- No release until the full Windows ZIP has been built, tested and verified to contain \`runtime/bin/java.exe\`, \`run.bat\` and all game jars.
+
+Passing automated tests means "functional smoke passed", **never** "design approved". Visual approval requires reviewing screenshots.
+
+## Current checkpoint
+
+The first shell-density experiment in commit \`45040a0b\` lowered the topbar, dock and desktop icon sizes and darkened the wallpaper. CI run \`41820168198\` succeeded and produced actual screenshots. It proves the underlying Scene2D architecture can support realistic desktop dimensions **without rewriting the game engine**, but this is not a final UI: the wallpaper/art, terminal typography and full native Astra Code migration are still unresolved.
+END FILE: docs/PINUX_ARCHCRAFT_REBUILD.md
+
+======================================
+FILE: docs/PINUX_ASTRA.md
+======================================
+# Pinux Astra — Global Update 0.5.0
+
+Это вымышленная ОС **внутри CTRL+LIFE**, а не веб-страница, виртуальная машина и не доступ к компьютеру игрока. Реализована на Java/libGDX: игровой мир по-прежнему рисуется через \`PixelCanvas\`, а приложения и рабочий стол используют Scene2D/VisUI при настоящем разрешении экрана; терминал изолирован от host OS.
+
+## Native Linux-style UI foundation (VisUI)
+
+The desktop and newly ported applications now render at the **actual game-window resolution**, not the 480×270 pixel-art framebuffer.
+The window layer uses [VisUI](https://github.com/kotcrab/vis-ui) 1.5.6 (Apache-2.0; matches libGDX 1.13.1), including `VisWindow` for drag, resize and stacking and `VisTextField` for the in-game terminal.
+The architecture follows the separation found in [gezhov/Fake-OS-Desktop](https://github.com/gezhov/Fake-OS-Desktop) (MIT): shell, independent app windows, workspace, taskbar and focus. Swing classes were not copied because they are incompatible with libGDX's render loop.
+
+Native screens: **Astra Code**, Terminal, Files, TaskMail and Settings. Astra Code полностью переведён в отдельный native-resolution VisUI window. Его экраны больше не зависят от старой 480×270 разметки. Реальные игровые результаты продолжают рассчитываться классами \`Coding\`, \`Career\` и \`ByteScript\`, а состояние — \`GameState\`. Terminal commands are **game simulations only** and never execute real commands.
+
+**Visual quality gate:** `pinux-desktop-preview.yml` runs an actual GLFW/libGDX smoke under Xvfb, captures PNGs, and uploads them as a workflow artifact. We review new captures before moving to the next screen.
+
+## Window manager
+
+Отдельный `PinuxWindowManager` отвечает за z-order, фокус, двойное нажатие на заголовок, анимации открытия/сворачивания/закрытия, минимизацию, восстановление, перетаскивание, изменение размеров окна за правый нижний угол, прижатие к левому/правому краю, максимизацию при перетаскивании к верхнему краю, расположение окон на рабочем столе. Клики по заголовкам перехватываются до глобальных кнопок, чтобы предотвратить click-through. Клавиша Tab циклически меняет активное окно.
+
+## Что уже есть
+
+- Заставка загрузки, детализированный рабочий стол Pinux Astra, верхняя системная панель с внутриигровым временем, меню приложений и нижний dock.
+- Приложения: **Astra Code**, **Terminal**, **Files**, **TaskMail**, **Settings**. Есть синяя и тёплая темы, режим уменьшения анимаций.
+- Astra Code использует знакомую композицию IDE: activity rail → Explorer → вкладка \`main.bs\` → исходный код → панель проверок → действия.
+- Терминал открывается как отдельное перемещаемое окно поверх рабочего места Astra Code; клавиатурный ввод переключается в активное окно консоли, а не в автопечать кода.
+- Файловый экран показывает игровую структуру проекта, не реальные диски.
+- Новая фаза **набора черновика**: в заданиях IDE любое обычное нажатие клавиши добавляет символы в подготовленный исходник; видимый код появляется постепенно.
+- После проваленных тестов **следующее обычное нажатие клавиши автоматически запускает фазу исправления**: исправленный код появляется через ту же механику набора. Ручной выбор варианта патча в старом интерфейсе сохранён как дополнительный инструмент. Повторный прогон тестов нужен после завершения ввода.
+- Используется **настоящая проверка ByteScript** из прежней версии игры: тесты, синтаксические ошибки, операции и локальная история версий сохраняются.
+
+## Управление
+
+| Клавиша | Действие |
+|---|---|
+| F1 | Astra Code |
+| F2 | Terminal |
+| F3 | Файлы |
+| F4 | TaskMail |
+| F6 | Settings |
+| Tab | Переключить активное окно |
+| Esc | Закрыть активное окно → встать от компьютера |
+| Любые обычные клавиши в редакторе | Постепенно набрать исходник или исправление |
+| Enter в Terminal | Выполнить игровую команду |
+| ↑ / ↓ в Terminal | История команд |
+| Backspace в Terminal | Удалить символ |
+
+## Команды терминала
+
+- \`help\`, \`clear\`, \`pwd\`, \`whoami\`, \`date\`, \`neofetch\`, \`ls\`, \`ls -la\`, \`echo <text>\`
+- \`cat README.md\`, \`cat main.bs\`, \`git status\`, \`git log\`, \`jobs\`
+- **\`test\`** запускает текущую проверку через \`Coding.test\` и показывает результаты выполнения.
+- \`code\`, \`files\`, \`desktop\`, \`exit\` переключают игровые приложения.
+
+**Важно:** \`git\` показывает только игровую локальную историю проекта; команды не запускают реальные процессы, не читают файлы с пользовательского диска и не обращаются к Интернету.
+
+## Архитектура
+
+- \`life.ctrl.ui.PinuxAstra\`: desktop, dock, игровая консоль, файловый экран и маршрутизация ввода.
+- \`life.ctrl.ui.AstraCodeApp\`: полнофункциональный интерфейс высокого разрешения: контракты, ByteScript-редактор, тесты, отладка, предпросмотр, лаборатория, Git, карьера, железо, портфолио, собственный бот.
+- \`life.ctrl.ui.Workbench\`: устаревший PixelCanvas-интерфейс сохранён в исходниках для сравнения, но больше не используется при выводе Astra Code.
+- \`life.ctrl.ui.LifeScreens\`: связь игрового ПК с оболочкой.
+- \`life.ctrl.CtrlLife\`: передача нажатий в оболочку при режиме \`IDE\`.
+- \`life.ctrl.model.Coding\`: перегрузки \`accept(..., tactile)\` и \`repair(..., tactile)\`. Отдельный выбор режима защищает прямые доменные тесты от несовместимых изменений.
+
+## Ограничения Global Update
+
+Astra Code — полноценное масштабируемое окно VisUI (перемещение, изменение размера, максимизация и сворачивание). Весь цикл заказов от выбора клиента до выплаты проходит внутри native-resolution интерфейса. ByteScript компилирует и выполняет настоящий игровой исходник; платёж, опыт, прогресс, бонусы и версии сохраняются в игровом состоянии. Нажатия мышью обрабатывает Scene2D в координатах реального окна; пиксельные координаты оставлены для игрового мира. Терминал не запускает программы ПК игрока.
+
+## Следующий этап разработки
+
+- Прогонять Windows GUI smoke на реальной машине с 125/150% DPI.
+- Добавить сохранение расположения окон между игровыми днями.
+- Углубить подсветку ByteScript, мультифайловые проекты, автодополнение, системные уведомления и звук UI.
+- Расширить игровые заказы и улучшить баланс работы/жизни.
+END FILE: docs/PINUX_ASTRA.md
