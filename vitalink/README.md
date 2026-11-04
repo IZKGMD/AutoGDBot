@@ -1,3 +1,23 @@
+# VitaLink без GitHub Secrets — OIDC
+
+Теперь **не нужно** вводить `VITALINK_OPERATOR_TOKEN` или `VITALINK_URL` в настройках GitHub. GitHub Actions получает краткоживущий подписанный токен OIDC автоматически, а сервер проверяет подпись GitHub, срок действия, ветку и идентификатор разрешённого workflow.
+
+На действующем VPS с Caddy в Docker выполни один раз:
+
+```bash
+WORKDIR="$(mktemp -d)"
+git clone --depth 1 --branch vitabridge-android https://github.com/IZKGMD/AutoGDBot.git "$WORKDIR/source"
+sudo bash "$WORKDIR/source/vitalink/install_oidc.sh"
+```
+
+Установщик обновляет только Python-сервер VitaLink, ставит библиотеки проверки цифровой подписи из репозитория безопасности Ubuntu, сохраняет резервные копии конфигурации и проверяет, что посторонние запросы отклоняются с HTTP 401. **Docker, Caddy и MuchoGDPS он не изменяет.**
+
+Ключ `agent_token` по-прежнему нужен **только при первом подключении PS Vita в VitaControl**. Токен `operator_token` сохраняется на VPS для совместимости, но в GitHub не копируется.
+
+Для проверки через GitHub после установки агента запусти workflow `VitaLink - dispatch a Vita job` или обнови `vitalink/requests/request.json`. Журналы Actions в публичном репозитории видны всем: не отправляй туда секреты, приватные файлы и конфиденциальные результаты диагностики. Удалённая оболочка и установка пакетов по умолчанию запрещены.
+
+---
+
 # Dockerized MuchoGDPS / main-domain VitaLink
 
 The actual VPS uses Docker Caddy container `mucho-core-caddy-1`, not host Nginx.
