@@ -1,5 +1,6 @@
 package life.ctrl.ui;
 
+import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.graphics.Texture;
@@ -144,6 +145,7 @@ public final class AstraCodeVisuals implements Disposable {
   // ===============================================================================================
 
   private final Skin skin;
+  private final BitmapFont syntaxFont;
   private final Texture whitePixelTexture;
   private final TextureRegion whiteRegion;
 
@@ -164,6 +166,14 @@ public final class AstraCodeVisuals implements Disposable {
   public AstraCodeVisuals(Skin skin) {
     this.skin = Objects.requireNonNull(skin, "skin cannot be null");
 
+    // ByteScript owns a separate font so enabling markup cannot break UI labels
+    // containing square brackets, such as TEST RESULTS [3/3].
+    syntaxFont = new BitmapFont(Gdx.files.internal("fonts/hd/small.fnt"));
+    syntaxFont.getData().setScale(.44f);
+    syntaxFont.getData().markupEnabled = true;
+    syntaxFont.getRegion().getTexture().setFilter(Texture.TextureFilter.Linear,
+        Texture.TextureFilter.Linear);
+
     Pixmap pixmap = new Pixmap(1, 1, Pixmap.Format.RGBA8888);
     pixmap.setColor(Color.WHITE);
     pixmap.fill();
@@ -181,6 +191,7 @@ public final class AstraCodeVisuals implements Disposable {
     buttonStyleCache.clear();
     activeEditorSession = null;
     whitePixelTexture.dispose();
+    syntaxFont.dispose();
   }
 
   // ===============================================================================================
@@ -1048,8 +1059,8 @@ public final class AstraCodeVisuals implements Disposable {
         // Контейнер для токенов строки кода
         Table codeCell = new Table();
         codeCell.left().padLeft(12f).padRight(24f);
-        Label codeTextLabel = monoLabel("", FG_PRIMARY);
-        Label cursorLabel = monoLabel("", ACCENT_BLUE);
+        Label codeTextLabel = new Label("", new Label.LabelStyle(syntaxFont, Color.WHITE));
+        Label cursorLabel = new Label("", new Label.LabelStyle(syntaxFont, Color.WHITE));
         codeCell.add(codeTextLabel).left();
         codeCell.add(cursorLabel).left();
         codeCell.add().expandX().fillX();
@@ -1094,9 +1105,8 @@ public final class AstraCodeVisuals implements Disposable {
         w.gutter.setBackground(solid(isActive ? BG_ELEVATED : BG_GUTTER));
         w.lineNumLabel.setColor(isActive ? ACCENT_BLUE : FG_GUTTER);
 
-        Color syntaxColor = resolveLineSyntaxColor(lineText);
-        w.codeTextLabel.setColor(syntaxColor);
-        w.codeTextLabel.setText(lineText);
+        w.codeTextLabel.setColor(Color.WHITE);
+        w.codeTextLabel.setText(highlightByteScript(lineText));
 
         if (isActive) {
           w.cursorLabel.setColor(typed < totalLen ? ACCENT_CYAN : STATUS_OK);
@@ -1157,6 +1167,70 @@ public final class AstraCodeVisuals implements Disposable {
       Label lineNumLabel,
       Label codeTextLabel,
       Label cursorLabel) {}
+
+  /** Small lexical pass for real per-token ByteScript colors, not whole-line tinting. */
+  private String highlightByteScript(String source) {
+    StringBuilder markup = new StringBuilder(source.length() + 24);
+    boolean functionNameNext = false;
+    for (int i = 0; i < source.length();) {
+      char ch = source.charAt(i);
+      if (ch == '/' && i + 1 < source.length() && source.charAt(i + 1) == '/') {
+        appendSyntax(markup, source.substring(i), FG_MUTED);
+        break;
+      }
+      if (ch == '#') {
+        appendSyntax(markup, source.substring(i), FG_MUTED);
+        break;
+      }
+      if (ch == '"' || ch == '\'') {
+        int end = i + 1;
+        while (end < source.length()) {
+          if (source.charAt(end) == '\\' && end + 1 < source.length()) {
+            end += 2;
+            continue;
+          }
+          if (source.charAt(end++) == ch) break;
+        }
+        appendSyntax(markup, source.substring(i, end), STATUS_OK);
+        i = end;
+        continue;
+      }
+      if (Character.isDigit(ch)) {
+        int end = i + 1;
+        while (end < source.length() &&
+            (Character.isDigit(source.charAt(end)) || source.charAt(end) == '.')) end++;
+        appendSyntax(markup, source.substring(i, end), STATUS_WARN);
+        i = end;
+        continue;
+      }
+      if (Character.isLetter(ch) || ch == '_') {
+        int end = i + 1;
+        while (end < source.length() &&
+            (Character.isLetterOrDigit(source.charAt(end)) || source.charAt(end) == '_')) end++;
+        String token = source.substring(i, end);
+        Color syntax = switch (token) {
+          case "fn", "let", "const", "if", "else", "while", "for", "return" -> ACCENT_PURPLE;
+          case "true", "false" -> STATUS_WARN;
+          default -> functionNameNext ? ACCENT_CYAN : FG_PRIMARY;
+        };
+        appendSyntax(markup, token, syntax);
+        functionNameNext = token.equals("fn");
+        i = end;
+        continue;
+      }
+      appendSyntax(markup, String.valueOf(ch),
+          "{}();,=".indexOf(ch) >= 0 ? FG_SECONDARY : FG_PRIMARY);
+      i++;
+    }
+    return markup.toString();
+  }
+
+  private void appendSyntax(StringBuilder target, String text, Color color) {
+    target.append("[#").append(color).append(']');
+    // LibGDX BitmapFont markup escapes literal opening brackets as [[.
+    target.append(text.replace("[", "[["));
+    target.append("[]");
+  }
 
   /**
    * Определяет семантический цвет строки ByteScript в палитре Tokyo Night.
