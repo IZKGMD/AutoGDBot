@@ -126,6 +126,21 @@ class LifeProgressTest {
   }
 
   @Test
+  void newStoryCannotOverwriteArchivedHistory() throws Exception {
+    var store = new SaveStore(folder, Content.load());
+    assertNull(store.archiveCurrent());
+    var old = new GameState(); old.money = 12345; old.chapterOneFinished = true;
+    store.save(old);
+    Path archived = store.archiveCurrent();
+    for (int i = 0; i < 5; i++) store.save(new GameState());
+    var previous = new SaveStore(archived, Content.load()).load().state();
+    assertEquals(12345, previous.money);
+    assertTrue(previous.chapterOneFinished);
+    assertFalse(store.load().state().chapterOneFinished);
+    assertNotEquals(archived, store.archiveCurrent());
+  }
+
+  @Test
   void versionEightPreservesExistingProgress() throws Exception {
     Files.writeString(
         folder.resolve("save.json"),

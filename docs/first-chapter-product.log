@@ -6,11 +6,11 @@ Daemon will be stopped at the end of the build
 > Task :core:processResources UP-TO-DATE
 > Task :core:classes
 > Task :core:jar
-> Task :core:compileTestJava UP-TO-DATE
-> Task :core:processTestResources NO-SOURCE
-> Task :core:testClasses UP-TO-DATE
 > Task :lwjgl3:compileJava
 > Task :lwjgl3:classes
+> Task :core:compileTestJava
+> Task :core:processTestResources NO-SOURCE
+> Task :core:testClasses
 
 > Task :lwjgl3:compileSmokeJava
 Note: Some input files use or override a deprecated API.
@@ -21,10 +21,6 @@ Note: Recompile with -Xlint:deprecation for details.
 > Task :lwjgl3:guiSmoke
 PRODUCT: new
 PRODUCT: create
-
-> Task :core:test
-
-> Task :lwjgl3:guiSmoke
 PRODUCT: intro
 PRODUCT: intro
 PRODUCT: intro
@@ -34,11 +30,10 @@ PRODUCT: walk room/pc
 PRODUCT: walk room/pc
 PRODUCT: walk room/pc
 PRODUCT: walk room/pc
-PRODUCT: walk room/pc
-PRODUCT: walk room/pc
-PRODUCT: walk room/pc
-PRODUCT: walk room/pc
-PRODUCT: walk room/pc
+
+> Task :core:test
+
+> Task :lwjgl3:guiSmoke
 PRODUCT: walk room/pc
 PRODUCT: computer
 PRODUCT: open code
@@ -56,6 +51,7 @@ PRODUCT: deliver
 PRODUCT: payment
 PRODUCT: receipt close
 PRODUCT: walk to diner
+PRODUCT: walk diner/counter
 PRODUCT: walk diner/counter
 PRODUCT: walk diner/counter
 PRODUCT: walk diner/counter
@@ -275,11 +271,11 @@ PRODUCT: new session clean
 PRODUCT_SMOKE_PASS: 35 captures; fresh-player contract to payment, purchases, all owned items, chapter pages, long messages and persistence
 PRODUCT: done
 
-> Task :lwjgl3:jar UP-TO-DATE
+> Task :lwjgl3:jar
 > Task :lwjgl3:startScripts
 > Task :lwjgl3:installDist
 
 [Incubating] Problems report is available at: file:///workspace/work/ctrl-life/build/reports/problems/problems-report.html
 
 BUILD SUCCESSFUL in 55s
-11 actionable tasks: 8 executed, 3 up-to-date
+11 actionable tasks: 10 executed, 1 up-to-date

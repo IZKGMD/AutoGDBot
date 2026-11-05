@@ -355,6 +355,13 @@ public class CtrlLife extends ApplicationAdapter {
   }
 
   private void newGame() {
+    try {
+      saves.archiveCurrent();
+    } catch (IOException e) {
+      notify("Не удалось архивировать старую историю. Освободи место; сохранение не заменено.");
+      Gdx.app.error("Save", "Архив предыдущей истории", e);
+      return;
+    }
     GameState state = new GameState();
     state.name = name.strip().isEmpty() ? "Саша" : name.strip();
     state.outfit = newOutfit;
@@ -889,7 +896,7 @@ public class CtrlLife extends ApplicationAdapter {
     c.panel(70, 65, 340, 141);
     c.text("Начать новую историю?", 89, 81, CREAM);
     c.wrap(
-        "Текущее сохранение будет заменено. Предыдущая копия останется в папке данных.",
+        "Текущее сохранение будет заменено. Предыдущая история останется в папке данных CtrlLife/history.",
         89,
         108,
         300,

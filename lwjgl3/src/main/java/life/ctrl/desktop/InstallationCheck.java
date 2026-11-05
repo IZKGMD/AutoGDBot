@@ -31,6 +31,9 @@ final class InstallationCheck {
       Navigation.goal(world, life);
       var store = new SaveStore(directory, content);
       store.save(state);
+      var archive = store.archiveCurrent();
+      if (archive == null || !Files.isRegularFile(archive.resolve("save.json")))
+        throw new IllegalStateException("Story archive failed");
       var loaded = store.load().state();
       if (!loaded.name.equals(state.name) || loaded.money != state.money)
         throw new IllegalStateException("Save round-trip failed");

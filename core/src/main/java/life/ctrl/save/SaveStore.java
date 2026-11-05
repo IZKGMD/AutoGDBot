@@ -124,6 +124,18 @@ public final class SaveStore {
     }
   }
 
+  /** Preserve the previous story separately from the rolling autosave backup. */
+  public Path archiveCurrent() throws IOException {
+    if (!exists()) return null;
+    Path archive = directory.resolve("history").resolve(java.util.UUID.randomUUID().toString());
+    Files.createDirectories(archive);
+    for (String name : new String[] {"save.json", "save.backup.json"}) {
+      Path source = directory.resolve(name);
+      if (Files.isRegularFile(source)) Files.copy(source, archive.resolve(name));
+    }
+    return archive;
+  }
+
   public void save(GameState state) throws IOException {
     new World(content, state);
     LifeProgress.record(state);

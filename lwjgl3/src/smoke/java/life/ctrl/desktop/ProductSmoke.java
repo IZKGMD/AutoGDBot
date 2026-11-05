@@ -332,6 +332,9 @@ public final class ProductSmoke extends CtrlLife {
                   && world().state.money == 10000
                   && LifeProgress.count(world().state) == 0,
               "Previous session leaked");
+          try (var archives = Files.list(SaveStore.defaultDirectory().resolve("history"))) {
+            check(archives.anyMatch(d -> Files.isRegularFile(d.resolve("save.json"))), "Previous story not archived");
+          } catch (Exception e) { throw new RuntimeException(e); }
           shot("new-session");
         });
     step(
