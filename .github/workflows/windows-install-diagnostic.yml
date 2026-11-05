@@ -40,4 +40,13 @@ jobs:
           Write-Output 'UNICODE JAVA WITH BIN ON PATH'
           & "$root/runtime/bin/java.exe" -version
           Write-Output "exit=$LASTEXITCODE"
+          Write-Output 'SHORT PATH JAVA'
+          $shortJava = (& cmd.exe /d /c "for %I in (`"$root\runtime\bin\java.exe`") do @echo %~sI")
+          Write-Output $shortJava
+          & $shortJava -version
+          Write-Output "exit=$LASTEXITCODE"
+          Copy-Item "$root/runtime" runtime-ascii -Recurse
+          Write-Output 'ASCII RUNTIME WITH UNICODE CLASSPATH'
+          & "$PWD/runtime-ascii/bin/java.exe" -Dfile.encoding=UTF-8 -cp "$root/lib/*" life.ctrl.desktop.DesktopLauncher --check-install
+          Write-Output "exit=$LASTEXITCODE"
           exit 0
