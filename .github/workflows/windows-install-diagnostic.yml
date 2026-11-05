@@ -1,0 +1,40 @@
+name: Diagnose portable Windows launcher
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Release build artifact run
+        required: true
+permissions:
+  contents: read
+  actions: read
+jobs:
+  diagnose:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: CTRL-LIFE-0.9.0-First-Chapter-Windows-x64
+          path: release
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Compare launcher paths and runtime contents
+        shell: pwsh
+        run: |
+          Expand-Archive release/*.zip -DestinationPath ascii
+          $root = (Get-ChildItem ascii -Directory | Select-Object -First 1).FullName
+          Get-ChildItem "$root/runtime/bin" -File | Select-Object Name,Length | Format-Table
+          Write-Output 'ASCII JAVA'
+          & "$root/runtime/bin/java.exe" -version
+          Write-Output "exit=$LASTEXITCODE"
+          Move-Item ascii 'Проверка игры'
+          $root = (Get-ChildItem 'Проверка игры' -Directory | Select-Object -First 1).FullName
+          Write-Output 'UNICODE JAVA'
+          & "$root/runtime/bin/java.exe" -version
+          Write-Output "exit=$LASTEXITCODE"
+          $env:PATH = "$root/runtime/bin;" + $env:PATH
+          Write-Output 'UNICODE JAVA WITH BIN ON PATH'
+          & "$root/runtime/bin/java.exe" -version
+          Write-Output "exit=$LASTEXITCODE"
+          exit 0
