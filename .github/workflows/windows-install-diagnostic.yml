@@ -1,5 +1,8 @@
 name: Diagnose portable Windows launcher
 on:
+  push:
+    branches: [ctrl-life]
+    paths: ['.github/workflows/windows-install-diagnostic.yml']
   workflow_dispatch:
     inputs:
       run_id:
@@ -17,7 +20,7 @@ jobs:
         with:
           name: CTRL-LIFE-0.9.0-First-Chapter-Windows-x64
           path: release
-          run-id: ${{ inputs.run_id }}
+          run-id: ${{ inputs.run_id || '41990067741' }}
           github-token: ${{ github.token }}
       - name: Compare launcher paths and runtime contents
         shell: pwsh
