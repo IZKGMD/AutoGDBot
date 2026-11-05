@@ -1,0 +1,212 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+> Task :lwjgl3:processResources NO-SOURCE
+> Task :lwjgl3:processSmokeResources NO-SOURCE
+> Task :core:compileJava
+> Task :core:processResources UP-TO-DATE
+> Task :core:classes
+> Task :core:jar
+> Task :core:compileTestJava UP-TO-DATE
+> Task :core:processTestResources NO-SOURCE
+> Task :core:testClasses UP-TO-DATE
+> Task :lwjgl3:compileJava UP-TO-DATE
+> Task :lwjgl3:classes UP-TO-DATE
+> Task :lwjgl3:jar UP-TO-DATE
+> Task :lwjgl3:startScripts
+> Task :lwjgl3:installDist
+> Task :lwjgl3:compileSmokeJava UP-TO-DATE
+> Task :lwjgl3:smokeClasses UP-TO-DATE
+
+> Task :lwjgl3:guiSmoke
+VISUAL: menu
+VISUAL: new
+VISUAL: create
+
+> Task :core:test
+
+> Task :lwjgl3:guiSmoke
+VISUAL: intro
+VISUAL: intro
+VISUAL: intro
+VISUAL: settle welcome
+VISUAL: settle welcome
+VISUAL: settle welcome
+VISUAL: settle welcome
+VISUAL: settle welcome
+VISUAL: settle welcome
+VISUAL: settle welcome
+VISUAL: settle welcome
+VISUAL: fixture room-12
+VISUAL: settle room-12
+VISUAL: capture room-12
+VISUAL: fixture room-22
+VISUAL: settle room-22
+VISUAL: capture room-22
+VISUAL: fixture stair-12
+VISUAL: settle stair-12
+VISUAL: capture stair-12
+VISUAL: fixture stair-22
+VISUAL: settle stair-22
+VISUAL: capture stair-22
+VISUAL: fixture cafe-12
+VISUAL: settle cafe-12
+VISUAL: capture cafe-12
+VISUAL: fixture cafe-22
+VISUAL: settle cafe-22
+VISUAL: capture cafe-22
+VISUAL: fixture diner-12
+VISUAL: settle diner-12
+VISUAL: capture diner-12
+VISUAL: fixture diner-22
+VISUAL: settle diner-22
+VISUAL: capture diner-22
+VISUAL: fixture workshop-12
+VISUAL: settle workshop-12
+VISUAL: capture workshop-12
+VISUAL: fixture workshop-22
+VISUAL: settle workshop-22
+VISUAL: capture workshop-22
+VISUAL: fixture park-12
+VISUAL: settle park-12
+VISUAL: capture park-12
+VISUAL: fixture park-22
+VISUAL: settle park-22
+VISUAL: capture park-22
+VISUAL: fixture street-12
+VISUAL: settle street-12
+VISUAL: capture street-12
+VISUAL: fixture street-22
+VISUAL: settle street-22
+VISUAL: capture street-22
+VISUAL: street camera 470.0
+VISUAL: settle
+VISUAL: street capture
+VISUAL: street camera 814.0
+VISUAL: settle
+VISUAL: street capture
+VISUAL: street camera 900.0
+VISUAL: settle
+VISUAL: street capture
+VISUAL: behind fridge
+VISUAL: settle occlusion
+VISUAL: fridge behind capture
+VISUAL: in front of fridge
+VISUAL: settle occlusion
+VISUAL: fridge front capture
+VISUAL: behind tree
+VISUAL: settle tree
+VISUAL: tree behind capture
+VISUAL: in front of tree
+VISUAL: settle tree
+VISUAL: tree front capture
+VISUAL: unpacked room
+VISUAL: settle boxes
+VISUAL: boxes capture
+VISUAL: gear
+VISUAL: settle
+VISUAL: room upgraded
+VISUAL: upgraded desk approach
+VISUAL: settle desk approach
+VISUAL: upgraded desk capture
+VISUAL: keepsakes fixture
+VISUAL: settle keepsakes
+VISUAL: keepsakes capture
+VISUAL: clear park
+VISUAL: settle clear park
+VISUAL: clear park capture
+VISUAL: effects settings
+VISUAL: reduce effects
+VISUAL: verify reduced effects
+VISUAL: reduced street
+VISUAL: settle reduced
+VISUAL: reduced capture
+VISUAL: effects settings
+VISUAL: restore effects
+VISUAL: verify full effects
+VISUAL: world resize 960
+VISUAL: world fixture 960 room
+VISUAL: settle world size
+VISUAL: world size capture
+VISUAL: world fixture 960 stair
+VISUAL: settle world size
+VISUAL: world size capture
+VISUAL: world fixture 960 cafe
+VISUAL: settle world size
+VISUAL: world size capture
+VISUAL: world fixture 960 diner
+VISUAL: settle world size
+VISUAL: world size capture
+VISUAL: world fixture 960 workshop
+VISUAL: settle world size
+VISUAL: world size capture
+VISUAL: world fixture 960 park
+VISUAL: settle world size
+VISUAL: world size capture
+VISUAL: world fixture 960 street
+VISUAL: settle world size
+VISUAL: world size capture
+VISUAL: world resize 1280
+VISUAL: world fixture 1280 room
+VISUAL: settle world size
+VISUAL: world size capture
+VISUAL: world fixture 1280 stair
+VISUAL: settle world size
+VISUAL: world size capture
+VISUAL: world fixture 1280 cafe
+VISUAL: settle world size
+VISUAL: world size capture
+VISUAL: world fixture 1280 diner
+VISUAL: settle world size
+VISUAL: world size capture
+VISUAL: world fixture 1280 workshop
+VISUAL: settle world size
+VISUAL: world size capture
+VISUAL: world fixture 1280 park
+VISUAL: settle world size
+VISUAL: world size capture
+VISUAL: world fixture 1280 street
+VISUAL: settle world size
+VISUAL: world size capture
+VISUAL: world resize 1920
+VISUAL: world fixture 1920 room
+VISUAL: settle world size
+VISUAL: world size capture
+VISUAL: world fixture 1920 stair
+VISUAL: settle world size
+VISUAL: world size capture
+VISUAL: world fixture 1920 cafe
+VISUAL: settle world size
+VISUAL: world size capture
+VISUAL: world fixture 1920 diner
+VISUAL: settle world size
+VISUAL: world size capture
+VISUAL: world fixture 1920 workshop
+VISUAL: settle world size
+VISUAL: world size capture
+VISUAL: world fixture 1920 park
+VISUAL: settle world size
+VISUAL: world size capture
+VISUAL: world fixture 1920 street
+VISUAL: settle world size
+VISUAL: world size capture
+VISUAL: return park
+VISUAL: open map
+VISUAL: map geometry
+VISUAL: workbench
+VISUAL: workbench capture
+VISUAL: stress long label
+VISUAL: career capture
+VISUAL: resize 960
+VISUAL: settle resize
+VISUAL: size 960
+VISUAL: resize 1280
+VISUAL: settle resize
+VISUAL: size 1280
+VISUAL: resize 1920
+VISUAL: settle resize
+VISUAL: size 1920
+VISUAL_SMOKE_PASS: 55 screenshots; all seven maps, day/night, camera edges, upgrades, UI, 960/1280/1920; shader active; no GL errors; full/reduced effects; no lighting outside cutaways
+VISUAL: done
+
+BUILD SUCCESSFUL in 2m 6s
+11 actionable tasks: 6 executed, 5 up-to-date

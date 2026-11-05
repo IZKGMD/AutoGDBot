@@ -1,4 +1,4 @@
-name: Release CTRL+LIFE 0.9.0 First Chapter Windows x64
+name: Release CTRL+LIFE 0.10.0 Warm Light Windows x64
 
 on:
   push:
@@ -107,19 +107,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ROOT=release/CTRL-LIFE-0.9.0-First-Chapter
+          ROOT=release/CTRL-LIFE-0.10.0-Warm-Light
           mkdir -p "$ROOT"
           cp -a lwjgl3/build/install/ctrl-life/. "$ROOT/"
           cp -f README.md LICENSE THIRD_PARTY.md run.bat launch.ps1 GAME_DESIGN.md ARCHITECTURE.md CHANGELOG.md "$ROOT/"
           mkdir -p "$ROOT/docs/screenshots" "$ROOT/TODO"
           cp docs/*.md "$ROOT/docs/"
-          cp docs/FIRST_CHAPTER.md docs/FIRST_CHAPTER_QA.md docs/first-chapter-*.log docs/ASTRA_LAYOUT_QA.md docs/astra-layout-0.6.1.log docs/RELATIONSHIPS.md docs/PINUX_ASTRA.md docs/PINUX_AUDIT_QA.md docs/relationships-0.6-*.log "$ROOT/docs/"
+          cp docs/FIRST_CHAPTER.md docs/FIRST_CHAPTER_QA.md docs/first-chapter-*.log docs/warm-light-*.log docs/ASTRA_LAYOUT_QA.md docs/astra-layout-0.6.1.log docs/RELATIONSHIPS.md docs/PINUX_ASTRA.md docs/PINUX_AUDIT_QA.md docs/relationships-0.6-*.log "$ROOT/docs/"
           cp TODO/ROADMAP.md "$ROOT/TODO/"
           cp -a docs/screenshots/relationships "$ROOT/docs/screenshots/"
+          cp -a docs/screenshots/warm-light "$ROOT/docs/screenshots/"
           cp -a docs/screenshots/first-chapter "$ROOT/docs/screenshots/"
           cp -a docs/screenshots/astra-layout "$ROOT/docs/screenshots/"
-          test -f "$ROOT/lib/core-0.9.0.jar"
-          test -f "$ROOT/lib/lwjgl3-0.9.0.jar"
+          test -f "$ROOT/lib/core-0.10.0.jar"
+          test -f "$ROOT/lib/lwjgl3-0.10.0.jar"
           curl -fLS --retry 4 --retry-all-errors --connect-timeout 30 \
             "https://api.adoptium.net/v3/binary/latest/21/ga/windows/x64/jre/hotspot/normal/eclipse" \
             -o "$RUNNER_TEMP/temurin21-windows-jre.zip"
@@ -131,7 +132,7 @@ jobs:
           cp -a "$JAVA_ROOT/." "$ROOT/runtime/"
           test -f "$ROOT/runtime/bin/java.exe"
           printf '%s\n' \
-            "CTRL+LIFE 0.9.0 - First Chapter" \
+            "CTRL+LIFE 0.10.0 - Warm Light" \
             "Branch: ctrl-life" \
             "Commit: $GITHUB_SHA" \
             "Windows x64 portable release. Run run.bat; Java 21 bundled." > "$ROOT/BUILD_INFO.txt"
@@ -139,8 +140,8 @@ jobs:
           from pathlib import Path
           import zipfile
           release = Path('release')
-          folder = release / 'CTRL-LIFE-0.9.0-First-Chapter'
-          archive = release / 'CTRL-LIFE-0.9.0-First-Chapter-Windows-x64.zip'
+          folder = release / 'CTRL-LIFE-0.10.0-Warm-Light'
+          archive = release / 'CTRL-LIFE-0.10.0-Warm-Light-Windows-x64.zip'
           with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED, compresslevel=6, allowZip64=True) as z:
               for f in sorted(folder.rglob('*')):
                   if f.is_file():
@@ -148,20 +149,20 @@ jobs:
           with zipfile.ZipFile(archive) as z:
               assert z.testzip() is None
               members = set(z.namelist())
-              for name in ('runtime/bin/java.exe', 'runtime/bin/java.dll', 'runtime/bin/server/jvm.dll', 'launch.ps1', 'run.bat', 'lib/core-0.9.0.jar', 'lib/lwjgl3-0.9.0.jar'):
-                  assert 'CTRL-LIFE-0.9.0-First-Chapter/' + name in members
+              for name in ('runtime/bin/java.exe', 'runtime/bin/java.dll', 'runtime/bin/server/jvm.dll', 'launch.ps1', 'run.bat', 'lib/core-0.10.0.jar', 'lib/lwjgl3-0.10.0.jar'):
+                  assert 'CTRL-LIFE-0.10.0-Warm-Light/' + name in members
           print(f'Packaged {archive}: {archive.stat().st_size:,} bytes')
           PY
           cd release
-          sha256sum CTRL-LIFE-0.9.0-First-Chapter-Windows-x64.zip > CTRL-LIFE-0.9.0-First-Chapter-Windows-x64.zip.sha256
+          sha256sum CTRL-LIFE-0.10.0-Warm-Light-Windows-x64.zip > CTRL-LIFE-0.10.0-Warm-Light-Windows-x64.zip.sha256
 
       - name: Upload complete ZIP to GitHub Actions
         uses: actions/upload-artifact@v4
         with:
-          name: CTRL-LIFE-0.9.0-First-Chapter-Windows-x64
+          name: CTRL-LIFE-0.10.0-Warm-Light-Windows-x64
           path: |
-            release/CTRL-LIFE-0.9.0-First-Chapter-Windows-x64.zip
-            release/CTRL-LIFE-0.9.0-First-Chapter-Windows-x64.zip.sha256
+            release/CTRL-LIFE-0.10.0-Warm-Light-Windows-x64.zip
+            release/CTRL-LIFE-0.10.0-Warm-Light-Windows-x64.zip.sha256
           if-no-files-found: error
           retention-days: 90
 
@@ -173,16 +174,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: CTRL-LIFE-0.9.0-First-Chapter-Windows-x64
+          name: CTRL-LIFE-0.10.0-Warm-Light-Windows-x64
           path: release
       - name: Verify portable runtime and launcher on Windows
         shell: pwsh
         run: |
-          $zip = "release/CTRL-LIFE-0.9.0-First-Chapter-Windows-x64.zip"
+          $zip = "release/CTRL-LIFE-0.10.0-Warm-Light-Windows-x64.zip"
           $expected = ((Get-Content "$zip.sha256") -split '\s+')[0]
           if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLower() -ne $expected) { throw "Checksum mismatch" }
           Expand-Archive $zip -DestinationPath "Проверка игры"
-          Push-Location "Проверка игры/CTRL-LIFE-0.9.0-First-Chapter"
+          Push-Location "Проверка игры/CTRL-LIFE-0.10.0-Warm-Light"
           & cmd.exe /d /c "run.bat --check-install"
           if ($LASTEXITCODE -ne 0) { throw "Windows installation check failed" }
           Pop-Location
@@ -190,11 +191,11 @@ jobs:
       - name: Publish downloadable GitHub pre-release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: v0.9.0-first-chapter
+          TAG: v0.10.0-warm-light
         shell: bash
         run: |
           set -euo pipefail
-          ZIP=release/CTRL-LIFE-0.9.0-First-Chapter-Windows-x64.zip
+          ZIP=release/CTRL-LIFE-0.10.0-Warm-Light-Windows-x64.zip
           SHA="$ZIP.sha256"
           if gh release view "$TAG" >/dev/null 2>&1; then
             # Never retarget or overwrite a release for a different commit.
@@ -205,7 +206,7 @@ jobs:
           else
             gh release create "$TAG" "$ZIP" "$SHA" \
               --target "$GITHUB_SHA" \
-              --title "CTRL+LIFE 0.9.0 — Свой адрес" \
-              --notes-file docs/FIRST_CHAPTER.md \
+              --title "CTRL+LIFE 0.10.0 — Тёплый свет" \
+              --notes-file docs/WARM_LIGHT.md \
               --prerelease
           fi

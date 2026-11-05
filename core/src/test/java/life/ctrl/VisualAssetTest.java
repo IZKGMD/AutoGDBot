@@ -18,6 +18,61 @@ class VisualAssetTest {
   }
 
   @Test
+  void illustratedPropsAreCompleteIsolatedCutoutsInsideAtlasCells() throws Exception {
+    for (String name : List.of("furniture", "outdoors", "utility", "states", "pond")) {
+      var p = image("art/illustrations/" + name);
+      assertTrue(p.getColorModel().hasAlpha(), name + " needs genuine transparency");
+      assertTrue(
+          p.getWidth() <= 2048 && p.getHeight() <= 2048,
+          name + " exceeds baseline GPU texture size");
+      int columns = name.equals("pond") ? 1 : 2,
+          rows = name.equals("pond") ? 1 : name.equals("utility") ? 3 : 2;
+      for (int row = 0; row < rows; row++)
+        for (int col = 0; col < columns; col++) {
+          int x0 = col * p.getWidth() / columns, x1 = (col + 1) * p.getWidth() / columns;
+          int y0 = row * p.getHeight() / rows, y1 = (row + 1) * p.getHeight() / rows;
+          int opaque = 0;
+          for (int y = y0; y < y1; y++)
+            for (int x = x0; x < x1; x++) {
+              int alpha = p.getRGB(x, y) >>> 24;
+              if (alpha > 128) opaque++;
+              if (x < x0 + 8 || x >= x1 - 8 || y < y0 + 8 || y >= y1 - 8)
+                assertTrue(
+                    alpha <= 16,
+                    name
+                        + " cell "
+                        + col
+                        + ","
+                        + row
+                        + " cuts a silhouette or contains backdrop at "
+                        + x
+                        + ","
+                        + y);
+            }
+          assertTrue(opaque > (x1 - x0) * (y1 - y0) / 50, name + " cell has no usable prop");
+        }
+    }
+  }
+
+  @Test
+  void everyMaterialCellIsOpaqueAndHasEnoughDetailForNativeResolution() throws Exception {
+    var p = image("art/illustrations/materials");
+    assertTrue(p.getWidth() >= 1024 && p.getHeight() >= 1024);
+    assertTrue(p.getWidth() <= 2048 && p.getHeight() <= 2048);
+    for (int row = 0; row < 3; row++)
+      for (int col = 0; col < 3; col++) {
+        Set<Integer> colors = new HashSet<>();
+        for (int y = row * p.getHeight() / 3 + 2; y < (row + 1) * p.getHeight() / 3 - 2; y += 3)
+          for (int x = col * p.getWidth() / 3 + 2; x < (col + 1) * p.getWidth() / 3 - 2; x += 3) {
+            int rgb = p.getRGB(x, y);
+            assertEquals(255, rgb >>> 24, "Transparent hole in walkable material");
+            colors.add(rgb);
+          }
+        assertTrue(colors.size() > 256, "Material cell lost its painted detail");
+      }
+  }
+
+  @Test
   void highDensityGeometryMatchesEveryMapAndProp() throws Exception {
     for (var map : Content.load().maps) {
       var hd = image("art/hd/" + map.id);

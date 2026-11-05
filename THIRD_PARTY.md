@@ -3,6 +3,7 @@
 Game source, scene graphics, characters, dialogue, maps and synthesized sound are original for CTRL+LIFE. Source license: MIT (LICENSE).
 
 - The illustrated relationship atlas (`art/illustrations/relationships.png`) was generated specifically for CTRL+LIFE with OpenAI image generation. Original character briefs and game integration are part of this project; no third-party character artwork or real-person reference photos were used.
+- The environment atlases (`art/illustrations/materials.png`, `furniture.png`, `outdoors.png`, `utility.png`, `states.png`, `pond.png`) were generated and iteratively revised specifically for CTRL+LIFE with OpenAI image generation. Project-owned earlier sprites supplied the shape and gameplay references. Runtime atlas sampling, material masks and lighting are original project code. No third-party game textures or photographed assets were copied.
 - libGDX 1.13.1: Apache License 2.0, https://github.com/libgdx/libgdx
 - VisUI 1.5.6 (Scene2D window and input widgets): Apache License 2.0, https://github.com/kotcrab/vis-ui
 - KDE-style application architecture was studied from Fake OS Desktop (MIT), https://github.com/gezhov/Fake-OS-Desktop ; no Swing classes or third-party artwork were copied into CTRL+LIFE.

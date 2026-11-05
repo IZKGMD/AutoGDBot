@@ -1,0 +1,2 @@
+JUnit XML: {'tests': 121, 'failures': 0, 'errors': 0, 'skipped': 0}
+DIST_ASSETS_PASS: all six environment PNG atlases included in core-0.10.0.jar

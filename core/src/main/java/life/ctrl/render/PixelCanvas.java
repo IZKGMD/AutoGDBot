@@ -30,6 +30,7 @@ public final class PixelCanvas implements Disposable {
   private final Map<String, Texture> textures = new HashMap<>();
   private final Map<String, Texture> roundedMasks = new HashMap<>();
   private final Map<String, TextureRegion[][]> actors = new HashMap<>();
+  private final WorldArt worldArt = new WorldArt(this);
   private final Texture white;
   public final BitmapFont font, small, title;
   private final GlyphLayout layout = new GlyphLayout();
@@ -120,6 +121,7 @@ public final class PixelCanvas implements Disposable {
       int d = highDensity.contains(n) ? 2 : 1;
       actors.put(n, TextureRegion.split(t, 16 * d, 24 * d));
     }
+    worldArt.sprite("desk");
   }
 
   public Texture texture(String name) {
@@ -267,13 +269,16 @@ public final class PixelCanvas implements Disposable {
   }
 
   /**
-   * Smooth high-density rounded panels. A cached three-times-resolution signed-
-   * distance mask avoids the chunky stepped corners of the low-res prototype.
-   * The mask is white and can be tinted to any colour by the SpriteBatch.
+   * Smooth high-density rounded panels. A cached three-times-resolution signed- distance mask
+   * avoids the chunky stepped corners of the low-res prototype. The mask is white and can be tinted
+   * to any colour by the SpriteBatch.
    */
   public void roundRect(float x, float y, float w, float h, int radius, String hex) {
-    int r = Math.max(0, Math.min(radius, (int)Math.min(w, h) / 2));
-    if (r == 0 || w < 1 || h < 1) { rect(x, y, w, h, hex); return; }
+    int r = Math.max(0, Math.min(radius, (int) Math.min(w, h) / 2));
+    if (r == 0 || w < 1 || h < 1) {
+      rect(x, y, w, h, hex);
+      return;
+    }
     int pw = Math.max(2, Math.round(w * 3)), ph = Math.max(2, Math.round(h * 3));
     String key = pw + ":" + ph + ":" + r;
     Texture mask = roundedMasks.get(key);
@@ -287,8 +292,8 @@ public final class PixelCanvas implements Disposable {
         for (int px = 0; px < pw; px++) {
           float qx = Math.abs(px + .5f - pw / 2f) - bx;
           float ax = Math.max(0, qx), ay = Math.max(0, qy);
-          float distance = (float)Math.sqrt(ax * ax + ay * ay)
-              + Math.min(0, Math.max(qx, qy)) - radiusPx;
+          float distance =
+              (float) Math.sqrt(ax * ax + ay * ay) + Math.min(0, Math.max(qx, qy)) - radiusPx;
           int alpha = Math.round(Math.max(0, Math.min(1, .5f - distance)) * 255);
           p.drawPixel(px, py, 0xffffff00 | alpha);
         }
@@ -310,7 +315,29 @@ public final class PixelCanvas implements Disposable {
     rect(x + 1, y + 1, w - 2, .5f, "829b9160");
   }
 
+  public void material(
+      int tile, float x, float y, float w, float h, float ox, float oy, float size, float alpha) {
+    worldArt.material(tile, x, y, w, h, ox, oy, size, alpha);
+  }
+
+  public void decorative(String name, float x, float y, float w, float h) {
+    var sprite = worldArt.sprite(name);
+    if (sprite != null) batch.draw(sprite, x, H - y - h, w, h);
+  }
+
   public void art(String name, float x, float y) {
+    var sprite = worldArt.sprite(name);
+    if (sprite != null) {
+      float width = artWidth(name), height = artHeight(name);
+      // Chairs belong to the table silhouette; preserve its broad tabletop instead of stretching
+      // it.
+      if (name.equals("table")) {
+        height = 26;
+        y += 7;
+      }
+      batch.draw(sprite, Math.round(x), H - Math.round(y) - height, width, height);
+      return;
+    }
     Texture t = texture(name);
     batch.draw(
         t, Math.round(x), H - Math.round(y) - artHeight(name), artWidth(name), artHeight(name));
@@ -373,7 +400,10 @@ public final class PixelCanvas implements Disposable {
   }
 
   public void scaledArt(String name, float x, float y, float width, float height) {
-    batch.draw(texture(name), Math.round(x), H - Math.round(y) - height, width, height);
+    var sprite = worldArt.sprite(name);
+    if (sprite != null)
+      batch.draw(sprite, Math.round(x), H - Math.round(y) - height, width, height);
+    else batch.draw(texture(name), Math.round(x), H - Math.round(y) - height, width, height);
   }
 
   public void actor(String name, int dir, int animation, float x, float feetY, int outfit) {

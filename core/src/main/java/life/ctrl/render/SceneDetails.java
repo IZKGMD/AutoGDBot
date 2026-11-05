@@ -76,8 +76,7 @@ public final class SceneDetails {
       PixelCanvas c, GameState s, float ox, float oy, float time, boolean reduced) {
     if (s.map.equals("room")) keepsakes(c, s, ox, oy);
     if (s.map.equals("park")) {
-      float light = .35f + Atmosphere.night(s) * .65f;
-      c.glow("light_amber", 130 - ox, 53 - oy, light * .45f);
+
       if (!reduced)
         for (int i = 0; i < 6; i++) {
           float t = (time * .11f + i * .17f) % 1;

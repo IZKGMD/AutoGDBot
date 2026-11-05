@@ -36,6 +36,7 @@ public class CtrlLife extends ApplicationAdapter {
   }
 
   private PixelCanvas c;
+  private WorldLighting worldLighting;
   private LifeScreens life;
   private List<float[]> guidePath = List.of();
   private float guideTimer;
@@ -93,6 +94,7 @@ public class CtrlLife extends ApplicationAdapter {
     saves = new SaveStore(SaveStore.defaultDirectory(), content);
     settings = Settings.load(saves.directory());
     c = new PixelCanvas();
+    worldLighting = new WorldLighting();
     c.preload();
     life = new LifeScreens(this, c);
     audio = new AudioScene();
@@ -210,12 +212,15 @@ public class CtrlLife extends ApplicationAdapter {
     if (mouseMoved && contains(b, c.mouseX(), c.mouseY())) selection = index;
   }
 
-
   public void refreshState() {
     Social.expire(world.state);
     rebuildDrawItems();
     saveQuiet();
     guideTimer = 0;
+  }
+
+  public boolean materialLightingAvailable() {
+    return worldLighting != null && worldLighting.available();
   }
 
   public void successCue() {
@@ -394,7 +399,7 @@ public class CtrlLife extends ApplicationAdapter {
 
   private void save() {
     try {
-      if(mode==Mode.IDE && life!=null)life.capturePcSession();
+      if (mode == Mode.IDE && life != null) life.capturePcSession();
       saves.save(world.state);
       notify("Игра сохранена.");
     } catch (IOException | RuntimeException e) {
@@ -406,7 +411,7 @@ public class CtrlLife extends ApplicationAdapter {
   private void saveQuiet() {
     if (!hasSession) return;
     try {
-      if(mode==Mode.IDE && life!=null)life.capturePcSession();
+      if (mode == Mode.IDE && life != null) life.capturePcSession();
       saves.save(world.state);
     } catch (IOException | RuntimeException e) {
       notify("Автосохранение не удалось. Нажми F5 для повтора.");
@@ -581,6 +586,8 @@ public class CtrlLife extends ApplicationAdapter {
                 p.artX,
                 p.artY));
       }
+    if (world.state.map.equals("room") && world.state.upgrades.contains("chair"))
+      drawItems.add(new DrawItem("chair_upgrade", 187, 145, 179, 125));
     for (var n : world.npcs()) {
       DrawItem d = new DrawItem(n.art, 0, 0, 0, 0);
       d.person = true;
@@ -666,6 +673,9 @@ public class CtrlLife extends ApplicationAdapter {
     c.art(world.state.map, -ox, -oy);
     var boundary = SceneLayout.bounds(world.state.map);
     c.clip(boundary.x() - ox, boundary.y() - oy, boundary.width(), boundary.height());
+    worldLighting.begin(c, world.state, ox, oy);
+    c.art(world.state.map, -ox, -oy);
+    WorldMaterials.draw(c, world.state, ox, oy);
     if (world.state.map.equals("street")) {
       String[] names = {"ОБЩЕЖИТИЕ № 7", "ПЛЁНКА", "МАСТЕРСКАЯ", "ЛОЖКА"};
       int[] left = {76, 300, 411, 628}, widths = {200, 86, 185, 217};
@@ -714,9 +724,6 @@ public class CtrlLife extends ApplicationAdapter {
                     && world.state.upgrades.contains("ssd")
                 ? "desk_ssd"
                 : item.art;
-        if (item.art.equals("desk")
-            && world.state.map.equals("room")
-            && world.state.upgrades.contains("chair")) c.art("chair_upgrade", 204 - ox, 121 - oy);
         c.scaledArt("shadow", item.artX - 2 - ox, item.y - 7 - oy, c.artWidth(drawnArt) + 4, 13);
         if (item.artX + c.artWidth(drawnArt) > ox
             && item.artX < ox + 480
@@ -726,26 +733,28 @@ public class CtrlLife extends ApplicationAdapter {
     }
     float night = Atmosphere.night(world.state);
     boolean outside = world.state.map.equals("street") || world.state.map.equals("park");
-    dusk.a = night * (outside ? .32f : .18f);
-    c.rect(0, 0, 480, 270, dusk);
-    if (world.state.map.equals("room")) {
-      c.art("light_monitor", 107 - ox, 64 - oy);
-      c.glow("light_window", 170 - ox, 55 - oy, .3f + night * .7f);
-      c.rect(211 - ox, 121 - oy, 2, 2, ((int) (visualTime * 2) % 2 == 0) ? "c4c992" : "68756e");
-      if (!settings.reducedEffects) {
-        int lift = (int) (visualTime * 4) % 4;
-        c.rect(163 - ox, 110 - oy - lift, 1, 2, "d8d3b14a");
+    if (!worldLighting.available()) {
+      dusk.a = night * (outside ? .32f : .18f);
+      c.rect(0, 0, 480, 270, dusk);
+      if (world.state.map.equals("room")) {
+        c.art("light_monitor", 107 - ox, 64 - oy);
+        c.glow("light_window", 170 - ox, 55 - oy, .3f + night * .7f);
+        c.rect(211 - ox, 121 - oy, 2, 2, ((int) (visualTime * 2) % 2 == 0) ? "c4c992" : "68756e");
+        if (!settings.reducedEffects) {
+          int lift = (int) (visualTime * 4) % 4;
+          c.rect(163 - ox, 110 - oy - lift, 1, 2, "d8d3b14a");
+        }
       }
-    }
-    if (world.state.map.equals("stair"))
-      c.glow("light_amber", 152 - ox, 40 - oy, .4f + night * .6f);
-    if (world.state.map.equals("cafe") || world.state.map.equals("diner"))
-      c.art("light_amber", 90 - ox, 68 - oy);
-    if (world.state.map.equals("street")) {
-      for (float[] light : new float[][] {{391, 282}, {862, 405}, {649, 192}, {713, 192}})
-        c.glow("light_amber", light[0] - 80 - ox, light[1] - 56 - oy, night);
-      for (int x : new int[] {130, 241, 445, 556, 685, 796})
-        c.glow("light_window", x - 80 - ox, 118 - oy, night);
+      if (world.state.map.equals("stair"))
+        c.glow("light_amber", 152 - ox, 40 - oy, .4f + night * .6f);
+      if (world.state.map.equals("cafe") || world.state.map.equals("diner"))
+        c.art("light_amber", 90 - ox, 68 - oy);
+      if (world.state.map.equals("street")) {
+        for (float[] light : new float[][] {{391, 282}, {862, 405}, {649, 192}, {713, 192}})
+          c.glow("light_amber", light[0] - 80 - ox, light[1] - 56 - oy, night);
+        for (int x : new int[] {130, 241, 445, 556, 685, 796})
+          c.glow("light_window", x - 80 - ox, 118 - oy, night);
+      }
     }
     SceneDetails.foreground(c, world.state, ox, oy, visualTime, settings.reducedEffects);
     if (outside && Atmosphere.rain(world.state) && !settings.reducedEffects) {
@@ -767,6 +776,7 @@ public class CtrlLife extends ApplicationAdapter {
         }
       }
     }
+    worldLighting.end(c);
     c.unclip();
   }
 
@@ -783,7 +793,10 @@ public class CtrlLife extends ApplicationAdapter {
     meter("СЫТОСТЬ", world.state.hunger, 100, "b8bd82");
     meter("ЭНЕРГИЯ", world.state.energy, 188, "8caaa5");
     c.small(world.state.money + " ₽", 285, 8, GOLD);
-    c.small("УСТ. " + (int) world.state.workFatigue, 285, 20,
+    c.small(
+        "УСТ. " + (int) world.state.workFatigue,
+        285,
+        20,
         world.state.workFatigue >= 60 ? "df8d72" : MUTED);
     c.small("День " + world.state.day() + " · " + world.state.clock(), 365, 8, CREAM);
     c.fitted(world.map().name + " · " + Atmosphere.period(world.state), 12, 28, 223, MUTED, true);
@@ -808,6 +821,8 @@ public class CtrlLife extends ApplicationAdapter {
 
   private void drawGuide() {
     var goal = Navigation.localGoal(world, Navigation.goal(world, life.data));
+    // The nearby interaction prompt takes over, leaving the avatar and furniture unobscured.
+    if (Math.hypot(goal.x() - world.state.x, goal.y() - world.state.y) < 28) return;
     guideTimer -= Gdx.graphics.getDeltaTime();
     if (guideTimer <= 0) {
       guidePath = Navigation.route(world, goal.x(), goal.y());
@@ -861,7 +876,7 @@ public class CtrlLife extends ApplicationAdapter {
     button("Настройки", 245, 182, 135, 23, true, () -> openSettings(Mode.MENU));
     button("Выйти", 245, 209, 135, 23, true, () -> Gdx.app.exit());
     c.small("ПЕРВЫЕ ДЕНЬГИ. ПЕРВЫЕ ЧУВСТВА.", 32, 248, MUTED);
-    c.small("0.9.0", 419, 248, MUTED);
+    c.small("0.10.0", 419, 248, MUTED);
     // An illuminated architectural vignette cut out of the room.
     c.panel(314, 44, 120, 112);
     c.art("desk", 342, 66);
@@ -896,7 +911,8 @@ public class CtrlLife extends ApplicationAdapter {
     c.panel(70, 65, 340, 141);
     c.text("Начать новую историю?", 89, 81, CREAM);
     c.wrap(
-        "Текущее сохранение будет заменено. Предыдущая история останется в папке данных CtrlLife/history.",
+        "Текущее сохранение будет заменено. Предыдущая история останется в папке данных"
+            + " CtrlLife/history.",
         89,
         108,
         300,
@@ -1110,6 +1126,7 @@ public class CtrlLife extends ApplicationAdapter {
     if (settings != null) persistSettings();
     if (audio != null) audio.dispose();
     if (life != null) life.dispose();
+    if (worldLighting != null) worldLighting.dispose();
     if (c != null) c.dispose();
   }
 }

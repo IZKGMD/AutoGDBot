@@ -16,6 +16,7 @@ public final class VisualSmoke extends CtrlLife {
   final ArrayDeque<Step> steps = new ArrayDeque<>();
   float timer;
   boolean failed;
+  int shots;
   String current = "boot";
 
   public static void main(String[] args) throws Exception {
@@ -44,7 +45,10 @@ public final class VisualSmoke extends CtrlLife {
   }
 
   void shot(String n) {
+    int error = Gdx.gl.glGetError();
+    if (error != 0) throw new AssertionError("OpenGL error at " + n + ": " + error);
     canvas().screenshot(System.getProperty("ctrl.shots") + "/v4-" + n + ".png");
+    shots++;
   }
 
   void fixture(String map, int hour, float x, float y) {
@@ -68,8 +72,7 @@ public final class VisualSmoke extends CtrlLife {
             0, 0, Gdx.graphics.getBackBufferWidth(), Gdx.graphics.getBackBufferHeight());
     try {
       for (int x : new int[] {80, 400}) {
-        int sx = canvas().screenX(x),
-            sy = p.getHeight() - 1 - (canvas().screenY(135));
+        int sx = canvas().screenX(x), sy = p.getHeight() - 1 - (canvas().screenY(135));
         int rgb = p.getPixel(sx, sy) >>> 8;
         if (rgb != 0x0e1a24)
           throw new AssertionError(
@@ -83,6 +86,8 @@ public final class VisualSmoke extends CtrlLife {
   @Override
   public void create() {
     super.create();
+    if (!materialLightingAvailable())
+      throw new AssertionError("Material lighting shader did not compile");
     step("menu", () -> shot("menu"));
     step("new", () -> tap(Keys.ENTER));
     step(
@@ -92,6 +97,8 @@ public final class VisualSmoke extends CtrlLife {
           tap(Keys.ENTER);
         });
     for (int i = 0; i < 3; i++) step("intro", () -> tap(Keys.ENTER));
+    // Let the actual new-game toast expire before the material reference captures.
+    for (int i = 0; i < 8; i++) step("settle welcome", () -> {});
     for (String map : List.of("room", "stair", "cafe", "diner", "workshop", "park", "street")) {
       for (int hour : new int[] {12, 22}) {
         String label = map + "-" + hour;
@@ -123,6 +130,20 @@ public final class VisualSmoke extends CtrlLife {
     step("in front of fridge", () -> fixture("diner", 12, 350, 160));
     step("settle occlusion", () -> {});
     step("fridge front capture", () -> shot("fridge-front"));
+    step("behind tree", () -> fixture("street", 12, 735, 225));
+    step("settle tree", () -> {});
+    step("tree behind capture", () -> shot("tree-behind"));
+    step("in front of tree", () -> fixture("street", 12, 735, 305));
+    step("settle tree", () -> {});
+    step("tree front capture", () -> shot("tree-front"));
+    step(
+        "unpacked room",
+        () -> {
+          world().state.unpacked = true;
+          fixture("room", 12, 240, 190);
+        });
+    step("settle boxes", () -> {});
+    step("boxes capture", () -> shot("room-unpacked"));
     step(
         "gear",
         () -> {
@@ -131,6 +152,9 @@ public final class VisualSmoke extends CtrlLife {
         });
     step("settle", () -> {});
     step("room upgraded", () -> shot("upgraded"));
+    step("upgraded desk approach", () -> fixture("room", 22, 187, 156));
+    step("settle desk approach", () -> {});
+    step("upgraded desk capture", () -> shot("upgraded-at-pc"));
     step(
         "keepsakes fixture",
         () -> {
@@ -155,6 +179,56 @@ public final class VisualSmoke extends CtrlLife {
         });
     step("settle clear park", () -> {});
     step("clear park capture", () -> shot("park-clear-evening"));
+    step("effects settings", () -> switchMode(Mode.SETTINGS));
+    step(
+        "reduce effects",
+        () -> {
+          for (int i = 0; i < 3; i++) tap(Keys.DOWN);
+          tap(Keys.ENTER);
+        });
+    step(
+        "verify reduced effects",
+        () -> {
+          if (!life.ctrl.model.Settings.load(Path.of(System.getProperty("ctrl.dataDir")))
+              .reducedEffects)
+            throw new AssertionError("Reduced effects were not enabled through settings");
+        });
+    step("reduced street", () -> fixture("street", 22, 470, 250));
+    step("settle reduced", () -> {});
+    step("reduced capture", () -> shot("street-reduced-effects"));
+    step("effects settings", () -> switchMode(Mode.SETTINGS));
+    step(
+        "restore effects",
+        () -> {
+          for (int i = 0; i < 3; i++) tap(Keys.DOWN);
+          tap(Keys.ENTER);
+        });
+    step(
+        "verify full effects",
+        () -> {
+          if (life.ctrl.model.Settings.load(Path.of(System.getProperty("ctrl.dataDir")))
+              .reducedEffects) throw new AssertionError("Full effects were not restored");
+        });
+    for (int width : new int[] {960, 1280, 1920}) {
+      step(
+          "world resize " + width,
+          () -> Gdx.graphics.setWindowedMode(width, width == 1280 ? 800 : width * 9 / 16));
+      for (String map : List.of("room", "stair", "cafe", "diner", "workshop", "park", "street")) {
+        step(
+            "world fixture " + width + " " + map,
+            () ->
+                fixture(
+                    map, 22, map.equals("street") ? 470 : 240, map.equals("street") ? 250 : 190));
+        step("settle world size", () -> {});
+        step(
+            "world size capture",
+            () -> {
+              shot(map + "-size-" + width);
+              if (List.of("room", "cafe", "diner", "workshop").contains(map)) noLightInVoid();
+            });
+      }
+    }
+    step("return park", () -> fixture("park", 18, 240, 190));
     step("open map", () -> tap(Keys.M));
     step(
         "map geometry",
@@ -184,8 +258,11 @@ public final class VisualSmoke extends CtrlLife {
         "done",
         () -> {
           System.out.println(
-              "VISUAL_SMOKE_PASS: all seven maps, day/night, camera edges, upgrades, UI,"
-                  + " 960/1280/1920, no lighting outside cutaways");
+              "VISUAL_SMOKE_PASS: "
+                  + shots
+                  + " screenshots; all seven maps, day/night, camera edges, upgrades, UI,"
+                  + " 960/1280/1920; shader active; no GL errors; full/reduced effects; no lighting"
+                  + " outside cutaways");
           Gdx.app.exit();
         });
   }
