@@ -1,5 +1,7 @@
 ﻿# PowerShell 5.1 and later. The bundled OpenJDK launcher cannot bootstrap from
 # paths outside the Windows system code page. Stage the runtime and libraries when needed.
+# Do not inherit incompatible PowerShell 7 modules when cmd.exe starts Windows PowerShell.
+$env:PSModulePath = Join-Path $PSHOME 'Modules'
 $ErrorActionPreference = 'Stop'
 $gameArgs = @($args)
 $stage = $null

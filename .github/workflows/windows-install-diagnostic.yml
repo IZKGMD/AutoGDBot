@@ -55,4 +55,10 @@ jobs:
           Write-Output 'PRODUCTION LAUNCHER FROM UNICODE PATH'
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$root/launch.ps1" --check-install
           if ($LASTEXITCODE -ne 0) { throw 'Unicode launcher failed' }
+          Copy-Item run.bat "$root/run.bat"
+          Push-Location $root
+          Write-Output 'FULL BATCH LAUNCHER'
+          & cmd.exe /d /c 'run.bat --check-install'
+          if ($LASTEXITCODE -ne 0) { throw 'Batch launcher failed' }
+          Pop-Location
           exit 0
