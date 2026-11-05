@@ -16,6 +16,7 @@ dependencies {
 distributions.main.contents {
     from(rootProject.file('README.md'))
     from(rootProject.file('run.bat'))
+    from(rootProject.file('launch.ps1'))
     from(rootProject.file('LICENSE'))
     from(rootProject.file('THIRD_PARTY.md'))
 }

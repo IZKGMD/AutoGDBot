@@ -18,7 +18,16 @@ if exist "%~dp0gradlew.bat" goto source
 pause
 exit /b 1
 :packaged
+if exist "%~dp0runtime\bin\java.exe" goto bundled
 "%JAVA_CMD%" -Dfile.encoding=UTF-8 -cp "%~dp0lib\*" life.ctrl.desktop.DesktopLauncher %*
+goto launchResult
+:bundled
+if not exist "%~dp0launch.ps1" (
+  echo Не найден launch.ps1. Распакуйте Windows-архив целиком.
+  exit /b 1
+)
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0launch.ps1" %*
+:launchResult
 set "RESULT=%ERRORLEVEL%"
 if "%~1"=="--check-install" exit /b %RESULT%
 if not "%RESULT%"=="0" (

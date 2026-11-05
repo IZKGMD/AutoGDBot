@@ -22,6 +22,7 @@ on:
       - 'lwjgl3/src/main/**'
       - 'lwjgl3/src/smoke/java/life/ctrl/desktop/ProductSmoke.java'
       - 'run.bat'
+      - 'launch.ps1'
       - 'core/src/test/**'
       - 'build.gradle'
       - 'core/src/main/resources/art/**'
@@ -109,7 +110,7 @@ jobs:
           ROOT=release/CTRL-LIFE-0.9.0-First-Chapter
           mkdir -p "$ROOT"
           cp -a lwjgl3/build/install/ctrl-life/. "$ROOT/"
-          cp -f README.md LICENSE THIRD_PARTY.md run.bat GAME_DESIGN.md ARCHITECTURE.md CHANGELOG.md "$ROOT/"
+          cp -f README.md LICENSE THIRD_PARTY.md run.bat launch.ps1 GAME_DESIGN.md ARCHITECTURE.md CHANGELOG.md "$ROOT/"
           mkdir -p "$ROOT/docs/screenshots" "$ROOT/TODO"
           cp docs/*.md "$ROOT/docs/"
           cp docs/FIRST_CHAPTER.md docs/FIRST_CHAPTER_QA.md docs/first-chapter-*.log docs/ASTRA_LAYOUT_QA.md docs/astra-layout-0.6.1.log docs/RELATIONSHIPS.md docs/PINUX_ASTRA.md docs/PINUX_AUDIT_QA.md docs/relationships-0.6-*.log "$ROOT/docs/"
@@ -147,7 +148,7 @@ jobs:
           with zipfile.ZipFile(archive) as z:
               assert z.testzip() is None
               members = set(z.namelist())
-              for name in ('runtime/bin/java.exe', 'run.bat', 'lib/core-0.9.0.jar', 'lib/lwjgl3-0.9.0.jar'):
+              for name in ('runtime/bin/java.exe', 'runtime/bin/java.dll', 'runtime/bin/server/jvm.dll', 'launch.ps1', 'run.bat', 'lib/core-0.9.0.jar', 'lib/lwjgl3-0.9.0.jar'):
                   assert 'CTRL-LIFE-0.9.0-First-Chapter/' + name in members
           print(f'Packaged {archive}: {archive.stat().st_size:,} bytes')
           PY

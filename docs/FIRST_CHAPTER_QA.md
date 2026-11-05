@@ -14,3 +14,5 @@
 ./gradlew :core:test :lwjgl3:guiSmoke :lwjgl3:installDist -Pproduct=true
 java -cp 'lwjgl3/build/install/ctrl-life/lib/*' life.ctrl.desktop.DesktopLauncher --check-install
 ```
+
+На Windows воспроизведена ошибка загрузчика Java из пути с кириллицей. Проверены варианты пути и DLL; новый лаунчер с закрытой временной папкой для Java, библиотек и JNI-распаковки прошёл диагностику на Windows Server 2025. Короткие DOS-имена не требуются. Полная проверка run.bat выполняется релизным workflow.

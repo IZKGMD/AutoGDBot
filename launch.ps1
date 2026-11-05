@@ -1,5 +1,5 @@
 ﻿# PowerShell 5.1 and later. The bundled OpenJDK launcher cannot bootstrap from
-# paths outside the Windows system code page. Stage only its runtime when needed.
+# paths outside the Windows system code page. Stage the runtime and libraries when needed.
 $ErrorActionPreference = 'Stop'
 $gameArgs = @($args)
 $stage = $null
