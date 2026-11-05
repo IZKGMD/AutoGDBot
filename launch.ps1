@@ -28,7 +28,7 @@ try {
         New-Item -ItemType Directory -Path $nativeTemp | Out-Null
         $java = Join-Path $stage 'bin/java.exe'
     }
-    & $java '-Dfile.encoding=UTF-8' ('-Djava.io.tmpdir=' + $nativeTemp) '-cp' $classpath 'life.ctrl.desktop.DesktopLauncher' @gameArgs
+    & $java '-Dfile.encoding=UTF-8' '-Duser.name=ctrl-life' ('-Djava.io.tmpdir=' + $nativeTemp) '-cp' $classpath 'life.ctrl.desktop.DesktopLauncher' @gameArgs
     $exitCode = $LASTEXITCODE
 } catch {
     [Console]::Error.WriteLine($_.Exception.Message)

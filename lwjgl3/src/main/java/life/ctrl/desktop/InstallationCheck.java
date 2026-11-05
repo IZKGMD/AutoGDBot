@@ -11,6 +11,8 @@ final class InstallationCheck {
   static void run() {
     Path directory = null;
     try {
+      com.badlogic.gdx.utils.GdxNativesLoader.load();
+      org.lwjgl.system.Library.initialize();
       var content = Content.load();
       var life = LifeContent.load();
       if (life.girls.length != 3
@@ -45,7 +47,7 @@ final class InstallationCheck {
       System.out.println(
           "INSTALLATION_CHECK_PASS: Java "
               + Runtime.version()
-              + "; content, artwork, ByteScript, Unicode paths and saves");
+              + "; native libraries, content, artwork, ByteScript, Unicode paths and saves");
     } catch (Exception e) {
       throw new IllegalStateException("Installation check failed", e);
     } finally {
