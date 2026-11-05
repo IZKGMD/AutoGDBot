@@ -10,7 +10,7 @@ public final class GameState {
   public int direction = 0, outfit = 0;
   public int money = 10000, rentDebt = 0, rentThroughDay = 3;
   public double health = 85, hunger = 42, energy = 62, mood = 45, gameMinutes = 17 * 60 + 30;
-  public boolean introSeen, ateFirstMeal, firstDateFinished;
+  public boolean introSeen, ateFirstMeal, firstDateFinished, chapterOneFinished;
   public String trackedGirl = "mira",
       partnerId = "",
       plannedGirl = "",

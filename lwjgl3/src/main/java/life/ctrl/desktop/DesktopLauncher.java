@@ -7,6 +7,10 @@ import life.ctrl.CtrlLife;
 
 public final class DesktopLauncher {
   public static void main(String[] args) {
+    if (args.length == 1 && args[0].equals("--check-install")) {
+      InstallationCheck.run();
+      return;
+    }
     var config = new Lwjgl3ApplicationConfiguration();
     config.setTitle("CTRL+LIFE — Тихий район");
     config.setWindowedMode(1440, 810);

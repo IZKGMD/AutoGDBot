@@ -18,8 +18,9 @@ if exist "%~dp0gradlew.bat" goto source
 pause
 exit /b 1
 :packaged
-"%JAVA_CMD%" -Dfile.encoding=UTF-8 -cp "%~dp0lib\*" life.ctrl.desktop.DesktopLauncher
+"%JAVA_CMD%" -Dfile.encoding=UTF-8 -cp "%~dp0lib\*" life.ctrl.desktop.DesktopLauncher %*
 set "RESULT=%ERRORLEVEL%"
+if "%~1"=="--check-install" exit /b %RESULT%
 if not "%RESULT%"=="0" (
   echo Игра завершилась с ошибкой. Требуются Java 21 x64 и поддержка OpenGL 2.0.
   echo Текст ошибки показан выше. Сохранения находятся в %%LOCALAPPDATA%%\CtrlLife.
@@ -29,6 +30,7 @@ exit /b %RESULT%
 :source
 call "%~dp0gradlew.bat" :lwjgl3:run
 set "RESULT=%ERRORLEVEL%"
+if "%~1"=="--check-install" exit /b %RESULT%
 if not "%RESULT%"=="0" (
   echo Сборка или запуск не удались. Для исходников нужен именно JDK 21, а не только JRE.
   pause

@@ -362,7 +362,7 @@ public class CtrlLife extends ApplicationAdapter {
     hasSession = true;
     rebuildDrawItems();
     snapCamera();
-    life.introPage = 0;
+    life.resetForSession();
     change(Mode.INTRO);
     arrivalTimer = 4;
     saveQuiet();
@@ -376,7 +376,7 @@ public class CtrlLife extends ApplicationAdapter {
       hasSession = true;
       rebuildDrawItems();
       snapCamera();
-      life.introPage = 0;
+      life.resetForSession();
       change(world.state.introSeen ? Mode.WORLD : Mode.INTRO);
       arrivalTimer = 3;
       if (loaded.fromBackup()) notify("Восстановлена предыдущая резервная копия.");
@@ -854,7 +854,7 @@ public class CtrlLife extends ApplicationAdapter {
     button("Настройки", 245, 182, 135, 23, true, () -> openSettings(Mode.MENU));
     button("Выйти", 245, 209, 135, 23, true, () -> Gdx.app.exit());
     c.small("ПЕРВЫЕ ДЕНЬГИ. ПЕРВЫЕ ЧУВСТВА.", 32, 248, MUTED);
-    c.small("0.8.0", 419, 248, MUTED);
+    c.small("0.9.0", 419, 248, MUTED);
     // An illuminated architectural vignette cut out of the room.
     c.panel(314, 44, 120, 112);
     c.art("desk", 342, 66);

@@ -15,6 +15,6 @@ if not "%RESULT%"=="0" (
   pause
   exit /b %RESULT%
 )
-echo Готово: lwjgl3\build\distributions\ctrl-life-0.8.0.zip
+echo Готово: lwjgl3\build\distributions\ctrl-life-0.9.0.zip
 pause
 exit /b 0

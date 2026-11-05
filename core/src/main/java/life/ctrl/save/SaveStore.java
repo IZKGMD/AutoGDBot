@@ -10,7 +10,7 @@ import life.ctrl.model.*;
 
 /** Validated, atomic single-slot saves with a previous-good backup. */
 public final class SaveStore {
-  public static final int VERSION = 8;
+  public static final int VERSION = 9;
 
   public static final class Envelope {
     public int version = VERSION;
@@ -104,6 +104,7 @@ public final class SaveStore {
             r.memories.add(new Relationship.Memory(e.state.day(), "До обновления", r.memory));
       }
       if (e.version < 8) e.state.customCases.clear(); // Old probes were not guaranteed to pass.
+      LifeProgress.record(e.state);
       new World(content, e.state);
       return e.state;
     } catch (RuntimeException ex) {
@@ -125,6 +126,7 @@ public final class SaveStore {
 
   public void save(GameState state) throws IOException {
     new World(content, state);
+    LifeProgress.record(state);
     Files.createDirectories(directory);
     Path main = directory.resolve("save.json"),
         temp = directory.resolve("save.tmp.json"),

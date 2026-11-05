@@ -1,4 +1,8 @@
-# Актуальная сборка 0.8.0
+# Актуальная сборка 0.9.0
+
+[Скачать Windows x64 с Java](https://github.com/IZKGMD/AutoGDBot/releases/tag/v0.9.0-first-chapter) · [Первая глава](../docs/FIRST_CHAPTER.md) · [Проверки](../docs/FIRST_CHAPTER_QA.md)
+
+# Предыдущая сборка 0.8.0
 
 [Скачать на GitHub с Java](https://github.com/IZKGMD/AutoGDBot/releases/tag/v0.8.0-work-rhythm) · [Механики](../docs/WORK_RHYTHM.md) · [Проверки](../docs/WORK_RHYTHM_QA.md)
 

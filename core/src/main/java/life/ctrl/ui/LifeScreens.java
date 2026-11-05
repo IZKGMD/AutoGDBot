@@ -20,7 +20,8 @@ public final class LifeScreens {
   public boolean remote;
   public Coding.Report report;
   public double previewInput = 2;
-  private int agendaPage = -1;
+  private int agendaPage = -1, progressPage = -1, shopListPage, bagPage, receiptPage;
+  private List<String> receiptPages = List.of("");
   private double cachedInput = Double.NaN, cachedResult;
   private String cachedSource = "";
   public String sceneTitle = "", sceneText = "";
@@ -39,6 +40,18 @@ public final class LifeScreens {
     data = LifeContent.load();
     workbench = new Workbench(game, this, canvas);
     pinux = new PinuxAstra(game, this, workbench, canvas);
+  }
+
+  public void resetForSession() {
+    introPage = codePage = shopPage = shopListPage = bagPage = receiptPage = 0;
+    agendaPage = progressPage = -1;
+    report = null;
+    previewInput = 2;
+    relationshipScene = false;
+    girlId = "mira";
+    socialPage = "home";
+    socialMessage = mapId = "";
+    remote = false;
   }
 
   private GameState s() {
@@ -65,7 +78,7 @@ public final class LifeScreens {
     c.rect(0, 0, 480, 270, "15232eee");
     c.panel(12, 10, 456, 250);
     c.small(eyebrow, 26, 22, GREEN);
-    c.text(title, 26, 39, TEXT);
+    c.fitted(title, 26, 39, 426, TEXT, false);
   }
 
   public void scene(String title, String text, Mode back) {
@@ -73,6 +86,8 @@ public final class LifeScreens {
     sceneTitle = title;
     sceneText = text;
     sceneReturn = back;
+    receiptPage = 0;
+    receiptPages = c.pages(text, 420, 131, false);
     mode(Mode.SCENE);
     persist();
   }
@@ -243,8 +258,20 @@ public final class LifeScreens {
       return;
     }
     frame("СОБЫТИЕ", sceneTitle);
-    c.wrap(sceneText, 28, 72, 420, 145, TEXT);
-    btn("Продолжить", 28, 226, 424, () -> mode(sceneReturn));
+    c.paragraph(receiptPages.get(receiptPage), 28, 72, 420, 131, TEXT, false);
+    if (receiptPages.size() > 1)
+      c.small("Страница " + (receiptPage + 1) + "/" + receiptPages.size(), 28, 210, SOFT);
+    btn(
+        receiptPage + 1 < receiptPages.size() ? "Читать дальше →" : "Продолжить",
+        28,
+        226,
+        424,
+        () -> {
+          if (receiptPage + 1 < receiptPages.size()) {
+            receiptPage++;
+            game.resetSelection();
+          } else mode(sceneReturn);
+        });
   }
 
   private void shop() {
@@ -262,13 +289,26 @@ public final class LifeScreens {
         Arrays.stream(data.items)
             .filter(i -> shopPage == 0 ? i.kind.equals("food") : i.kind.equals("gift"))
             .toList();
+    int pages = Math.max(1, (list.size() + 4) / 5);
+    shopListPage = Math.floorMod(shopListPage, pages);
     int y = 82;
-    for (var item : list) {
-      if (y > 181) break;
+    for (var item : list.subList(shopListPage * 5, Math.min(list.size(), shopListPage * 5 + 5))) {
       String label = item.name + " · " + item.price + " ₽  [есть " + s().count(item.id) + "]";
       btn(label, 28, y, 424, () -> scene("Покупка", Life.buy(s(), item), Mode.SHOP));
       y += 22;
     }
+    if (pages > 1)
+      game.uiButton(
+          "Ассортимент " + (shopListPage + 1) + "/" + pages + " →",
+          280,
+          58,
+          172,
+          18,
+          true,
+          () -> {
+            shopListPage = (shopListPage + 1) % pages;
+            game.resetSelection();
+          });
     btn(
         shopPage == 0 ? "Подарки →" : "← Еда",
         28,
@@ -276,6 +316,7 @@ public final class LifeScreens {
         206,
         () -> {
           shopPage = 1 - shopPage;
+          shopListPage = 0;
           game.resetSelection();
         });
     btn(
@@ -289,10 +330,11 @@ public final class LifeScreens {
 
   private void bag() {
     frame("КАРМАНЫ  [I]", "Еда и подарки");
+    var owned = Arrays.stream(data.items).filter(i -> s().count(i.id) > 0).toList();
+    int pages = Math.max(1, (owned.size() + 5) / 6);
+    bagPage = Math.floorMod(bagPage, pages);
     int y = 66;
-    for (var item : data.items) {
-      if (s().count(item.id) == 0) continue;
-      if (y > 202) break;
+    for (var item : owned.subList(bagPage * 6, Math.min(owned.size(), bagPage * 6 + 6))) {
       game.uiButton(
           item.name
               + " ×"
@@ -302,8 +344,18 @@ public final class LifeScreens {
           y,
           424,
           18,
-          item.kind.equals("food"),
-          () -> scene("Перекус", Life.eat(s(), item), Mode.BAG));
+          true,
+          () -> {
+            if (item.kind.equals("food")) scene("Перекус", Life.eat(s(), item), Mode.BAG);
+            else
+              scene(
+                  item.name,
+                  item.description
+                      + "\n\n"
+                      + "Подарок остаётся в карманах. Передать его можно при личной встрече:"
+                      + " «Подарить».",
+                  Mode.BAG);
+          });
       y += 19;
     }
     if (s().items.isEmpty())
@@ -314,29 +366,79 @@ public final class LifeScreens {
           78,
           420,
           SOFT);
+    if (pages > 1)
+      btn(
+          "Предметы " + (bagPage + 1) + "/" + pages + " →",
+          28,
+          194,
+          424,
+          () -> {
+            bagPage = (bagPage + 1) % pages;
+            game.resetSelection();
+          });
     btn("Закрыть", 28, 226, 424, () -> mode(Mode.WORLD));
   }
 
   private void rest() {
     frame("КОМНАТА В ОБЩЕЖИТИИ", "Время восстановиться");
-    c.wrap("Энергия " + (int) s().energy + " · сытость " + (int) s().hunger
-        + " · рабочая усталость " + (int) s().workFatigue + "/100.\nДо 08:00: "
-        + Life.sleepMinutes(s()) + " мин. Короткий сон восстанавливает меньше сил. Встречи и сроки идут даже во сне.",
-        28, 64, 420, SOFT);
-    btn("До 08:00 · " + Life.sleepMinutes(s()) + " мин", 28, 116, 424, () -> {
-      Life.sleep(s());
-      scene("После сна", "День " + s().day() + ", " + s().clock() + ". Энергия "
-          + (int) s().energy + ", сытость " + (int) s().hunger
-          + ". Проверь обязательства в журнале [J].", Mode.WORLD);
-    });
-    btn("Вздремнуть · 90 минут", 28, 142, 424,
+    c.wrap(
+        "Энергия "
+            + (int) s().energy
+            + " · сытость "
+            + (int) s().hunger
+            + " · рабочая усталость "
+            + (int) s().workFatigue
+            + "/100.\nДо 08:00: "
+            + Life.sleepMinutes(s())
+            + " мин. Короткий сон восстанавливает меньше сил. Встречи и сроки идут даже во сне.",
+        28,
+        64,
+        420,
+        SOFT);
+    btn(
+        "До 08:00 · " + Life.sleepMinutes(s()) + " мин",
+        28,
+        116,
+        424,
+        () -> {
+          Life.sleep(s());
+          scene(
+              "После сна",
+              "День "
+                  + s().day()
+                  + ", "
+                  + s().clock()
+                  + ". Энергия "
+                  + (int) s().energy
+                  + ", сытость "
+                  + (int) s().hunger
+                  + ". Проверь обязательства в журнале [J].",
+              Mode.WORLD);
+        });
+    btn(
+        "Вздремнуть · 90 минут",
+        28,
+        142,
+        424,
         () -> scene("Короткий сон", Life.nap(s()), Mode.WORLD));
-    btn("Перерыв без экрана · 30 минут", 28, 168, 424,
+    btn(
+        "Перерыв без экрана · 30 минут",
+        28,
+        168,
+        424,
         () -> scene("Короткий отдых", WorkRhythm.breakTime(s()), Mode.WORLD));
     if (!s().partnerId.isEmpty())
-      btn("Поговорить о вечере вдвоём", 28, 194, 424, () -> {
-        girlId = s().partnerId; socialPage = "night"; remote = false; mode(Mode.SOCIAL);
-      });
+      btn(
+          "Поговорить о вечере вдвоём",
+          28,
+          194,
+          424,
+          () -> {
+            girlId = s().partnerId;
+            socialPage = "night";
+            remote = false;
+            mode(Mode.SOCIAL);
+          });
     btn("Встать", 28, 226, 424, () -> mode(Mode.WORLD));
   }
 
@@ -356,11 +458,13 @@ public final class LifeScreens {
     var entries = s().transactions;
     for (int i = entries.size() - 1; i >= Math.max(0, entries.size() - 4); i--) {
       var e = entries.get(i);
-      c.small(
+      c.fitted(
           "Д" + e.day + "  " + (e.amount >= 0 ? "+" : "") + e.amount + " ₽  " + e.reason,
           28,
           y,
-          e.amount >= 0 ? GREEN : TEXT);
+          424,
+          e.amount >= 0 ? GREEN : TEXT,
+          true);
       y += 15;
     }
     btn(
@@ -375,13 +479,84 @@ public final class LifeScreens {
 
   private void journal() {
     frame("ПЛАН НА ДЕНЬ  [J]", "День " + s().day() + " · " + s().clock());
+    if (progressPage >= 0) {
+      LifeProgress.record(s());
+      var steps = LifeProgress.steps(s());
+      c.small(
+          s().chapterOneFinished
+              ? "ГЛАВА 1 ЗАВЕРШЕНА · СВОЙ АДРЕС"
+              : "СВОЙ АДРЕС · " + LifeProgress.count(s()) + "/7",
+          28,
+          63,
+          GOLD);
+      int pages = (steps.size() + 1) / 2;
+      progressPage = Math.floorMod(progressPage, pages);
+      for (int i = progressPage * 2; i < Math.min(steps.size(), progressPage * 2 + 2); i++) {
+        var step = steps.get(i);
+        int y = 84 + (i % 2) * 48;
+        c.fitted(
+            (step.done() ? "[+] " : "[ ] ") + step.title(),
+            28,
+            y,
+            424,
+            step.done() ? GREEN : TEXT,
+            false);
+        c.paragraph(step.hint(), 28, y + 15, 424, 29, SOFT, true);
+      }
+      btn(
+          "Далее · " + (progressPage + 1) + "/" + pages,
+          28,
+          183,
+          206,
+          () -> {
+            progressPage = (progressPage + 1) % pages;
+            game.resetSelection();
+          });
+      btn(
+          "← Маршрут",
+          246,
+          183,
+          206,
+          () -> {
+            progressPage = -1;
+            game.resetSelection();
+          });
+      btn(
+          s().chapterOneFinished ? "Итог главы →" : "К делу →",
+          28,
+          216,
+          424,
+          () -> {
+            if (s().chapterOneFinished)
+              scene(
+                  "Свой адрес",
+                  "Глава 1 завершена. Из временной комнаты получился дом: ты научился(ась)"
+                      + " зарабатывать, запустил(а) полезный продукт и нашёл(ла) близких людей.\n\n"
+                      + "Дальше можно продолжать жить в районе: брать заказы, развивать отношения и"
+                      + " строить общие планы. Твоя история и все вещи остаются с тобой.",
+                  Mode.WORLD);
+            else mode(Mode.WORLD);
+          });
+      return;
+    }
     if (agendaPage >= 0) {
       List<String> rows = new ArrayList<>(WorkRhythm.agenda(s(), data));
       int reserve = WorkRhythm.reserve(s());
-      rows.add("Деньги " + s().money + " ₽. Резерв: " + reserve + " ₽ (аренда, долг, два супа и встреча). "
-          + (s().money >= reserve ? "Свободно " + (s().money - reserve) : "Не хватает " + (reserve - s().money)) + " ₽.");
-      rows.add("Рабочая усталость " + (int) s().workFatigue + "/100. Перерыв 30 мин: −20. "
-          + "Свидание: −15. Темп работы выбирается на ПК в разделе «Ритм дня».");
+      rows.add(
+          "Деньги "
+              + s().money
+              + " ₽. Резерв: "
+              + reserve
+              + " ₽ (аренда, долг, два супа и встреча). "
+              + (s().money >= reserve
+                  ? "Свободно " + (s().money - reserve)
+                  : "Не хватает " + (reserve - s().money))
+              + " ₽.");
+      rows.add(
+          "Рабочая усталость "
+              + (int) s().workFatigue
+              + "/100. Перерыв 30 мин: −20. "
+              + "Свидание: −15. Темп работы выбирается на ПК в разделе «Ритм дня».");
       int pages = (rows.size() + 2) / 3;
       agendaPage = Math.floorMod(agendaPage, pages);
       for (int i = agendaPage * 3; i < Math.min(rows.size(), agendaPage * 3 + 3); i++) {
@@ -389,16 +564,41 @@ public final class LifeScreens {
         c.rect(24, y - 3, 432, 40, "21313cee");
         c.paragraph(rows.get(i), 30, y + 2, 416, 35, TEXT, false);
       }
-      btn("Далее · " + (agendaPage + 1) + "/" + pages, 28, 203, 206,
-          () -> { agendaPage = (agendaPage + 1) % pages; game.resetSelection(); });
-      btn("← Маршрут", 246, 203, 206, () -> { agendaPage = -1; game.resetSelection(); });
+      btn(
+          "Далее · " + (agendaPage + 1) + "/" + pages,
+          28,
+          203,
+          206,
+          () -> {
+            agendaPage = (agendaPage + 1) % pages;
+            game.resetSelection();
+          });
+      btn(
+          "← Маршрут",
+          246,
+          203,
+          206,
+          () -> {
+            agendaPage = -1;
+            game.resetSelection();
+          });
       btn("К делу →", 28, 230, 424, () -> mode(Mode.WORLD));
       return;
     }
     var goal = Navigation.goal(game.world(), data);
-    c.text(goal.title(), 28, 68, GOLD);
+    c.fitted(goal.title(), 28, 68, 424, GOLD, false);
     c.wrap(goal.hint(), 28, 88, 420, TEXT);
-    c.small("Золотой маршрут на земле ведёт к нужной двери и объекту.", 28, 130, SOFT);
+    game.uiButton(
+        "Моя история · " + LifeProgress.count(s()) + "/7 →",
+        28,
+        121,
+        424,
+        22,
+        true,
+        () -> {
+          progressPage = 0;
+          game.resetSelection();
+        });
     btn(
         "Цель: заработок кодингом",
         28,
@@ -419,7 +619,15 @@ public final class LifeScreens {
           mode(Mode.CONTACTS);
           persist();
         });
-    btn("Обязательства и бюджет", 28, 230, 424, () -> { agendaPage = 0; game.resetSelection(); });
+    btn(
+        "Обязательства и бюджет",
+        28,
+        230,
+        424,
+        () -> {
+          agendaPage = 0;
+          game.resetSelection();
+        });
     btn("Показать карту", 28, 203, 206, () -> mode(Mode.MAP));
     btn("К делу →", 246, 203, 206, () -> mode(Mode.WORLD));
   }
