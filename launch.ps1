@@ -7,7 +7,9 @@ $exitCode = 1
 try {
     $runtime = Join-Path $PSScriptRoot 'runtime'
     $java = Join-Path $runtime 'bin/java.exe'
-    if ($runtime -match '[^\x00-\x7F]') {
+    $classpath = Join-Path $PSScriptRoot 'lib/*'
+    $nativeTemp = [IO.Path]::GetTempPath()
+    if (($runtime + $nativeTemp) -match '[^\x00-\x7F]') {
         $base = [Environment]::GetFolderPath('CommonApplicationData')
         if ($base -match '[^\x00-\x7F]') { throw 'Move the game to a folder with Latin letters: Windows Java cannot start from this path.' }
         $stage = Join-Path $base ('CTRL-LIFE-runtime-' + [guid]::NewGuid().ToString('N'))
@@ -20,9 +22,13 @@ try {
         $acl.AddAccessRule($rule)
         Set-Acl -LiteralPath $directory.FullName -AclObject $acl
         Copy-Item -Path (Join-Path $runtime '*') -Destination $stage -Recurse -Force
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'lib') -Destination $stage -Recurse -Force
+        $classpath = Join-Path $stage 'lib/*'
+        $nativeTemp = Join-Path $stage 'tmp'
+        New-Item -ItemType Directory -Path $nativeTemp | Out-Null
         $java = Join-Path $stage 'bin/java.exe'
     }
-    & $java '-Dfile.encoding=UTF-8' '-cp' (Join-Path $PSScriptRoot 'lib/*') 'life.ctrl.desktop.DesktopLauncher' @gameArgs
+    & $java '-Dfile.encoding=UTF-8' ('-Djava.io.tmpdir=' + $nativeTemp) '-cp' $classpath 'life.ctrl.desktop.DesktopLauncher' @gameArgs
     $exitCode = $LASTEXITCODE
 } catch {
     [Console]::Error.WriteLine($_.Exception.Message)

@@ -51,6 +51,7 @@ jobs:
           & "$PWD/runtime-ascii/bin/java.exe" '-Dfile.encoding=UTF-8' -cp "$root/lib/*" life.ctrl.desktop.DesktopLauncher --check-install
           Write-Output "exit=$LASTEXITCODE"
           Copy-Item launch.ps1 "$root/launch.ps1"
+          Write-Output "Candidate launcher updated"
           Write-Output 'PRODUCTION LAUNCHER FROM UNICODE PATH'
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$root/launch.ps1" --check-install
           if ($LASTEXITCODE -ne 0) { throw 'Unicode launcher failed' }
